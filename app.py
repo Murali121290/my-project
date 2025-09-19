@@ -1897,7 +1897,7 @@ if __name__ == '__main__':
     host_ip = get_ip_address()
     print(f"Your IP address: {host_ip}")
 
-    port = 5001
+    port = 8081
 
     print(f"\nAccess URLs:")
     print(f"Local: http://localhost:{port}")
