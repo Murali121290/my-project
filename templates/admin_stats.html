@@ -4,9 +4,86 @@
 
 {% block extra_css %}
 <style>
-    /* keep your existing styles ... */
+    /* Dashboard Grid Layout */
+    .dashboard-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+        animation: slideDown 0.6s ease-out;
+    }
 
-    .role-stats {
+    .dashboard-header h2 {
+        font-size: 28px;
+        color: var(--black);
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .dashboard-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 25px;
+        margin-bottom: 40px;
+    }
+
+    .stat-card {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 25px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        animation: fadeIn 0.8s ease-out forwards;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Gradient borders/accents for cards */
+    .stat-card:nth-child(1) {
+        border-bottom: 4px solid #4facfe;
+    }
+
+    .stat-card:nth-child(2) {
+        border-bottom: 4px solid #43e97b;
+    }
+
+    .stat-card:nth-child(3) {
+        border-bottom: 4px solid #fa709a;
+    }
+
+    .stat-card:nth-child(4) {
+        border-bottom: 4px solid #f6d365;
+    }
+
+    .stat-card h3 {
+        font-size: 16px;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+        font-weight: 600;
+    }
+
+    .stat-value {
+        font-size: 36px;
+        font-weight: 800;
+        color: #333;
+        background: linear-gradient(45deg, #333, #666);
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* Common Section Styles */
+    .section-container {
         background: rgba(255, 255, 255, 0.9);
         padding: 30px;
         border-radius: 16px;
@@ -17,32 +94,116 @@
         animation: fadeIn 0.8s ease-out forwards;
     }
 
-    .role-stats h3 {
+    .section-title {
         color: var(--black);
         font-size: 22px;
         margin-bottom: 20px;
-        padding-bottom: 10px;
-        border-bottom: 3px solid;
-        border-image: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-4)) 1;
+        padding-bottom: 15px;
+        border-bottom: 2px solid rgba(0, 0, 0, 0.05);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 
-    .role-stats table {
+    /* Table Styling */
+    table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0 8px;
+        /* Spacing between rows */
     }
 
-    .role-stats th, .role-stats td {
-        padding: 12px;
-        text-align: left;
+    th {
+        padding: 15px;
+        color: #666;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.85rem;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid #eee;
     }
 
-    .role-stats th {
-        background: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-3));
+    td {
+        padding: 15px;
+        background: white;
+        border-top: 1px solid #f0f0f0;
+        border-bottom: 1px solid #f0f0f0;
+        transition: transform 0.2s ease;
+    }
+
+    td:first-child {
+        border-left: 1px solid #f0f0f0;
+        border-top-left-radius: 10px;
+        border-bottom-left-radius: 10px;
+    }
+
+    td:last-child {
+        border-right: 1px solid #f0f0f0;
+        border-top-right-radius: 10px;
+        border-bottom-right-radius: 10px;
+    }
+
+    tr:hover td {
+        transform: scale(1.01);
+        background: #fdfdfd;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        z-index: 1;
+        border-color: transparent;
+    }
+
+    /* Badges */
+    .badge {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    }
+
+    .badge-macro {
+        background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
+        color: #fff;
+    }
+
+    .badge-validation {
+        background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+        color: #2c3e50;
+    }
+
+    .admin-badge {
+        background: linear-gradient(45deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%);
         color: white;
+        padding: 5px 12px;
+        border-radius: 15px;
+        font-size: 12px;
+        vertical-align: middle;
     }
 
-    .role-stats tr:hover {
-        background-color: rgba(255, 255, 255, 0.6);
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 </style>
 {% endblock %}
@@ -74,77 +235,118 @@
     </div>
 </div>
 
-<div class="role-stats">
-    <h3>User Roles Breakdown</h3>
+<div class="section-container">
+    <h3 class="section-title">
+        <span>User Roles Breakdown</span>
+        <i class="fas fa-users-cog" style="color: #667eea; opacity: 0.5;"></i>
+    </h3>
     {% if role_stats %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Role</th>
-                    <th>User Count</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for role, count in role_stats.items() %}
-                <tr>
-                    <td>{{ role }}</td>
-                    <td>{{ count }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <table>
+        <thead>
+            <tr>
+                <th>Role</th>
+                <th>User Count</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for role, count in role_stats.items() %}
+            <tr>
+                <td>{{ role }}</td>
+                <td>{{ count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     {% else %}
-        <p>No role statistics available.</p>
+    <p>No role statistics available.</p>
     {% endif %}
 </div>
 
-<div class="recent-files">
-    <h3>Recent Activity</h3>
+<div class="section-container">
+    <h3 class="section-title">
+        <span>Recent Activity</span>
+        <i class="fas fa-history" style="color: #667eea; opacity: 0.5;"></i>
+    </h3>
     {% if recent_files %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Filename</th>
-                    <th>User</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for file in recent_files %}
-                <tr>
-                    <td>{{ file.upload_date }}</td>
-                    <td>{{ file.original_filename }}</td>
-                    <td>{{ file.username }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <table>
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Filename(s)</th>
+                <th>User</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for file in recent_files %}
+            <tr>
+                <td>
+                    {% if file.type == 'macro' %}
+                    {% set route_name = route_macros[file.route_type].name if route_macros and file.route_type in
+                    route_macros else (file.route_type|title) %}
+                    <span class="badge badge-macro">{{ route_name }}</span>
+                    {% else %}
+                    <span class="badge badge-validation">Validation</span>
+                    {% endif %}
+                </td>
+                <td>{{ file.date|format_date }}</td>
+                <td>
+                    {% if file.type == 'macro' %}
+                    {% set filenames = file.original_filenames|from_json %}
+                    {{ filenames|join(', ') }}
+                    {% else %}
+                    {{ file.original_filename }}
+                    {% endif %}
+                </td>
+                <td>{{ file.username }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     {% else %}
-        <p>No recent activity.</p>
+    <p>No recent activity.</p>
     {% endif %}
 </div>
 
-<div class="user-activity">
-    <h3>User Activity</h3>
-    {% if user_stats %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Files Uploaded</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for user in user_stats %}
-                <tr>
-                    <td>{{ user.username }}</td>
-                    <td>{{ user.file_count }}</td>
-                </tr>
+<div class="section-container">
+    <h3 class="section-title">
+        <span>User Activity</span>
+        <i class="fas fa-chart-line" style="color: #667eea; opacity: 0.5;"></i>
+    </h3>
+    {% if users_data %}
+    <table>
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Total Uploads</th>
+                {% for month in month_headers %}
+                <th>{{ month }}</th>
                 {% endfor %}
-            </tbody>
-        </table>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users_data %}
+            <tr>
+                <td style="font-weight: 500; color: #333;">{{ user.username }}</td>
+                <td>
+                    <span class="badge" style="background: #eee; color: #333;">{{ user.total }}</span>
+                </td>
+                {% for month in month_headers %}
+                <td>
+                    {% set count = user.months.get(month, 0) %}
+                    {% if count > 0 %}
+                    <span style="color: var(--rainbow-2); font-weight: 700;">{{ count }}</span>
+                    {% else %}
+                    <span style="color: #ccc;">-</span>
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     {% else %}
-        <p>No user activity.</p>
+    <p>No user activity found.</p>
     {% endif %}
 </div>
 {% endblock %}

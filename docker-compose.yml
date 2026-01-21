@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # Database Service - Central Storage
+  postgres:
+    container_name: hub_postgres
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-hub_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-hub_secure_pass}
+      POSTGRES_DB: ${DB_NAME:-hub_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - hub_network
+
+  # CMS Service - Directus (Headless CMS for User/Role Management)
+  # Chosen for easy integration with existing SQL databases
+  directus:
+    container_name: hub_cms
+    image: directus/directus:latest
+    restart: always
+    ports:
+      - "8055:8055"
+    environment:
+      KEY: ${CMS_KEY:-replace_this_with_random_string}
+      SECRET: ${CMS_SECRET:-replace_this_with_random_string}
+      
+      # Database Connection
+      DB_CLIENT: "pg"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_DATABASE: ${DB_NAME:-hub_db}
+      DB_USER: ${DB_USER:-hub_user}
+      DB_PASSWORD: ${DB_PASSWORD:-hub_secure_pass}
+      
+      # Initial Admin User
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      
+      # CORS / Security
+      CORS_ENABLED: "true"
+      CORS_ORIGIN: "true"
+    depends_on:
+      - postgres
+    networks:
+      - hub_network
+
+  # Optional: Nginx Proxy Manager (if you want a UI for Nginx)
+  # or standard Nginx
+  nginx_proxy:
+    container_name: hub_proxy
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # You would need to create an nginx.conf and mount it here
+      # - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - hub_network
+
+volumes:
+  postgres_data:
+
+networks:
+  hub_network:
+    driver: bridge

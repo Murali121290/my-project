@@ -1,0 +1,10 @@
+bind = "127.0.0.1:8000"
+workers = 3
+worker_class = "sync"
+worker_connections = 1000
+timeout = 120
+keepalive = 2
+errorlog = "logs/gunicorn_error.log"
+accesslog = "logs/gunicorn_access.log"
+capture_output = True
+loglevel = "info"

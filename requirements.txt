@@ -1,5 +1,10 @@
-Flask==2.3.3
-Werkzeug==2.3.8
-Flask-WTF==1.1.1
-waitress==2.1.2
-pywin32==306
+Flask
+Werkzeug
+Flask-WTF
+waitress
+python-docx
+requests
+pandas
+beautifulsoup4
+chardet
+openpyxl

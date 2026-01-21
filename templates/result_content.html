@@ -1,0 +1,243 @@
+<div class="results-container">
+    <h2>Validation Results</h2>
+
+    <div class="results-actions" style="margin-bottom: 20px; display: flex; gap: 10px;">
+        {% if not offline_mode %}
+        {% if token %}
+        <a href="{{ url_for('macro_download', token=token) }}" class="btn btn-primary">
+            <i class="fas fa-download"></i> Download All Results (ZIP)
+        </a>
+        {% endif %}
+        <a href="{{ url_for('validate_file', new='true') }}" class="btn">
+            <i class="fas fa-arrow-left"></i> Validate More Files
+        </a>
+        {% else %}
+        <div class="alert alert-info">
+            <strong>Validation Report generated on {{ now().strftime('%Y-%m-%d %H:%M:%S') }}</strong>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if results_list %}
+    {% for res in results_list %}
+    <div class="result-card">
+        <h3>File: {{ res.filename }}</h3>
+
+        <div class="status-bar {% if 'Failed' in res.status_msg %}status-error{% else %}status-success{% endif %}">
+            Status: {{ res.status_msg }}
+        </div>
+
+        {% if res.error %}
+        <p class="error-text">Error: {{ res.error }}</p>
+        {% else %}
+        <div class="comparison-grid">
+            <div class="stats-box">
+                <h4>Before Validation</h4>
+                <ul>
+                    <li><strong>Total References:</strong> {{ res.before.total_references }}</li>
+                    <li><strong>Total Citations:</strong> {{ res.before.total_citations }}</li>
+                    <li><strong>Missing References:</strong>
+                        {% if res.before.missing_references %}
+                        <span class="bad-tag">{{ res.before.missing_references|join(', ') }}</span>
+                        {% else %}
+                        <span class="good-tag">None</span>
+                        {% endif %}
+                    </li>
+                    <li><strong>Unused References:</strong>
+                        {% if res.before.unused_references %}
+                        <span class="bad-tag">{{ res.before.unused_references|join(', ') }}</span>
+                        {% else %}
+                        <span class="good-tag">None</span>
+                        {% endif %}
+                    </li>
+                    <li><strong>Sequence Issues:</strong>
+                        {% if res.before.sequence_issues %}
+                        <span class="bad-tag">{{ res.before.sequence_issues|length }} found</span>
+                        {% else %}
+                        <span class="good-tag">None</span>
+                        {% endif %}
+                    </li>
+                    <li><strong>Duplicate References:</strong>
+                        {% if res.before.duplicate_references %}
+                        <span class="bad-tag">{{ res.before.duplicate_references|length }} found</span>
+                        <ul style="margin-top: 5px; font-size: 0.9em; color: #555;">
+                            {% for dup in res.before.duplicate_references %}
+                            <li>Ref <strong>{{ dup.id }}</strong> is duplicate of Ref <strong>{{ dup.duplicate_of
+                                    }}</strong> ({{ dup.score }}%)</li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <span class="good-tag">None</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+
+            <div class="stats-box">
+                <h4>After Validation</h4>
+                <ul>
+                    <li><strong>Total References:</strong> {{ res.after.total_references }}</li>
+                    <li><strong>Total Citations:</strong> {{ res.after.total_citations }}</li>
+                    <li><strong>Missing References:</strong>
+                        {% if res.after.missing_references %}
+                        <span class="bad-tag">{{ res.after.missing_references|join(', ') }}</span>
+                        {% else %}
+                        <span class="good-tag">None</span>
+                        {% endif %}
+                    </li>
+                    <li><strong>Unused References:</strong>
+                        {% if res.after.unused_references %}
+                        <span class="bad-tag">{{ res.after.unused_references|join(', ') }}</span>
+                        {% else %}
+                        <span class="good-tag">None</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        {% if res.mapping %}
+        <div class="mapping-box">
+            <h4>Renumbering Mapping (Old &rarr; New)</h4>
+            <div class="mapping-list">
+                {% for old, new in res.mapping.items()|sort(attribute='1') %}
+                <span class="map-item">{{ old }} &rarr; {{ new }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if res.structuring_log %}
+        <div class="mapping-box">
+            <h4>Reference Structuring Log</h4>
+            <pre
+                style="white-space: pre-wrap; background: #fff; padding: 10px; border: 1px solid #ccc; max-height: 300px; overflow-y: auto;">{{ res.structuring_log }}</pre>
+        </div>
+        {% endif %}
+
+        {% if res.apa_log %}
+        <div class="mapping-box" style="border-left: 5px solid #17a2b8;">
+            <h4 style="color: #17a2b8;">Name and Year Validation Log</h4>
+            <pre
+                style="white-space: pre-wrap; background: #fff; padding: 10px; border: 1px solid #ccc; max-height: 300px; overflow-y: auto;">{{ res.apa_log }}</pre>
+        </div>
+        {% endif %}
+
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p>No results to display.</p>
+    {% endif %}
+
+</div>
+
+<style>
+    .results-container {
+        padding: 20px;
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .result-card {
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .status-bar {
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-weight: bold;
+    }
+
+    .status-success {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .status-error {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    .compare-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    .comparison-grid {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+
+    .stats-box {
+        flex: 1;
+        min-width: 300px;
+        background: #f9f9f9;
+        padding: 15px;
+        border-radius: 4px;
+    }
+
+    .stats-box ul {
+        list-style: none;
+        padding: 0;
+    }
+
+    .stats-box li {
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #eee;
+    }
+
+    .bad-tag {
+        color: #d9534f;
+        font-weight: bold;
+    }
+
+    .good-tag {
+        color: #28a745;
+        font-weight: bold;
+    }
+
+    .mapping-box {
+        margin-top: 15px;
+        background: #f0f4f8;
+        padding: 15px;
+        border-radius: 4px;
+    }
+
+    .mapping-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
+    .map-item {
+        background: #fff;
+        padding: 2px 8px;
+        border-radius: 12px;
+        border: 1px solid #ccc;
+        font-size: 0.9em;
+    }
+
+    .error-text {
+        color: red;
+    }
+
+    .alert-info {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        padding: 10px;
+        border-radius: 4px;
+        border: 1px solid #bee5eb;
+    }
+</style>

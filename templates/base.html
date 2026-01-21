@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,6 +21,7 @@
             font-size: 0.75rem;
             font-weight: 600;
         }
+
         .admin-badge {
             background: #ff8a00;
             color: #fff;
@@ -29,145 +31,200 @@
             font-size: 0.75rem;
             font-weight: 700;
         }
-        .nav-main { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-        .nav-link { text-decoration:none; padding:8px 10px; color: #222; border-radius:6px; }
-        .nav-link.active { background: rgba(0,0,0,0.06); font-weight:600; }
-        .user-info { margin-left: auto; display:flex; gap:8px; align-items:center; }
+
+        .nav-main {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .nav-link {
+            text-decoration: none;
+            padding: 8px 10px;
+            color: #222;
+            border-radius: 6px;
+        }
+
+        .nav-link.active {
+            background: rgba(0, 0, 0, 0.06);
+            font-weight: 600;
+        }
+
+        .user-info {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
     </style>
 </head>
+
 <body class="rainbow-bg">
     {% if not request.endpoint in ['login', 'register'] %}
     <header class="app-header">
         <div class="header-container" style="display:flex; align-items:center; gap:16px;">
-            <a href="{% if session.get('is_admin') %}{{ url_for('admin_dashboard') }}{% else %}{{ url_for('dashboard') }}{% endif %}" class="logo" style="display:flex; align-items:center; gap:8px;">
-                <img src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4carlisle Logo" class="logo-image" style="height:36px;">
+            <a href="{% if session.get('is_admin') %}{{ url_for('admin_dashboard') }}{% else %}{{ url_for('dashboard') }}{% endif %}"
+                class="logo" style="display:flex; align-items:center; gap:8px;">
+                <img src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4carlisle Logo" class="logo-image"
+                    style="height:36px;">
                 <strong style="font-size:1.05rem; color:#111;">S4C Tools</strong>
             </a>
 
             <nav class="nav-main">
                 {# Admin sees everything #}
                 {% if session.get('is_admin') %}
-                    <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if request.endpoint in ['admin_dashboard', 'admin_users', 'admin_files', 'admin_stats', 'admin_macro_history'] %}active{% endif %}">
-                        <i class="fas fa-user-shield"></i> Admin Dashboard
-                    </a>
+                <a href="{{ url_for('admin_dashboard') }}"
+                    class="nav-link {% if request.endpoint in ['admin_dashboard', 'admin_users', 'admin_files', 'admin_stats', 'admin_macro_history'] %}active{% endif %}">
+                    <i class="fas fa-user-shield"></i> Admin Dashboard
+                </a>
 
-                    <!-- show all tool links to admins -->
-                    <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
-                        <i class="fas fa-tachometer-alt"></i> Dashboard
-                    </a>
+                <!-- show all tool links to admins -->
+                <a href="{{ url_for('dashboard') }}"
+                    class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </a>
 
-                    <a href="{{ url_for('ppd') }}" class="nav-link {% if request.endpoint == 'ppd' %}active{% endif %}">
-                        <i class="fas fa-magic"></i> Mss Reviews
-                    </a>
+                <a href="{{ url_for('ppd') }}" class="nav-link {% if request.endpoint == 'ppd' %}active{% endif %}">
+                    <i class="fas fa-magic"></i> Mss Reviews
+                </a>
 
-                    <a href="{{ url_for('validate_file') }}" class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
-                        <i class="fas fa-check-circle"></i> Reference Validate
-                    </a>
+                <a href="{{ url_for('validate_file') }}"
+                    class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
+                    <i class="fas fa-check-circle"></i> Reference Validate
+                </a>
 
-                    <a href="{{ url_for('macro_processing') }}" class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
-                        <i class="fas fa-cogs"></i> Pre-editing
-                    </a>
+                <a href="{{ url_for('macro_processing') }}"
+                    class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
+                    <i class="fas fa-cogs"></i> Pre-editing
+                </a>
 
-                    <a href="{{ url_for('technical') }}" class="nav-link {% if request.endpoint == 'technical' %}active{% endif %}">
-                        <i class="fas fa-tools"></i> Technical Editing
-                    </a>
+                <a href="{{ url_for('technical') }}"
+                    class="nav-link {% if request.endpoint == 'technical' %}active{% endif %}">
+                    <i class="fas fa-tools"></i> Technical Editing
+                </a>
 
-                    <a href="{{ url_for('language') }}" class="nav-link {% if request.endpoint == 'language' %}active{% endif %}">
-                        <i class="fas fa-language"></i> Language Editing
-                    </a>
+                <a href="{{ url_for('language') }}"
+                    class="nav-link {% if request.endpoint == 'language' %}active{% endif %}">
+                    <i class="fas fa-language"></i> Language Editing
+                </a>
 
-                    <a href="{{ url_for('file_history') }}" class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
-                        <i class="fas fa-history"></i> History
-                    </a>
+                <a href="{{ url_for('credit_extractor') }}"
+                    class="nav-link {% if request.endpoint == 'credit_extractor' %}active{% endif %}">
+                    <i class="fas fa-file-contract"></i> Credit Extractor
+                </a>
 
-                    <a href="{{ url_for('doi_finder') }}" class="nav-link {% if request.endpoint == 'doi_finder' %}active{% endif %}">
-                        <i class="fas fa-search"></i> DOI Validation
-                    </a>
+                <a href="{{ url_for('file_history') }}"
+                    class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
+                    <i class="fas fa-history"></i> History
+                </a>
 
-                    <!-- Admin user management shortcuts -->
-                    <a href="{{ url_for('admin_users') }}" class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}">
-                        <i class="fas fa-users-cog"></i> Manage Users
-                    </a>
+                <a href="{{ url_for('doi_finder') }}"
+                    class="nav-link {% if request.endpoint == 'doi_finder' %}active{% endif %}">
+                    <i class="fas fa-search"></i> DOI Validation
+                </a>
 
-                    <a href="{{ url_for('admin_create_user') }}" class="nav-link {% if request.endpoint == 'admin_create_user' %}active{% endif %}">
-                        <i class="fas fa-user-plus"></i> Create User
-                    </a>
+                <!-- Admin user management shortcuts -->
+                <a href="{{ url_for('admin_users') }}"
+                    class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}">
+                    <i class="fas fa-users-cog"></i> Manage Users
+                </a>
+
+                <a href="{{ url_for('admin_create_user') }}"
+                    class="nav-link {% if request.endpoint == 'admin_create_user' %}active{% endif %}">
+                    <i class="fas fa-user-plus"></i> Create User
+                </a>
 
                 {% elif 'user_id' in session %}
-                    {# Non-admin users: show role-filtered links #}
+                {# Non-admin users: show role-filtered links #}
 
-                    <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
-                        <i class="fas fa-tachometer-alt"></i> Dashboard
-                    </a>
+                <a href="{{ url_for('dashboard') }}"
+                    class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </a>
 
-                    <!-- PPD (roles: PPD, PM, ADMIN) -->
-                    {% if current_role in ['PPD','PM','ADMIN'] %}
-                        <a href="{{ url_for('ppd') }}" class="nav-link {% if request.endpoint == 'ppd' %}active{% endif %}">
-                            <i class="fas fa-magic"></i> Mss Reviews
-                        </a>
-                    {% endif %}
-                    {% if current_role in ['COPYEDIT','ADMIN'] %}
-                    <!-- Validation is available to all logged-in users -->
-                    <a href="{{ url_for('validate_file') }}" class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
-                        <i class="fas fa-check-circle"></i> Reference Validate
-                    </a>
-                    {% endif %}
-                    <!-- Pre-editing (roles: COPYEDIT, PPD, PM, ADMIN) -->
-                    {% if current_role in ['COPYEDIT','ADMIN'] %}
-                        <a href="{{ url_for('macro_processing') }}" class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
-                            <i class="fas fa-cogs"></i> Pre-editing
-                        </a>
-                    {% endif %}
+                <!-- PPD (roles: PPD, PM, ADMIN) -->
+                {% if current_role in ['PPD','PM','ADMIN'] %}
+                <a href="{{ url_for('ppd') }}" class="nav-link {% if request.endpoint == 'ppd' %}active{% endif %}">
+                    <i class="fas fa-magic"></i> Mss Reviews
+                </a>
+                {% endif %}
+                {% if current_role in ['COPYEDIT','ADMIN'] %}
+                <!-- Validation is available to all logged-in users -->
+                <a href="{{ url_for('validate_file') }}"
+                    class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
+                    <i class="fas fa-check-circle"></i> Reference Validate
+                </a>
+                {% endif %}
+                <!-- Pre-editing (roles: COPYEDIT, PM, ADMIN) -->
+                {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+                <a href="{{ url_for('macro_processing') }}"
+                    class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
+                    <i class="fas fa-cogs"></i> Pre-editing
+                </a>
+                {% endif %}
 
-                    <!-- Technical Editing (roles: COPYEDIT, PM, ADMIN) -->
-                    {% if current_role in ['COPYEDIT','ADMIN'] %}
-                        <a href="{{ url_for('technical') }}" class="nav-link {% if request.endpoint == 'technical' %}active{% endif %}">
-                            <i class="fas fa-tools"></i> Technical Editing
-                        </a>
-                    {% endif %}
+                <!-- Technical Editing (roles: COPYEDIT, PM, ADMIN) -->
+                {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+                <a href="{{ url_for('technical') }}"
+                    class="nav-link {% if request.endpoint == 'technical' %}active{% endif %}">
+                    <i class="fas fa-tools"></i> Technical Editing
+                </a>
+                {% endif %}
 
-                    <!-- Language Editing (roles: COPYEDIT, PM, ADMIN) -->
-                    {% if current_role in ['COPYEDIT', 'ADMIN'] %}
-                        <a href="{{ url_for('language') }}" class="nav-link {% if request.endpoint == 'language' %}active{% endif %}">
-                            <i class="fas fa-language"></i> Language Editing
-                        </a>
-                    {% endif %}
+                <!-- Language Editing (roles: COPYEDIT, PM, ADMIN) -->
+                {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+                <a href="{{ url_for('language') }}"
+                    class="nav-link {% if request.endpoint == 'language' %}active{% endif %}">
+                    <i class="fas fa-language"></i> Language Editing
+                </a>
+                {% endif %}
 
-                    <a href="{{ url_for('file_history') }}" class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
-                        <i class="fas fa-history"></i> History
-                    </a>
-                    {% if current_role in ['COPYEDIT', 'ADMIN'] %}
-                    <a href="{{ url_for('doi_finder') }}" class="nav-link {% if request.endpoint == 'doi_finder' %}active{% endif %}">
-                        <i class="fas fa-search"></i> DOI Validation
-                    </a>
-                    {% endif %}
+                <!-- Credit Extractor (roles: PERMISSIONS, PM, ADMIN) -->
+                {% if current_role in ['PERMISSIONS', 'PM', 'ADMIN'] %}
+                <a href="{{ url_for('credit_extractor') }}"
+                    class="nav-link {% if request.endpoint == 'credit_extractor' %}active{% endif %}">
+                    <i class="fas fa-file-contract"></i> Credit Extractor
+                </a>
+                {% endif %}
+
+                <a href="{{ url_for('file_history') }}"
+                    class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
+                    <i class="fas fa-history"></i> History
+                </a>
+                {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+                <a href="{{ url_for('doi_finder') }}"
+                    class="nav-link {% if request.endpoint == 'doi_finder' %}active{% endif %}">
+                    <i class="fas fa-search"></i> DOI Validation
+                </a>
+                {% endif %}
                 {% else %}
-                    <!-- Not logged in -->
-                    <a href="{{ url_for('login') }}" class="nav-link">
-                        <i class="fas fa-sign-in-alt"></i> Login
-                    </a>
-                    <a href="{{ url_for('register') }}" class="nav-link">
-                        <i class="fas fa-user-plus"></i> Register
-                    </a>
+                <!-- Not logged in -->
+                <a href="{{ url_for('login') }}" class="nav-link">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </a>
+                <a href="{{ url_for('register') }}" class="nav-link">
+                    <i class="fas fa-user-plus"></i> Register
+                </a>
                 {% endif %}
 
                 {# user info + logout always at right end of menu when logged-in #}
                 {% if 'user_id' in session %}
-                    <div class="user-info" style="margin-left:12px;">
-                        <i class="fas fa-user"></i>&nbsp;<strong>{{ session['username'] }}</strong>
+                <div class="user-info" style="margin-left:12px;">
+                    <i class="fas fa-user"></i>&nbsp;<strong>{{ session['username'] }}</strong>
 
-                        {% if current_role and current_role != 'USER' %}
-                            <span class="role-badge">{{ current_role }}</span>
-                        {% endif %}
+                    {% if current_role and current_role != 'USER' %}
+                    <span class="role-badge">{{ current_role }}</span>
+                    {% endif %}
 
-                        {% if session.get('is_admin') %}
-                            <span class="admin-badge">Admin</span>
-                        {% endif %}
+                    {% if session.get('is_admin') %}
+                    <span class="admin-badge">Admin</span>
+                    {% endif %}
 
-                        <a href="{{ url_for('logout') }}" class="nav-link" style="margin-left:10px;">
-                            <i class="fas fa-sign-out-alt"></i> Logout
-                        </a>
-                    </div>
+                    <a href="{{ url_for('logout') }}" class="nav-link" style="margin-left:10px;">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </a>
+                </div>
                 {% endif %}
             </nav>
         </div>
@@ -176,16 +233,16 @@
 
     <main class="main-content">
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="flash-messages">
-                    {% for category, message in messages %}
-                        <div class="flash {{ category }}">
-                            {{ message }}
-                            <button class="close">&times;</button>
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">
+                {{ message }}
+                <button class="close">&times;</button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% endwith %}
 
         {% block content %}{% endblock %}
@@ -194,4 +251,5 @@
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
     {% block extra_js %}{% endblock %}
 </body>
+
 </html>

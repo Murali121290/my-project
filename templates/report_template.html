@@ -16,6 +16,12 @@
             border-bottom: 2px solid #eee;
             padding-bottom: 10px;
             margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .logo-image {
+            height: 60px;
         }
         .report-title {
             color: #2c3e50;
@@ -79,12 +85,14 @@
 <body>
     <div class="report-header">
         <a href="{{ url_for('index') }}">
-                <img src="{{ url_for('static', filename='images/S4c.png') }}" alt="Your Logo" class="logo-image">
-            </a>
-        <h1 class="report-title">Reference Validation Report</h1>
-        <div class="report-meta">
-            <p>File: {{ filename }}</p>
-            <p>Generated on: {{ datetime.now().strftime('%Y-%m-%d %H:%M:%S') }}</p>
+            <img src="data:image/png;base64,{{ base64_logo }}" alt="S4C Logo" class="logo-image">
+        </a>
+        <div>
+            <h1 class="report-title">Reference Validation Report</h1>
+            <div class="report-meta">
+                <p>File: {{ filename }}</p>
+                <p>Generated on: {{ datetime.now().strftime('%Y-%m-%d %H:%M:%S') }}</p>
+            </div>
         </div>
     </div>
 
@@ -133,21 +141,21 @@
         {% endif %}
     </div>
 
-<div class="detail-section">
-    <h3>Citation Sequence</h3>
-    <p><strong>{{ results.sequence_message }}</strong></p>
+    <div class="detail-section">
+        <h3>Citation Sequence</h3>
+        <p><strong>{{ results.sequence_message }}</strong></p>
 
-    {% if results.sequence_issues %}
-        {% for issue in results.sequence_issues %}
-            <div class="sequence-issue">
-                <p>Sequence error at position {{ issue.position }}:
-                   Citation {{ issue.current }} appears after {{ issue.previous }}</p>
-                <p>Full citation sequence: {{ issue.full_sequence|join(', ') }}</p>
-            </div>
-        {% endfor %}
-    {% else %}
-        <p>No citation sequence issues found.</p>
-    {% endif %}
-</div>
+        {% if results.sequence_issues %}
+            {% for issue in results.sequence_issues %}
+                <div class="sequence-issue">
+                    <p>Sequence error at position {{ issue.position }}:
+                       Citation {{ issue.current }} appears after {{ issue.previous }}</p>
+                    <p>Full citation sequence: {{ issue.full_sequence|join(', ') }}</p>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>No citation sequence issues found.</p>
+        {% endif %}
+    </div>
 </body>
 </html>

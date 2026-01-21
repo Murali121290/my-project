@@ -5,27 +5,112 @@
 {% block extra_css %}
 <style>
     /* same CSS as macro_processing.html for consistency */
-    .drop-zone { border: 3px dashed var(--primary); border-radius: var(--border-radius); padding: 3rem 2rem; text-align: center; margin: 2rem 0; transition: var(--transition); background: rgba(67, 97, 238, 0.05); cursor: pointer; }
-    .drop-zone:hover { background: rgba(67, 97, 238, 0.1); border-color: var(--primary-dark); }
-    .drop-zone.highlight { background: rgba(67, 97, 238, 0.15); border-color: var(--secondary); transform: scale(1.02); }
-    .file-list { margin-top: 1.5rem; max-height: 300px; overflow-y: auto; }
-    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--gray-100); border-radius: var(--border-radius-sm); margin-bottom: 0.5rem; }
-    .file-info { display: flex; align-items: center; gap: 1rem; }
-    .file-icon { color: var(--primary); font-size: 1.2rem; }
-    .remove-file { color: var(--danger); cursor: pointer; padding: 0.5rem; border-radius: 50%; transition: var(--transition); }
-    .remove-file:hover { background: rgba(239, 71, 111, 0.1); }
-    .tasks-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
-    .task-item { display: flex; align-items: center; padding: 1rem; background: var(--gray-100); border-radius: var(--border-radius-sm); cursor: pointer; transition: var(--transition); }
-    .task-item:hover { background: rgba(67, 97, 238, 0.1); transform: translateX(5px); }
-    .task-checkbox { margin-right: 1rem; width: 20px; height: 20px; accent-color: var(--primary); }
-    .download-section { background: rgba(6, 214, 160, 0.1); padding: 1.5rem; border-radius: var(--border-radius); border-left: 4px solid var(--success); text-align: center; margin: 1.5rem 0; }
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        transition: var(--transition);
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone:hover {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: var(--primary-dark);
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+        transform: scale(1.02);
+    }
+
+    .file-list {
+        margin-top: 1.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 0.5rem;
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .file-icon {
+        color: var(--primary);
+        font-size: 1.2rem;
+    }
+
+    .remove-file {
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+
+    .remove-file:hover {
+        background: rgba(239, 71, 111, 0.1);
+    }
+
+    .tasks-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1rem;
+        margin: 1.5rem 0;
+    }
+
+    .task-item {
+        display: flex;
+        align-items: center;
+        padding: 1rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        cursor: pointer;
+        transition: var(--transition);
+    }
+
+    .task-item:hover {
+        background: rgba(67, 97, 238, 0.1);
+        transform: translateX(5px);
+    }
+
+    .task-checkbox {
+        margin-right: 1rem;
+        width: 20px;
+        height: 20px;
+        accent-color: var(--primary);
+    }
+
+    .download-section {
+        background: rgba(6, 214, 160, 0.1);
+        padding: 1.5rem;
+        border-radius: var(--border-radius);
+        border-left: 4px solid var(--success);
+        text-align: center;
+        margin: 1.5rem 0;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="content-card fade-in">
     <div class="text-center mb-3">
-        <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+        <h1
+            style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
             Technical Editing
         </h1>
         <p class="text-muted">Process Word documents with specialized Technical Editing workflow</p>
@@ -37,10 +122,12 @@
         <div class="form-group">
             <label class="form-label">Upload Word Files</label>
             <div class="drop-zone" id="wordDropZone">
-                <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+                <i class="fas fa-cloud-upload-alt"
+                    style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
                 <p>Drag & drop your Word files here or click to browse</p>
                 <p class="text-muted">Supports .doc and .docx files</p>
-                <input type="file" id="wordFiles" name="word_files[]" multiple accept=".doc,.docx" style="display: none;">
+                <input type="file" id="wordFiles" name="word_files[]" multiple accept=".doc,.docx"
+                    style="display: none;">
             </div>
             <div class="file-list" id="wordFileList"></div>
         </div>
@@ -48,11 +135,29 @@
         <div class="form-group">
             <label class="form-label">Processing Tasks</label>
             <div class="tasks-grid">
-                <label class="task-item"><input type="checkbox" name="tasks[]" value="0" class="task-checkbox"> Reference Mismatch and Sequence Check</label>
-                <label class="task-item"><input type="checkbox" name="tasks[]" value="1" class="task-checkbox"> Reference Renumber</label>
-                <label class="task-item"><input type="checkbox" name="tasks[]" value="2" class="task-checkbox"> Reference Find Duplicate</label>
-                <label class="task-item"><input type="checkbox" name="tasks[]" value="3" class="task-checkbox"> Reference Update Citation</label>
-                <label class="task-item"><input type="checkbox" name="tasks[]" value="4" class="task-checkbox"> Technical Editing QA</label>
+                <!-- <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="0" class="task-checkbox"> Reference Mismatch and Sequence Check
+        </label>
+
+        <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="1" class="task-checkbox"> Reference Renumber
+        </label>
+
+        <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="2" class="task-checkbox"> Reference Find Duplicate
+        </label>
+
+        <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="3" class="task-checkbox"> Reference Update Citation
+        </label>-->
+
+                <!-- UPDATED TASK 4 -->
+                <label class="task-item">
+                    <input type="checkbox" name="tasks[]" value="4" class="task-checkbox" id="techQA">
+                    Technical Editing QA
+                </label>
+
+                <input type="hidden" name="run_technical_editing" id="runTechnicalEditing" value="0">
             </div>
         </div>
 
@@ -61,9 +166,8 @@
             <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--success); margin-bottom: 1rem;"></i>
             <h3>Processing Complete!</h3>
             <p>Your files have been processed successfully.</p>
-            <a href="{{ url_for('macro_download', token=download_token) }}" class="btn btn-success mt-2">
-                <i class="fas fa-download"></i> Download Processed Files
-            </a>
+            <a class="btn btn-primary" href="{{ url_for('macro_download', token=download_token) }}">Download
+                processed files</a>
         </div>
         {% endif %}
 
@@ -84,7 +188,7 @@
 
     wordDropZone.addEventListener('click', () => wordFileInput.click());
     wordDropZone.addEventListener('dragover', e => { e.preventDefault(); wordDropZone.classList.add('highlight'); });
-    ['dragleave','dragend'].forEach(type => wordDropZone.addEventListener(type, () => wordDropZone.classList.remove('highlight')));
+    ['dragleave', 'dragend'].forEach(type => wordDropZone.addEventListener(type, () => wordDropZone.classList.remove('highlight')));
     wordDropZone.addEventListener('drop', e => { e.preventDefault(); wordDropZone.classList.remove('highlight'); handleFiles(e.dataTransfer.files); });
     wordFileInput.addEventListener('change', e => handleFiles(e.target.files));
 
@@ -111,10 +215,27 @@
         document.querySelectorAll('.remove-file').forEach(btn => btn.addEventListener('click', e => { wordFiles.splice(e.target.dataset.index, 1); updateFileList(); }));
     }
 
-    function formatFileSize(b) { if (b===0) return '0 Bytes'; const k=1024,sizes=['Bytes','KB','MB','GB'],i=Math.floor(Math.log(b)/Math.log(k)); return (b/Math.pow(k,i)).toFixed(2)+' '+sizes[i]; }
+    function formatFileSize(b) { if (b === 0) return '0 Bytes'; const k = 1024, sizes = ['Bytes', 'KB', 'MB', 'GB'], i = Math.floor(Math.log(b) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]; }
 
-    document.getElementById('resetBtn').addEventListener('click', () => { if (confirm('Clear all files?')) { wordFiles=[]; updateFileList(); document.getElementById('macroForm').reset(); } });
+    // Reset Button Logic
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (confirm('Are you sure you want to clear all files and settings?')) {
+                // Clear state
+                wordFiles = [];
+                updateFileList();
 
+                // Reset form
+                const form = document.getElementById('macroForm');
+                if (form) form.reset();
+
+                // Clear hidden input just in case
+                document.getElementById("runTechnicalEditing").value = "0";
+            }
+        });
+    }
     document.getElementById('macroForm').addEventListener('submit', e => {
         if (wordFiles.length === 0) { e.preventDefault(); showAlert('Please select at least one file', 'error'); return; }
         const dt = new DataTransfer(); wordFiles.forEach(f => dt.items.add(f)); wordFileInput.files = dt.files;
@@ -126,9 +247,13 @@
         div.innerHTML = `${msg}<button class="close">&times;</button>`;
         const fc = document.querySelector('.flash-messages') || document.createElement('div');
         if (!document.querySelector('.flash-messages')) { fc.className = 'flash-messages'; document.querySelector('.main-content').prepend(fc); }
-        fc.appendChild(div); div.querySelector('.close').addEventListener('click', () => div.remove()); setTimeout(()=>div.remove(),5000);
+        fc.appendChild(div); div.querySelector('.close').addEventListener('click', () => div.remove()); setTimeout(() => div.remove(), 5000);
     }
 
     updateFileList();
+
+    document.getElementById("techQA").addEventListener("change", function () {
+        document.getElementById("runTechnicalEditing").value = this.checked ? "1" : "0";
+    });
 </script>
 {% endblock %}

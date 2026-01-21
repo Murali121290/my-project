@@ -153,7 +153,8 @@
     /* FIXED: Reduced margin for welcome message */
     .welcome-message {
         text-align: center;
-        margin-bottom: 1.5rem; /* Reduced from 2.5rem */
+        margin-bottom: 1.5rem;
+        /* Reduced from 2.5rem */
     }
 
     .welcome-message h1 {
@@ -206,13 +207,14 @@
     }
 
     @media (max-width: 768px) {
+
         .stats-grid,
         .quick-actions {
             grid-template-columns: 1fr;
         }
 
         .welcome-message h1 {
-            color:white;
+            color: white;
             font-size: 2rem;
         }
 
@@ -227,7 +229,6 @@
             justify-content: center;
         }
     }
-
 </style>
 {% endblock %}
 
@@ -264,11 +265,11 @@
     </div>
     {% endif %}-->
 
-        <!-- Quick Actions -->
+    <!-- Quick Actions -->
     <h2 class="card-title mb-3">Quick Actions</h2>
     <div class="quick-actions">
         <!-- Validation: available to all -->
-        {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
         <a href="{{ url_for('validate_file') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-check-circle"></i>
@@ -278,7 +279,7 @@
         </a>
         {% endif %}
         <!-- Pre-Editing / Macro Processing (COPYEDIT, PPD, PM, ADMIN) -->
-        {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
         <a href="{{ url_for('macro_processing') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-cogs"></i>
@@ -289,7 +290,7 @@
         {% endif %}
 
         <!-- Technical Editing (COPYEDIT, PM, ADMIN) -->
-        {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
         <a href="{{ url_for('technical') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-tools"></i>
@@ -300,7 +301,7 @@
         {% endif %}
 
         <!-- Language Editing (COPYEDIT, PM, ADMIN) -->
-        {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
         <a href="{{ url_for('language') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-language"></i>
@@ -311,13 +312,24 @@
         {% endif %}
 
         <!-- PPD Processing (PPD, PM, ADMIN) -->
-        {% if current_role in ['PPD', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['PPD', 'PM', 'ADMIN'] %}
         <a href="{{ url_for('ppd') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-magic"></i>
             </div>
-            <h3 class="action-title">PPD Processing</h3>
-            <p class="action-description">Run PPD final processing macros for publishing deliverables</p>
+            <h3 class="action-title">Manuscript Analytics</h3>
+            <p class="action-description">Run Manuscript analytics Tool for getting manuscript analysis report</p>
+        </a>
+        {% endif %}
+
+        <!-- Credit Extractor (PERMISSIONS, PM, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['PERMISSIONS', 'PM', 'ADMIN'] %}
+        <a href="{{ url_for('credit_extractor') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-file-contract"></i>
+            </div>
+            <h3 class="action-title">Credit Extractor</h3>
+            <p class="action-description">Extract captions and credit lines for permission logs</p>
         </a>
         {% endif %}
     </div>
@@ -333,32 +345,32 @@
         </div>
 
         {% if recent_files %}
-            <div class="file-list">
-                {% for file in recent_files %}
-                <div class="file-item">
-                    <div class="file-info">
-                        <h4>{{ file.original_filename }}</h4>
-                        <p class="text-muted">Uploaded on {{ file.upload_date if file.upload_date else 'N/A' }}</p>
-                    </div>
-                    {% if file.report_filename %}
-                    <a href="{{ url_for('download_report', filename=file.report_filename) }}" class="btn btn-primary">
-                        <i class="fas fa-download"></i> Download Report
-                    </a>
-                    {% else %}
-                    <span class="text-muted">No report available</span>
-                    {% endif %}
+        <div class="file-list">
+            {% for file in recent_files %}
+            <div class="file-item">
+                <div class="file-info">
+                    <h4>{{ file.original_filename }}</h4>
+                    <p class="text-muted">Uploaded on {{ file.upload_date if file.upload_date else 'N/A' }}</p>
                 </div>
-                {% endfor %}
-            </div>
-        {% else %}
-            <div class="empty-state">
-                <i class="fas fa-folder-open"></i>
-                <h3>No files processed yet</h3>
-                <p>Upload your first document to get started with validation and processing</p>
-                <a href="{{ url_for('validate_file') }}" class="btn btn-primary mt-2">
-                    <i class="fas fa-upload"></i> Upload First File
+                {% if file.report_filename %}
+                <a href="{{ url_for('download_report', filename=file.report_filename) }}" class="btn btn-primary">
+                    <i class="fas fa-download"></i> Download Report
                 </a>
+                {% else %}
+                <span class="text-muted">No report available</span>
+                {% endif %}
             </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="fas fa-folder-open"></i>
+            <h3>No files processed yet</h3>
+            <p>Upload your first document to get started with validation and processing</p>
+            <a href="{{ url_for('validate_file') }}" class="btn btn-primary mt-2">
+                <i class="fas fa-upload"></i> Upload First File
+            </a>
+        </div>
         {% endif %}
     </div>
 
@@ -378,19 +390,20 @@
                 <div class="file-info">
                     <h4>
                         {% if macro.original_filenames %}
-                            {{ macro.original_filenames }}
+                        {{ macro.original_filenames }}
                         {% else %}
-                            Macro Process
+                        Macro Process
                         {% endif %}
                     </h4>
                     <p class="text-muted">
                         Processed on {{ macro.processing_date if macro.processing_date else 'N/A' }}
                         {% if macro.selected_tasks and macro_names %}
-                            -
-                            {% set tasks = macro.selected_tasks|from_json if macro.selected_tasks is string else macro.selected_tasks %}
-                            {% for task_index in tasks %}
-                                {{ macro_names[task_index|int] }}{% if not loop.last %}, {% endif %}
-                            {% endfor %}
+                        -
+                        {% set tasks = macro.selected_tasks|from_json if macro.selected_tasks is string else
+                        macro.selected_tasks %}
+                        {% for task_index in tasks %}
+                        {{ macro_names[task_index|int] }}{% if not loop.last %}, {% endif %}
+                        {% endfor %}
                         {% endif %}
                     </p>
                 </div>
@@ -411,7 +424,7 @@
 
 {% block extra_js %}
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         // Animate stat cards on scroll
         const statCards = document.querySelectorAll('.stat-card');
 
@@ -434,7 +447,7 @@
         // Add click tracking for action cards
         const actionCards = document.querySelectorAll('.action-card');
         actionCards.forEach(card => {
-            card.addEventListener('click', function() {
+            card.addEventListener('click', function () {
                 const action = this.querySelector('.action-title').textContent;
                 console.log('User clicked on:', action);
                 // You could add analytics tracking here

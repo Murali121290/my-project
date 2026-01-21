@@ -1,0 +1,16 @@
+[Unit]
+Description=Flask App Server
+After=network.target
+
+[Service]
+# Adjust User/Group as needed (e.g., ubuntu, www-data)
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/var/www/hub-server
+Environment="PATH=/var/www/hub-server/venv/bin"
+# Ensure the path to gunicorn and app_server:app is correct
+ExecStart=/var/www/hub-server/venv/bin/gunicorn --config gunicorn_config.py app_server:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

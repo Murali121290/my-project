@@ -15,8 +15,15 @@
     }
 
     @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     .upload-container h2 {
@@ -34,217 +41,82 @@
         padding: 3rem 2rem;
         text-align: center;
         margin: 2rem 0;
-        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        transition: all 0.4s ease;
         background: rgba(67, 97, 238, 0.05);
         cursor: pointer;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .drop-zone:hover {
-        background: rgba(67, 97, 238, 0.1);
-        border-color: var(--primary-dark);
-        transform: translateY(-2px);
     }
 
     .drop-zone.highlight {
         background: rgba(67, 97, 238, 0.15);
         border-color: var(--secondary);
-        transform: scale(1.02);
-    }
-
-    .drop-zone i {
-        font-size: 4rem;
-        color: var(--primary);
-        margin-bottom: 1rem;
-        transition: all 0.4s ease;
-    }
-
-    .drop-zone:hover i {
-        transform: scale(1.1);
-        color: var(--secondary);
     }
 
     .file-input {
         display: none;
     }
 
-    .btn-upload {
-        padding: 16px 32px;
-        background: linear-gradient(45deg, var(--rainbow-2), var(--rainbow-4));
-        border: none;
-        color: black;
-        font-size: 18px;
-        font-weight: 700;
-        border-radius: 12px;
-        cursor: pointer;
-        transition: all 0.4s ease;
-        box-shadow: 0 6px 15px rgba(120, 75, 160, 0.4);
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-    }
-
-    .btn-upload::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-3));
-        transition: all 0.6s ease;
-        z-index: -1;
-    }
-
-    .btn-upload:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 10px 25px rgba(120, 75, 160, 0.5);
-    }
-
-    .btn-upload:hover::before {
-        left: 0;
-    }
-
-    .btn-upload:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
-        transform: none;
-    }
-
     .file-list {
         margin-top: 20px;
-        max-height: 300px;
+        max-height: 350px;
         overflow-y: auto;
     }
 
     .file-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem;
-        background: rgba(255, 255, 255, 0.8);
-        border-radius: 12px;
-        margin-bottom: 0.5rem;
-        border-left: 4px solid var(--success);
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 10px;
+        padding: 10px 15px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     }
 
-    .file-info-content {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
+    .file-name {
+        font-weight: 600;
+        color: var(--black);
     }
 
-    .file-icon {
-        color: var(--primary);
-        font-size: 1.2rem;
-    }
-
-    .remove-file {
-        color: var(--danger);
-        cursor: pointer;
-        padding: 0.5rem;
-        border-radius: 50%;
-        transition: all 0.3s ease;
-    }
-
-    .remove-file:hover {
-        background: rgba(239, 71, 111, 0.1);
-        transform: scale(1.1);
-    }
-
-    .progress-container {
-        margin-top: 20px;
-        background: rgba(255, 255, 255, 0.8);
-        border-radius: 12px;
-        overflow: hidden;
+    .progress-bar-container {
+        margin-top: 5px;
+        background: #eee;
+        border-radius: 5px;
         height: 8px;
+        overflow: hidden;
     }
 
     .progress-bar {
-        height: 100%;
         background: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-4));
         width: 0%;
-        transition: width 0.4s ease;
+        height: 100%;
+        transition: width 0.3s ease;
     }
 
-    .upload-status {
-        margin-top: 15px;
-        font-weight: 600;
+    .file-status {
+        font-size: 13px;
+        margin-top: 5px;
         color: var(--black);
-        text-align: center;
     }
 
-    .upload-success {
-        background: rgba(6, 214, 160, 0.1);
-        padding: 20px;
-        border-radius: 12px;
-        border-left: 4px solid var(--success);
-        text-align: center;
-        margin-top: 20px;
-        animation: slideIn 0.6s ease-out;
-    }
-
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .upload-success i {
-        font-size: 3rem;
-        color: var(--success);
-        margin-bottom: 1rem;
-    }
-
-    .upload-success h3 {
-        color: var(--black);
-        margin-bottom: 10px;
-    }
-
-    .upload-success p {
-        color: var(--black);
-        margin-bottom: 20px;
-    }
-
-    .download-links {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin-top: 15px;
-    }
-
-    .btn-download {
-        padding: 12px 24px;
-        background: linear-gradient(45deg, var(--rainbow-3), var(--rainbow-4));
-        border: none;
+    .btn-upload {
+        padding: 14px 28px;
+        background: linear-gradient(45deg, var(--rainbow-2), var(--rainbow-4));
         color: black;
-        font-size: 16px;
-        font-weight: 600;
-        border-radius: 8px;
+        font-weight: bold;
+        border: none;
+        border-radius: 10px;
         cursor: pointer;
         transition: all 0.3s ease;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
     }
 
-    .btn-download:hover {
+    .btn-upload:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 10px rgba(43, 134, 197, 0.3);
     }
 
     .btn-clear {
-        padding: 10px 20px;
         background: rgba(239, 71, 111, 0.1);
         border: 1px solid var(--danger);
         color: var(--danger);
-        font-size: 14px;
+        padding: 8px 16px;
         border-radius: 8px;
         cursor: pointer;
-        transition: all 0.3s ease;
-        margin-left: 10px;
     }
 
     .btn-clear:hover {
@@ -252,11 +124,24 @@
         color: white;
     }
 
-    .files-count {
-        margin-top: 10px;
-        font-weight: 600;
-        color: var(--black);
-        text-align: center;
+    .upload-success {
+        background: rgba(6, 214, 160, 0.1);
+        border-left: 5px solid var(--success);
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
+    }
+
+    .btn-download {
+        background: linear-gradient(45deg, var(--rainbow-3), var(--rainbow-4));
+        color: black;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        margin-top: 5px;
     }
 </style>
 {% endblock %}
@@ -266,333 +151,254 @@
     <h2>Upload Documents for Validation</h2>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div class="flash-messages">
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }}">{{ message }}</div>
-                {% endfor %}
-            </div>
-        {% endif %}
+    {% if messages %}
+    <div class="flash-messages">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
     {% endwith %}
 
-    <form method="POST" enctype="multipart/form-data" id="uploadForm">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <div class="drop-zone" id="dropZone">
+        <i class="fas fa-cloud-upload-alt" style="font-size:3rem;color:var(--primary);"></i>
+        <h3>Drag & Drop or Browse Files</h3>
+        <p>Supported formats: .doc, .docx</p>
+        <button type="button" class="btn-upload" onclick="document.getElementById('fileInput').click()">Browse</button>
+        <input type="file" id="fileInput" name="files" class="file-input" accept=".doc,.docx" multiple>
+    </div>
 
-        <div class="drop-zone" id="dropZone">
-            <i class="fas fa-cloud-upload-alt"></i>
-            <h3>Drag & Drop Your Documents</h3>
-            <p>Supported formats: .doc, .docx</p>
-            <p class="text-muted">or</p>
-            <button type="button" class="btn-upload" onclick="document.getElementById('fileInput').click()">
-                <i class="fas fa-folder-open"></i> Browse Files
-            </button>
-            <input type="file" id="fileInput" name="files" class="file-input" accept=".doc,.docx" multiple required>
-        </div>
+    <div style="margin-top: 15px;">
+        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+            <input type="checkbox" id="runValidationRequest" name="run_validation" checked
+                style="transform: scale(1.2); margin-right: 8px;">
+            Run Number Validation (Check References)
+        </label>
+    </div>
 
-        <div id="filesCount" class="files-count" style="display: none;">
-            <span id="selectedCount">0</span> files selected
-            <button type="button" class="btn-clear" onclick="clearAllFiles()">Clear All</button>
-        </div>
+    <div style="margin-top: 10px;">
+        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+            <input type="checkbox" id="runNameYearValidationRequest" name="run_name_year_validation"
+                style="transform: scale(1.2); margin-right: 8px;">
+            Run Name and Year Validation (APA/Chicago)
+        </label>
+    </div>
 
-        <div id="fileList" class="file-list"></div>
+    <div style="margin-top: 10px;">
+        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+            <input type="checkbox" id="reportOnlyRequest" name="report_only"
+                style="transform: scale(1.2); margin-right: 8px;">
+            Generate Report Only (Number Validation)
+        </label>
+    </div>
+    <div style="margin-top: 10px;">
+        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+            <input type="checkbox" id="runStructuringRequest" name="run_structuring"
+                style="transform: scale(1.2); margin-right: 8px;">
+            Run Reference Structuring (after validation)
+        </label>
+    </div>
 
-        <div id="progressContainer" class="progress-container" style="display: none;">
-            <div class="progress-bar" id="progressBar"></div>
-        </div>
+    <div id="fileList" class="file-list"></div>
 
-        <div id="uploadStatus" class="upload-status" style="display: none;"></div>
-
-        <button type="submit" class="btn-upload" id="submitBtn" style="display: none;">
-            <i class="fas fa-paper-plane"></i> Validate Documents
+    <div style="margin-top:20px;text-align:center;">
+        <button id="startUpload" class="btn-upload" style="display:none;">
+            <i class="fas fa-paper-plane"></i> Start Validation
         </button>
-    </form>
+        <button class="btn-clear" id="clearAll" style="display:none;">Clear All</button>
+    </div>
 
-    <div id="uploadSuccess" class="upload-success" style="display: none;">
-        <i class="fas fa-check-circle"></i>
-        <h3 id="successTitle">Validation Complete!</h3>
-        <p id="successMessage">Your documents have been successfully validated.</p>
-        <div id="downloadLinks" class="download-links"></div>
-        <button type="button" class="btn-upload" onclick="resetForm()" style="margin-top: 15px;">
-            <i class="fas fa-plus"></i> Upload More Files
-        </button>
+    <div id="uploadSuccess" class="upload-success" style="display:none;">
+        <h3>Validation Complete!</h3>
+        <p>Your files have been validated successfully.</p>
+        <div id="downloadLinks"></div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-        const fileList = document.getElementById('fileList');
-        const filesCount = document.getElementById('filesCount');
-        const selectedCount = document.getElementById('selectedCount');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressBar = document.getElementById('progressBar');
-        const uploadStatus = document.getElementById('uploadStatus');
-        const submitBtn = document.getElementById('submitBtn');
-        const uploadForm = document.getElementById('uploadForm');
-        const uploadSuccess = document.getElementById('uploadSuccess');
-        const successTitle = document.getElementById('successTitle');
-        const successMessage = document.getElementById('successMessage');
-        const downloadLinks = document.getElementById('downloadLinks');
+    document.addEventListener("DOMContentLoaded", function () {
+        const dropZone = document.getElementById("dropZone");
+        const fileInput = document.getElementById("fileInput");
+        const fileList = document.getElementById("fileList");
+        const startUpload = document.getElementById("startUpload");
+        const clearAll = document.getElementById("clearAll");
+        const uploadSuccess = document.getElementById("uploadSuccess");
+        const downloadLinks = document.getElementById("downloadLinks");
 
         let selectedFiles = [];
 
-        // Drag and drop functionality
+        // === Drag and drop ===
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, preventDefaults, false);
+            dropZone.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
         });
-
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
 
         ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, highlight, false);
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('highlight'), false);
         });
-
         ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, unhighlight, false);
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('highlight'), false);
         });
 
-        function highlight() {
-            dropZone.classList.add('highlight');
-        }
-
-        function unhighlight() {
-            dropZone.classList.remove('highlight');
-        }
-
-        dropZone.addEventListener('drop', handleDrop, false);
-
-        function handleDrop(e) {
-            const dt = e.dataTransfer;
-            const files = dt.files;
-            handleFiles(files);
-        }
-
-        fileInput.addEventListener('change', function() {
-            handleFiles(this.files);
-        });
+        dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+        fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+        clearAll.addEventListener('click', () => resetFiles());
+        startUpload.addEventListener('click', uploadFiles);
 
         function handleFiles(files) {
-            const newFiles = Array.from(files).filter(file => {
-                const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-                return ['.doc', '.docx'].includes(fileExtension);
-            });
-
-            if (newFiles.length < files.length) {
-                showAlert('Only .doc and .docx files are supported', 'error');
-            }
-
-            if (newFiles.length > 0) {
-                // Add new files to our collection
-                selectedFiles = [...selectedFiles, ...newFiles];
-                updateFileList();
-
-                // Show files count and submit button
-                filesCount.style.display = 'block';
-                selectedCount.textContent = selectedFiles.length;
-
-                if (selectedFiles.length > 0) {
-                    submitBtn.style.display = 'block';
+            for (let f of files) {
+                const ext = f.name.split('.').pop().toLowerCase();
+                if (['doc', 'docx'].includes(ext)) {
+                    selectedFiles.push(f);
                 }
-
-                // Hide success message if shown
-                uploadSuccess.style.display = 'none';
             }
+            renderFileList();
         }
 
-        function updateFileList() {
-            fileList.innerHTML = '';
-
+        function renderFileList() {
+            fileList.innerHTML = "";
             if (selectedFiles.length === 0) {
-                fileList.innerHTML = '<p class="text-center text-muted">No files selected</p>';
-                filesCount.style.display = 'none';
-                submitBtn.style.display = 'none';
+                startUpload.style.display = 'none';
+                clearAll.style.display = 'none';
                 return;
             }
 
-            selectedFiles.forEach((file, index) => {
-                const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
-                fileItem.innerHTML = `
-                    <div class="file-info-content">
-                        <i class="fas fa-file-word file-icon"></i>
-                        <div>
-                            <div>${file.name}</div>
-                            <div class="text-muted">${formatFileSize(file.size)}</div>
-                        </div>
-                    </div>
-                    <i class="fas fa-times remove-file" data-index="${index}" title="Remove file"></i>
-                `;
-                fileList.appendChild(fileItem);
+            startUpload.style.display = 'inline-block';
+            clearAll.style.display = 'inline-block';
 
-                // Add remove functionality
-                const removeBtn = fileItem.querySelector('.remove-file');
-                removeBtn.addEventListener('click', (e) => {
-                    const index = parseInt(e.target.getAttribute('data-index'));
-                    selectedFiles.splice(index, 1);
-                    updateFileList();
-                    selectedCount.textContent = selectedFiles.length;
-                });
+            selectedFiles.forEach((file, idx) => {
+                const item = document.createElement("div");
+                item.className = "file-item";
+                item.innerHTML = `
+                <div class="file-name">${file.name}</div>
+                <div class="progress-bar-container"><div class="progress-bar" id="progress-${idx}"></div></div>
+                <div class="file-status" id="status-${idx}">Pending...</div>
+            `;
+                fileList.appendChild(item);
             });
         }
 
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-
-        function clearAllFiles() {
+        function resetFiles() {
             selectedFiles = [];
-            updateFileList();
-            filesCount.style.display = 'none';
+            fileList.innerHTML = "";
+            startUpload.style.display = 'none';
+            clearAll.style.display = 'none';
+            uploadSuccess.style.display = 'none';
         }
 
-        // Form submission with progress
-        uploadForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-
-            if (selectedFiles.length === 0) {
-                showAlert('Please select at least one file', 'error');
-                return;
-            }
+        function uploadFiles() {
+            uploadSuccess.style.display = 'none';
+            startUpload.disabled = true;
+            downloadLinks.innerHTML = "";
 
             const formData = new FormData();
+            formData.append("csrf_token", "{{ csrf_token() }}");
 
-            // Add all files to form data
+            const reportOnly = document.getElementById("reportOnlyRequest").checked;
+            if (reportOnly) {
+                formData.append("report_only", "true");
+            }
+
+            const runValidation = document.getElementById("runValidationRequest").checked;
+            if (runValidation) {
+                formData.append("run_validation", "true");
+            } else {
+                formData.append("run_validation", "false");
+            }
+
+            const runNameYearValidation = document.getElementById("runNameYearValidationRequest").checked;
+            if (runNameYearValidation) {
+                formData.append("run_name_year_validation", "true");
+            }
+
+            const runStructuring = document.getElementById("runStructuringRequest").checked;
+            if (runStructuring) {
+                formData.append("run_structuring", "true");
+            }
+
             selectedFiles.forEach(file => {
-                formData.append('files', file);
+                formData.append("files", file);
             });
 
-            formData.append('csrf_token', '{{ csrf_token() }}');
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "{{ url_for('validate_file') }}", true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
-            // Show progress
-            progressContainer.style.display = 'block';
-            uploadStatus.style.display = 'block';
-            uploadStatus.textContent = `Uploading ${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''}...`;
-            submitBtn.disabled = true;
-
-            // Simulate progress for demonstration
-            let progress = 0;
-            const interval = setInterval(() => {
-                progress += 2;
-                progressBar.style.width = progress + '%';
-
-                if (progress >= 100) {
-                    clearInterval(interval);
-                    // Actual form submission
-                    submitForm(formData);
+            xhr.upload.onprogress = function (e) {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    // Update all progress bars roughly together
+                    selectedFiles.forEach((_, idx) => {
+                        const bar = document.getElementById(`progress-${idx}`);
+                        const status = document.getElementById(`status-${idx}`);
+                        if (bar) bar.style.width = percent + '%';
+                        if (status) status.textContent = `Uploading... ${percent}%`;
+                    });
                 }
-            }, 100);
-        });
+            };
 
-        function submitForm(formData) {
-            // Add X-Requested-With header to identify AJAX requests
-            fetch('{{ url_for("validate_file") }}', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showSuccess(data.message, data.processed_files);
-                } else {
-                    showAlert(data.message, 'error');
-                    // Show individual errors if available
-                    if (data.errors && data.errors.length > 0) {
-                        data.errors.forEach(error => {
-                            showAlert(error, 'error');
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        selectedFiles.forEach((_, idx) => {
+                            const status = document.getElementById(`status-${idx}`);
+                            if (status) status.textContent = "✅ Validated successfully";
                         });
+
+                        if (data.redirect) {
+                            setTimeout(() => {
+                                window.location.href = data.redirect;
+                            }, 500);
+                            return;
+                        }
+
+                        if (data.processed_files) {
+                            showSuccess(data.processed_files);
+                        }
+                    } else {
+                        selectedFiles.forEach((_, idx) => {
+                            document.getElementById(`status-${idx}`).textContent = "❌ " + (data.message || "Validation failed");
+                        });
+                        startUpload.disabled = false;
                     }
-                    resetProgress();
+                } else {
+                    selectedFiles.forEach((_, idx) => {
+                        document.getElementById(`status-${idx}`).textContent = "❌ Server error";
+                    });
+                    startUpload.disabled = false;
                 }
-            })
-            .catch(error => {
-                showAlert('Upload failed: ' + error.message, 'error');
-                resetProgress();
-            });
+            };
+
+            xhr.onerror = function () {
+                selectedFiles.forEach((_, idx) => {
+                    document.getElementById(`status-${idx}`).textContent = "❌ Network error";
+                });
+                startUpload.disabled = false;
+            };
+
+            xhr.send(formData);
         }
 
-        function resetProgress() {
-            submitBtn.disabled = false;
-            progressContainer.style.display = 'none';
-            uploadStatus.style.display = 'none';
-            progressBar.style.width = '0%';
-        }
-
-        function showSuccess(message, processedFiles) {
+        function showSuccess(processedFiles) {
             uploadSuccess.style.display = 'block';
-            uploadForm.style.display = 'none';
-            progressContainer.style.display = 'none';
-            uploadStatus.style.display = 'none';
+            downloadLinks.innerHTML = "";
 
-            // Update success message
-            successTitle.textContent = 'Validation Complete!';
-            successMessage.textContent = message;
-
-            // Create download links for each processed file
-            downloadLinks.innerHTML = '';
-
-            if (processedFiles && processedFiles.length > 0) {
-                const title = document.createElement('p');
-                title.textContent = 'Download your reports:';
-                title.style.fontWeight = '600';
-                downloadLinks.appendChild(title);
-
+            if (processedFiles.length > 0) {
                 processedFiles.forEach(file => {
-                    const link = document.createElement('a');
+                    const link = document.createElement("a");
                     link.href = file.report_url;
-                    link.className = 'btn-download';
+                    link.className = "btn-download";
                     link.innerHTML = `<i class="fas fa-download"></i> ${file.filename}`;
-                    link.target = '_blank';
+                    link.target = "_blank";
                     downloadLinks.appendChild(link);
                 });
             } else {
-                const noFilesMsg = document.createElement('p');
-                noFilesMsg.textContent = 'No reports available for download.';
-                noFilesMsg.className = 'text-muted';
-                downloadLinks.appendChild(noFilesMsg);
+                const noFiles = document.createElement("p");
+                noFiles.textContent = "No reports available.";
+                downloadLinks.appendChild(noFiles);
             }
-        }
-
-        function resetForm() {
-            selectedFiles = [];
-            updateFileList();
-            filesCount.style.display = 'none';
-            uploadSuccess.style.display = 'none';
-            uploadForm.style.display = 'block';
-            progressBar.style.width = '0%';
-        }
-
-        function showAlert(message, type) {
-            // Remove existing alerts of the same type
-            document.querySelectorAll(`.alert-${type}`).forEach(alert => alert.remove());
-
-            const alertDiv = document.createElement('div');
-            alertDiv.className = `alert alert-${type}`;
-            alertDiv.textContent = message;
-
-            const flashContainer = document.querySelector('.flash-messages') || document.createElement('div');
-            if (!document.querySelector('.flash-messages')) {
-                flashContainer.className = 'flash-messages';
-                document.querySelector('.upload-container').prepend(flashContainer);
-            }
-
-            flashContainer.appendChild(alertDiv);
-
-            setTimeout(() => {
-                alertDiv.remove();
-            }, 5000);
         }
     });
 </script>

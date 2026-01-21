@@ -1,9 +1,33 @@
 {% extends "base.html" %}
-
-{% block title %}Macro Processing - S4carlisle{% endblock %}
+{% block title %}Pre-editing - S4Carlisle{% endblock %}
 
 {% block extra_css %}
 <style>
+    /* Consistent styling with technical_edit.html */
+    .content-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
     .drop-zone {
         border: 3px dashed var(--primary);
         border-radius: var(--border-radius);
@@ -14,20 +38,24 @@
         background: rgba(67, 97, 238, 0.05);
         cursor: pointer;
     }
+
     .drop-zone:hover {
         background: rgba(67, 97, 238, 0.1);
         border-color: var(--primary-dark);
     }
+
     .drop-zone.highlight {
         background: rgba(67, 97, 238, 0.15);
         border-color: var(--secondary);
         transform: scale(1.02);
     }
+
     .file-list {
         margin-top: 1.5rem;
         max-height: 300px;
         overflow-y: auto;
     }
+
     .file-item {
         display: flex;
         justify-content: space-between;
@@ -37,15 +65,18 @@
         border-radius: var(--border-radius-sm);
         margin-bottom: 0.5rem;
     }
+
     .file-info {
         display: flex;
         align-items: center;
         gap: 1rem;
     }
+
     .file-icon {
         color: var(--primary);
         font-size: 1.2rem;
     }
+
     .remove-file {
         color: var(--danger);
         cursor: pointer;
@@ -53,15 +84,18 @@
         border-radius: 50%;
         transition: var(--transition);
     }
+
     .remove-file:hover {
         background: rgba(239, 71, 111, 0.1);
     }
+
     .tasks-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         gap: 1rem;
         margin: 1.5rem 0;
     }
+
     .task-item {
         display: flex;
         align-items: center;
@@ -71,16 +105,19 @@
         cursor: pointer;
         transition: var(--transition);
     }
+
     .task-item:hover {
         background: rgba(67, 97, 238, 0.1);
         transform: translateX(5px);
     }
+
     .task-checkbox {
         margin-right: 1rem;
         width: 20px;
         height: 20px;
         accent-color: var(--primary);
     }
+
     .download-section {
         background: rgba(6, 214, 160, 0.1);
         padding: 1.5rem;
@@ -89,134 +126,145 @@
         text-align: center;
         margin: 1.5rem 0;
     }
+
+    .progress-section {
+        margin: 1.5rem 0;
+    }
+
+    .progress {
+        height: 25px;
+        border-radius: var(--border-radius-sm);
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        transition: width 0.3s ease;
+    }
 </style>
 {% endblock %}
+
+<meta name="csrf-token" content="{{ csrf_token() }}">
 
 {% block content %}
 <div class="content-card fade-in">
     <div class="text-center mb-3">
-        <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+        <h1
+            style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
             Pre-editing
         </h1>
         <p class="text-muted">Process Word documents with specialized Pre-editing Process</p>
     </div>
 
-    <form method="POST" enctype="multipart/form-data" id="macroForm" action="{{ url_for('macro_processing') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-        <div class="form-group">
-            <label class="form-label">Upload Word Files</label>
-            <div class="drop-zone" id="wordDropZone">
-                <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
-                <p>Drag & drop your Word files here or click to browse</p>
-                <p class="text-muted">Supports .doc and .docx files</p>
-                <input type="file" id="wordFiles" name="word_files[]" multiple accept=".doc,.docx" style="display: none;">
-            </div>
-            <div class="file-list" id="wordFileList"></div>
+    <!-- Drop Zone -->
+    <div class="form-group">
+        <label class="form-label">Upload Word Files</label>
+        <div id="dropZone" class="drop-zone">
+            <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+            <p>Drag & drop your Word files here or click to browse</p>
+            <p class="text-muted">Supports .doc and .docx files</p>
+            <input type="file" id="docInput" class="form-control" multiple accept=".doc,.docx" style="display: none;">
         </div>
+        <div id="fileList" class="file-list"></div>
+    </div>
 
-        <div class="form-group">
-            <label class="form-label">Processing Tasks</label>
-            <div class="tasks-grid">
-                <label class="task-item">
-                    <input type="checkbox" name="tasks[]" value="0" class="task-checkbox">
-                    Reference Mismatch and Sequence Check
-                </label>
-                <label class="task-item">
-                    <input type="checkbox" name="tasks[]" value="1" class="task-checkbox">
-                    Reference Renumber
-                </label>
-                <label class="task-item">
-                    <input type="checkbox" name="tasks[]" value="2" class="task-checkbox">
-                    Reference Find Duplicate
-                </label>
-                <label class="task-item">
-                    <input type="checkbox" name="tasks[]" value="3" class="task-checkbox">
-                    Reference Update Citation
-                </label>
-                <label class="task-item">
-                    <input type="checkbox" name="tasks[]" value="4" class="task-checkbox">
-                    Pre-editing QA
-                </label>
-            </div>
+    <!-- Progress Bar -->
+    <div id="progressSection" class="progress-section" style="display:none;">
+        <label class="form-label">Processing Progress</label>
+        <div class="progress">
+            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                role="progressbar" style="width:0%">0%</div>
         </div>
+        <p id="progressText" class="text-muted small mt-1">Initializing...</p>
+    </div>
 
-        {% if download_token %}
-        <div class="download-section">
-            <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--success); margin-bottom: 1rem;"></i>
-            <h3>Processing Complete!</h3>
-            <p>Your files have been processed successfully.</p>
-            <a href="{{ url_for('macro_download', token=download_token) }}" class="btn btn-success mt-2">
-                <i class="fas fa-download"></i> Download Processed Files
-            </a>
-        </div>
-        {% endif %}
+    <!-- Download Section -->
+    <div id="resultSection" class="download-section" style="display:none;"></div>
 
-        <div class="d-flex gap-2 justify-between">
-            <button type="submit" class="btn btn-primary">
-                <i class="fas fa-play"></i> Process Files
-            </button>
-            <button type="button" id="resetBtn" class="btn btn-outline">
-                <i class="fas fa-trash"></i> Clear All
-            </button>
-        </div>
-    </form>
+    <!-- Action Buttons -->
+    <div class="d-flex gap-2 justify-between">
+        <button id="analyzeBtn" class="btn btn-primary px-4 py-2">
+            <i class="fas fa-cogs me-2"></i>Run Analysis
+        </button>
+        <button type="button" id="resetBtn" class="btn btn-outline">
+            <i class="fas fa-trash me-2"></i>Clear All
+        </button>
+    </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    const wordDropZone = document.getElementById('wordDropZone');
-    const wordFileInput = document.getElementById('wordFiles');
-    const wordFileList = document.getElementById('wordFileList');
-    let wordFiles = [];
+    // DOM Elements
+    const dropZone = document.getElementById('dropZone');
+    const docInput = document.getElementById('docInput');
+    const fileList = document.getElementById('fileList');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const progressSection = document.getElementById('progressSection');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const resultSection = document.getElementById('resultSection');
 
-    wordDropZone.addEventListener('click', () => wordFileInput.click());
+    let files = [];
 
-    wordDropZone.addEventListener('dragover', (e) => {
+    // Event Listeners
+    dropZone.addEventListener('click', () => docInput.click());
+    dropZone.addEventListener('dragover', e => {
         e.preventDefault();
-        wordDropZone.classList.add('highlight');
+        dropZone.classList.add('highlight');
     });
 
     ['dragleave', 'dragend'].forEach(type => {
-        wordDropZone.addEventListener(type, () => {
-            wordDropZone.classList.remove('highlight');
-        });
+        dropZone.addEventListener(type, () => dropZone.classList.remove('highlight'));
     });
 
-    wordDropZone.addEventListener('drop', (e) => {
+    dropZone.addEventListener('drop', e => {
         e.preventDefault();
-        wordDropZone.classList.remove('highlight');
+        dropZone.classList.remove('highlight');
         handleFiles(e.dataTransfer.files);
     });
 
-    wordFileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+    docInput.addEventListener('change', e => handleFiles(e.target.files));
 
-    function handleFiles(files) {
-        const newFiles = Array.from(files).filter(file =>
-            file.name.toLowerCase().endsWith('.doc') || file.name.toLowerCase().endsWith('.docx')
+    resetBtn.addEventListener('click', () => {
+        if (confirm('Clear all files?')) {
+            files = [];
+            updateFileList();
+            progressSection.style.display = 'none';
+            resultSection.style.display = 'none';
+        }
+    });
+
+    analyzeBtn.addEventListener('click', runAnalysis);
+
+    // Functions
+    function handleFiles(newFiles) {
+        const validFiles = Array.from(newFiles).filter(f =>
+            f.name.toLowerCase().endsWith('.doc') || f.name.toLowerCase().endsWith('.docx')
         );
 
-        if (newFiles.length < files.length) {
+        if (validFiles.length < newFiles.length) {
             showAlert('Only .doc and .docx files are supported', 'error');
         }
 
-        if (newFiles.length > 0) {
-            wordFiles = [...wordFiles, ...newFiles];
+        if (validFiles.length > 0) {
+            files = [...files, ...validFiles];
             updateFileList();
         }
     }
 
     function updateFileList() {
-        wordFileList.innerHTML = '';
-        if (wordFiles.length === 0) {
-            wordFileList.innerHTML = '<p class="text-center text-muted">No files selected</p>';
+        fileList.innerHTML = '';
+
+        if (files.length === 0) {
+            fileList.innerHTML = '<p class="text-center text-muted">No files selected</p>';
             return;
         }
-        wordFiles.forEach((file, index) => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'file-item';
-            fileItem.innerHTML = `
+
+        files.forEach((file, index) => {
+            const div = document.createElement('div');
+            div.className = 'file-item';
+            div.innerHTML = `
                 <div class="file-info">
                     <i class="fas fa-file-word file-icon"></i>
                     <div>
@@ -224,14 +272,14 @@
                         <div class="text-muted">${formatFileSize(file.size)}</div>
                     </div>
                 </div>
-                <i class="fas fa-times remove-file" data-index="${index}"></i>
-            `;
-            wordFileList.appendChild(fileItem);
+                <i class="fas fa-times remove-file" data-index="${index}"></i>`;
+            fileList.appendChild(div);
         });
+
+        // Add event listeners to remove buttons
         document.querySelectorAll('.remove-file').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const index = parseInt(e.target.getAttribute('data-index'));
-                wordFiles.splice(index, 1);
+            btn.addEventListener('click', e => {
+                files.splice(e.target.dataset.index, 1);
                 updateFileList();
             });
         });
@@ -242,57 +290,104 @@
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
     }
 
-    document.getElementById('resetBtn').addEventListener('click', () => {
-        if (confirm('Are you sure you want to clear all files?')) {
-            wordFiles = [];
-            updateFileList();
-            document.getElementById('macroForm').reset();
-        }
-    });
-
-    // ✅ Fixed: validation + sync to input
-    document.getElementById('macroForm').addEventListener('submit', function(e) {
-        if (wordFiles.length === 0) {
-            e.preventDefault();
-            showAlert('Please select at least one file', 'error');
+    async function runAnalysis() {
+        if (files.length === 0) {
+            showAlert('Please select at least one Word file.', 'error');
             return;
         }
 
-        // Sync wordFiles into real file input before submit
-        const dataTransfer = new DataTransfer();
-        wordFiles.forEach(file => dataTransfer.items.add(file));
-        wordFileInput.files = dataTransfer.files;
-
-        const checkedTasks = document.querySelectorAll('input[name="tasks[]"]:checked');
-        if (checkedTasks.length === 0) {
-            e.preventDefault();
-            showAlert('Please select at least one processing task', 'error');
-            return;
+        const formData = new FormData();
+        for (const file of files) {
+            formData.append('docfiles', file);
         }
-    });
+        formData.append('run_mss', 'true'); // Always run MSS analysis
+
+        // Show progress section
+        progressSection.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+        progressText.textContent = 'Starting analysis...';
+        resultSection.style.display = 'none';
+
+        // Get CSRF token
+        const token = document.querySelector('meta[name=csrf-token]')?.content || '{{ csrf_token() }}';
+
+        try {
+            const response = await fetch('/ppd', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': token },
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.error) {
+                showAlert(data.error, 'error');
+                return;
+            }
+
+            const jobId = data.job_id;
+
+            // Poll for progress
+            const timer = setInterval(async () => {
+                try {
+                    const progressResponse = await fetch('/progress/' + jobId);
+                    const progress = await progressResponse.json();
+
+                    if (!progress.total) return;
+
+                    const percent = Math.floor((progress.current / progress.total) * 100);
+                    progressBar.style.width = percent + '%';
+                    progressBar.textContent = percent + '%';
+                    progressText.textContent = `${progress.status} (${progress.current}/${progress.total})`;
+
+                    if (progress.status === 'Completed') {
+                        clearInterval(timer);
+                        progressBar.classList.remove('progress-bar-animated');
+                        resultSection.style.display = 'block';
+                        resultSection.innerHTML = `
+                            <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--success); margin-bottom: 1rem;"></i>
+                            <h3>Processing Complete!</h3>
+                            <p>Your files have been processed successfully.</p>
+                            <a href="/download_zip/${jobId}" class="btn btn-success mt-2">
+                                <i class="fas fa-download me-2"></i>Download Processed ZIP
+                            </a>`;
+                    }
+                } catch (error) {
+                    console.error('Error fetching progress:', error);
+                }
+            }, 1200);
+        } catch (error) {
+            console.error('Error submitting files:', error);
+            showAlert('An error occurred while submitting files.', 'error');
+        }
+    }
 
     function showAlert(message, type) {
+        // Create alert element
         const alertDiv = document.createElement('div');
-        alertDiv.className = `flash ${type}`;
+        alertDiv.className = `alert alert-${type === 'error' ? 'danger' : 'success'} alert-dismissible fade show`;
         alertDiv.innerHTML = `
             ${message}
-            <button class="close">&times;</button>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
-        const flashContainer = document.querySelector('.flash-messages') || document.createElement('div');
-        if (!document.querySelector('.flash-messages')) {
-            flashContainer.className = 'flash-messages';
-            document.querySelector('.main-content').prepend(flashContainer);
-        }
-        flashContainer.appendChild(alertDiv);
-        alertDiv.querySelector('.close').addEventListener('click', () => {
-            alertDiv.remove();
-        });
-        setTimeout(() => alertDiv.remove(), 5000);
+
+        // Insert at the top of the content card
+        const contentCard = document.querySelector('.content-card');
+        contentCard.insertBefore(alertDiv, contentCard.firstChild);
+
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
     }
 
+    // Initialize file list on page load
     updateFileList();
 </script>
 {% endblock %}
