@@ -16,6 +16,7 @@ import socket
 import time
 import threading
 import concurrent.futures
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Windows/Linux Compatibility
 try:
@@ -138,9 +139,26 @@ ROUTE_MACROS['credit_extractor'] = {
 
 # Flask app
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
-csrf = CSRFProtect(app)
-
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,
+    x_proto=1,
+    x_host=1,
+    x_port=1
+)
+app.config['SECRET_KEY'] = os.environ.get(
+    "SECRET_KEY",
+    "s4c-hub-prod-secret-2026-very-long-random-string"
+)
+csrf = CSRFProtect(app
+                  
+                  )
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    WTF_CSRF_SSL_STRICT=False
+)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['COMMON_MACRO_FOLDER'] = COMMON_MACRO_FOLDER
 app.config['REPORT_FOLDER'] = REPORT_FOLDER
