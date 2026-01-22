@@ -2750,3 +2750,6 @@
 2026-01-19T10:53:45.738788 - ERROR - Configuration error: Route 'credit_extractor' has no macros defined
 2026-01-19 10:53:56 - murali - LOGIN - 
 2026-01-19 10:58:40 - murali - LOGOUT - 
+2026-01-21T16:10:50.413096 - ERROR - Configuration error: Route 'credit_extractor' has no macros defined
+2026-01-21 16:11:01 - admin - LOGIN - 
+2026-01-21 16:11:12 - admin - LOGOUT - 

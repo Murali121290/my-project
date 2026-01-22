@@ -213,13 +213,34 @@ def role_required(allowed_roles):
 
 def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filenames, user_id, username):
     with app.app_context():
-        # temp_dir passed from route
+        # Helper to update progress file
+        def update_progress(updates):
+            try:
+                p_path = os.path.join(temp_dir, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current.update(updates)
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+            except Exception as ex:
+                print(f"Progress update failed: {ex}")
+
+        # Initialize progress file
+        update_progress({
+            "total": len(file_paths),
+            "current": 0,
+            "status": "Starting",
+            "folder": temp_dir
+        })
+
         all_results = []
         
         try:
             for idx, path in enumerate(file_paths, start=1):
                 filename = original_filenames[idx-1]
-                app.config["PROGRESS_DATA"][job_id].update({
+                update_progress({
                     "current": idx,
                     "status": f"Processing {filename}"
                 })
@@ -227,7 +248,7 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
                 all_results.extend(extract_from_file(path))
 
             if not all_results:
-                app.config["PROGRESS_DATA"][job_id]["status"] = "No captions found"
+                update_progress({"status": "No captions found"})
                 return
 
             output_xlsx = os.path.join(temp_dir, "permission_log.xlsx")
@@ -244,7 +265,7 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
                 final_path = output_xlsx
                 processed_files = ["permission_log.xlsx"]
 
-            # Register download token
+            # Register download token (Optional if relying solely on file system, but kept for consistency)
             token = uuid.uuid4().hex
             download_tokens[token] = {
                 "path": temp_dir,
@@ -270,13 +291,14 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
                 )
                 db.commit()
 
-            app.config["PROGRESS_DATA"][job_id].update({
+            update_progress({
                 "status": "Completed",
-                "download_token": token
+                "download_token": token,
+                "zip_path": final_path # Used by download_zip
             })
 
         except Exception as e:
-            app.config["PROGRESS_DATA"][job_id]["status"] = f"Failed: {e}"
+            update_progress({"status": f"Failed: {e}"})
 
 @app.route("/credit-extractor", methods=["GET", "POST"])
 @csrf.exempt
@@ -288,10 +310,14 @@ def credit_extractor():
         if not files or all(f.filename == "" for f in files):
             return jsonify({"error": "No files selected"}), 400
 
-        job_id = str(int(time.time() * 1000))
+        # Use token as job_id for consistency
+        token = uuid.uuid4().hex
+        job_id = token 
         
         # Save files synchronously before threading
-        temp_dir = tempfile.mkdtemp()
+        temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], token)
+        os.makedirs(temp_dir, exist_ok=True)
+
         saved_paths = []
         original_filenames = []
         
@@ -310,6 +336,7 @@ def credit_extractor():
                 pass
             return jsonify({"error": f"File save failed: {e}"}), 500
 
+        # In-memory update for same-worker immediate feedback (optional)
         app.config.setdefault("PROGRESS_DATA", {})
         app.config["PROGRESS_DATA"][job_id] = {
             "total": len(saved_paths),
@@ -1600,15 +1627,22 @@ def ppd():
     # Capture username before thread starts
     username = session.get("username") or "Analyst"
 
-    # Job ID + progress tracking
-    job_id = str(int(time.time() * 1000))
-    app.config.setdefault("PROGRESS_DATA", {})
-    app.config["PROGRESS_DATA"][job_id] = {
+    # Job ID = Token (for multi-worker support via file system)
+    job_id = token
+    
+    # Initialize progress file
+    progress_file = os.path.join(unique_folder, "progress.json")
+    initial_progress = {
         "total": len(saved),
         "current": 0,
         "status": "Starting",
         "folder": unique_folder
     }
+    try:
+        with open(progress_file, "w") as f:
+            json.dump(initial_progress, f)
+    except Exception as e:
+        app.logger.error(f"Failed to create progress file: {e}")
 
     # -----------------------
     # Background thread processing
@@ -1631,11 +1665,25 @@ def ppd():
                 HAS_WIN32COM,
             )
 
+            # Helper to update progress file
+            def update_progress(updates):
+                try:
+                    p_path = os.path.join(unique_folder, "progress.json")
+                    current = {}
+                    if os.path.exists(p_path):
+                        with open(p_path, "r") as f:
+                            current = json.load(f)
+                    current.update(updates)
+                    with open(p_path, "w") as f:
+                        json.dump(current, f)
+                except Exception as ex:
+                    print(f"Progress update failed: {ex}")
+
             results = []
 
             for i, path in enumerate(saved, 1):
                 fname = os.path.basename(path)
-                app.config["PROGRESS_DATA"][job_id].update({
+                update_progress({
                     "current": i,
                     "status": f"Processing {fname}"
                 })
@@ -1704,7 +1752,7 @@ def ppd():
 
                 except Exception as e:
                     app.logger.error(f"Failed processing {fname}: {e}")
-                    app.config["PROGRESS_DATA"][job_id]["status"] = f"Failed: {e}"
+                    update_progress({"status": f"Failed: {e}"})
                     break
 
             # Create ZIP
@@ -1713,7 +1761,7 @@ def ppd():
                 for f in results + saved:
                     z.write(f, arcname=os.path.basename(f))
 
-            app.config["PROGRESS_DATA"][job_id].update({
+            update_progress({
                 "status": "Completed",
                 "current": len(saved),
                 "zip_path": zip_path
@@ -1750,17 +1798,55 @@ def ppd():
 
 @app.route("/progress/<job_id>")
 def progress(job_id):
-    return jsonify(app.config.get("PROGRESS_DATA", {}).get(job_id, {}))
+    # Try reading from file system first (multi-worker support)
+    try:
+        # job_id is the token folder name in new implementation
+        # For backward compatibility, check if job_id is in config
+        if job_id in app.config.get("PROGRESS_DATA", {}):
+            return jsonify(app.config["PROGRESS_DATA"][job_id])
+            
+        # Check file system using job_id as token
+        token_path = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
+        progress_path = os.path.join(token_path, "progress.json")
+        
+        if os.path.exists(progress_path):
+            with open(progress_path, "r") as f:
+                return jsonify(json.load(f))
+    except Exception:
+        pass
+        
+    return jsonify({})
 
 
 @app.route("/download_zip/<job_id>")
 def download_zip(job_id):
+    zip_path = None
+    folder_path = None
+    
+    # 1. Check in-memory (legacy)
     data = app.config.get("PROGRESS_DATA", {}).get(job_id)
-    if not data or "zip_path" not in data:
-        return "Not ready", 404
+    if data and "zip_path" in data:
+        zip_path = data["zip_path"]
+        folder_path = data.get("folder")
+    
+    # 2. Check file system (multi-worker)
+    if not zip_path:
+        # job_id is the token
+        possible_folder = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
+        possible_progress = os.path.join(possible_folder, "progress.json")
+        
+        if os.path.exists(possible_progress):
+            try:
+                with open(possible_progress, "r") as f:
+                    file_data = json.load(f)
+                    if file_data.get("status") == "Completed" and "zip_path" in file_data:
+                        zip_path = file_data["zip_path"]
+                        folder_path = possible_folder
+            except:
+                pass
 
-    zip_path = data["zip_path"]
-    folder_path = data.get("folder")  # the unique folder used for this job
+    if not zip_path:
+        return "Not ready", 404
 
     if not os.path.exists(zip_path):
         return "ZIP not found", 404
@@ -2232,11 +2318,21 @@ def macro_download():
         return redirect(url_for('dashboard'))
 
     token_data = download_tokens.get(token)
+    
+    # Fallback to file system
+    if not token_data:
+        possible_folder = os.path.join(app.config['UPLOAD_FOLDER'], token)
+        if os.path.exists(possible_folder):
+            token_data = {
+                'path': possible_folder,
+                'route_type': 'recovered' 
+            }
+
     if not token_data:
         flash("Invalid or expired download token.")
         return redirect(url_for('dashboard'))
 
-    if is_token_expired(token_data):
+    if 'expires' in token_data and is_token_expired(token_data):
         cleanup_token_data(token)
         flash("Download token has expired.")
         return redirect(url_for('dashboard'))
@@ -3074,9 +3170,18 @@ def technical():
 
             processed_files.append(filename)
 
-        # Save manifest
+        # Save manifest and progress file for persistence
         with open(os.path.join(unique_folder, "manifest.txt"), "w") as mf:
             mf.write("\n".join(processed_files))
+            
+        # Create progress.json to support multi-worker downloads
+        progress_info = {
+            "status": "Completed",
+            "zip_path": os.path.join(unique_folder, "Technical_Documents.zip"), # Zip created on demand in technical_download, but let's pre-define path
+            "folder": unique_folder
+        }
+        with open(os.path.join(unique_folder, "progress.json"), "w") as pf:
+            json.dump(progress_info, pf)
 
         # Register for download
         download_tokens[token] = {
@@ -3184,10 +3289,27 @@ def favicon():
 
 @app.route('/technical/download/<token>')
 def technical_download(token):
+    # Try in-memory first
     info = download_tokens.get(token)
-    if not info or is_token_expired(info):
-        cleanup_token_data(token)
+    
+    # Fallback to file system for multi-worker support
+    if not info:
+        possible_folder = os.path.join(app.config['UPLOAD_FOLDER'], token)
+        if os.path.exists(possible_folder):
+            info = {
+                "path": possible_folder,
+                "expires": _now_utc() + TOKEN_TTL  # Renew/Assume valid if folder exists
+            }
+
+    if not info:
         flash("Invalid or expired token.")
+        return redirect(url_for('dashboard'))
+
+    # Check expiry only if we have explicit expiry info (memory)
+    # If recovered from disk, we trust folder existence for now (or could check creation time)
+    if 'expires' in info and is_token_expired(info):
+        cleanup_token_data(token)
+        flash("Token expired.")
         return redirect(url_for('dashboard'))
 
     folder = info["path"]
@@ -3207,7 +3329,8 @@ def technical_download(token):
         flash("Download failed.")
         return redirect(url_for('dashboard'))
 
-    cleanup_token_data(token)
+    # Optional: cleanup after download if one-time use
+    # cleanup_token_data(token) 
 
     return send_file(
         mem,
