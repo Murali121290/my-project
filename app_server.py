@@ -16,7 +16,6 @@ import socket
 import time
 import threading
 import concurrent.futures
-from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Windows/Linux Compatibility
 try:
@@ -139,26 +138,28 @@ ROUTE_MACROS['credit_extractor'] = {
 
 # Flask app
 app = Flask(__name__)
-app.wsgi_app = ProxyFix(
-    app.wsgi_app,
-    x_for=1,
-    x_proto=1,
-    x_host=1,
-    x_port=1
-)
-app.config['SECRET_KEY'] = os.environ.get(
-    "SECRET_KEY",
-    "s4c-hub-prod-secret-2026-very-long-random-string"
-)
-csrf = CSRFProtect(app
-                  
-                  )
-app.config.update(
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    WTF_CSRF_SSL_STRICT=False
-)
+
+# Fix for CSRF token missing in multi-worker environment
+# Ensure secret key is consistent across workers by storing it in a file if not in env
+secret_key_path = os.path.join(BASE_DIR, '.flask_secret_key')
+if os.environ.get('SECRET_KEY'):
+    app.secret_key = os.environ.get('SECRET_KEY')
+elif os.path.exists(secret_key_path):
+    with open(secret_key_path, 'rb') as f:
+        app.secret_key = f.read()
+else:
+    # Generate and save a new key so it persists across restarts and workers
+    generated_key = os.urandom(24)
+    try:
+        with open(secret_key_path, 'wb') as f:
+            f.write(generated_key)
+        app.secret_key = generated_key
+    except IOError:
+        # Fallback if cannot write to file
+        app.secret_key = 'fallback-secret-key-change-this-in-prod'
+
+csrf = CSRFProtect(app)
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['COMMON_MACRO_FOLDER'] = COMMON_MACRO_FOLDER
 app.config['REPORT_FOLDER'] = REPORT_FOLDER
