@@ -36,6 +36,7 @@ from threading import Lock
 from datetime import datetime, timedelta, timezone
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_wtf.csrf import CSRFProtect
 from functools import wraps
 from waitress import serve
@@ -138,6 +139,9 @@ ROUTE_MACROS['credit_extractor'] = {
 
 # Flask app
 app = Flask(__name__)
+
+# Apply ProxyFix for Nginx (handles HTTPS, X-Forwarded-Proto, etc.)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Fix for CSRF token missing in multi-worker environment
 # Ensure secret key is consistent across workers by storing it in a file if not in env
