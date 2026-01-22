@@ -36,6 +36,7 @@ from threading import Lock
 from datetime import datetime, timedelta, timezone
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_wtf.csrf import CSRFProtect
 from functools import wraps
 from waitress import serve
@@ -138,7 +139,29 @@ ROUTE_MACROS['credit_extractor'] = {
 
 # Flask app
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
+
+# Apply ProxyFix for Nginx (handles HTTPS, X-Forwarded-Proto, etc.)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+# Fix for CSRF token missing in multi-worker environment
+# Ensure secret key is consistent across workers by storing it in a file if not in env
+secret_key_path = os.path.join(BASE_DIR, '.flask_secret_key')
+if os.environ.get('SECRET_KEY'):
+    app.secret_key = os.environ.get('SECRET_KEY')
+elif os.path.exists(secret_key_path):
+    with open(secret_key_path, 'rb') as f:
+        app.secret_key = f.read()
+else:
+    # Generate and save a new key so it persists across restarts and workers
+    generated_key = os.urandom(24)
+    try:
+        with open(secret_key_path, 'wb') as f:
+            f.write(generated_key)
+        app.secret_key = generated_key
+    except IOError:
+        # Fallback if cannot write to file
+        app.secret_key = 'fallback-secret-key-change-this-in-prod'
+
 csrf = CSRFProtect(app)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -146,6 +169,13 @@ app.config['COMMON_MACRO_FOLDER'] = COMMON_MACRO_FOLDER
 app.config['REPORT_FOLDER'] = REPORT_FOLDER
 app.config['DATABASE'] = DATABASE
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+
+# Session Hardening
+app.config['SESSION_COOKIE_NAME'] = 's4c_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=1)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 
 # Token-based download map
 download_tokens = {}
@@ -1414,7 +1444,7 @@ def _process_macro_request(route_type):
 # -----------------------
 # Routes
 # -----------------------
-@app.route('/')
+@app.route('/', strict_slashes=False)
 def index():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
@@ -1489,8 +1519,17 @@ def handle_macro_route(route_type, template_name):
         flash("Please log in to continue.")
         return redirect(url_for('login'))
 
-    if request.method == 'POST':
+    # Linux Compatibility Check
+    if not HAS_WIN32COM and route_type in ['language', 'macro_processing']:
+         if request.method == 'POST':
+             flash("This feature relies on Microsoft Word automation and is not available on Linux servers.", "error")
+             # Fall through to render template with error
+
+    if request.method == 'POST' and HAS_WIN32COM:
         return _process_macro_request(route_type)
+    elif request.method == 'POST':
+        # already flashed error above
+        pass
 
     download_token = request.args.get('download_token')
     route_config = ROUTE_MACROS.get(route_type, {})
@@ -2909,8 +2948,6 @@ def reset_database():
 
 
 
-
-
 # -----------------------
 # Background Tasks
 # -----------------------
@@ -3140,59 +3177,7 @@ def cleanup_token_data(token):
         log_errors([f"CLEANUP ERROR (token={token}): {str(e)}"])
 
 
-@app.route('/technical/download/<token>')
-def technical_download(token):
-    info = download_tokens.get(token)
-    if not info or is_token_expired(info):
-        cleanup_token_data(token)
-        flash("Invalid or expired token.")
-        return redirect(url_for('dashboard'))
-
-    folder = info["path"]
-    zip_path = folder + ".zip"
-
-    try:
-        if not os.path.exists(zip_path):
-            shutil.make_archive(folder, 'zip', folder)
-
-        mem = io.BytesIO()
-        with open(zip_path, 'rb') as f:
-            mem.write(f.read())
-        mem.seek(0)
-
-    except Exception as e:
-        log_errors([f"ZIP read/create failure: {e}"])
-        flash("Download failed.")
-        return redirect(url_for('dashboard'))
-
-    cleanup_token_data(token)
-
-    return send_file(
-        mem,
-        as_attachment=True,
-        mimetype="application/zip",
-        download_name=f"Technical_Documents_{_now_utc().strftime('%Y%m%d_%H%M%S')}.zip"
-    )
-
-# -----------------------
-# Main Execution
-# -----------------------
-from waitress import serve
-
-# 🔹 create app globally so waitress-serve can see it
-app = initialize_optimized_app()
-
-if __name__ == '__main__':
-    print("=== S4C APPLICATION STARTUP ===")
-    host_ip = get_ip_address()
-    print(f"Your IP address: {host_ip}")
-
-    port = 8081
-
-    print(f"\nAccess URLs:")
-    print(f"Local: http://localhost:{port}")
-    print(f"Network: http://{host_ip}:{port}")
-    print("=================================\n")
-
-    # run with waitress directly if launched via python
-    serve(app, host="0.0.0.0", port=port, threads=4)
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static', 'images'),
+                               'S4c.png', mimetype='image/vnd.microsoft.icon')
