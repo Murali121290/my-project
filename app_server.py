@@ -3181,3 +3181,60 @@ def cleanup_token_data(token):
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static', 'images'),
                                'S4c.png', mimetype='image/vnd.microsoft.icon')
+
+@app.route('/technical/download/<token>')
+def technical_download(token):
+    info = download_tokens.get(token)
+    if not info or is_token_expired(info):
+        cleanup_token_data(token)
+        flash("Invalid or expired token.")
+        return redirect(url_for('dashboard'))
+
+    folder = info["path"]
+    zip_path = folder + ".zip"
+
+    try:
+        if not os.path.exists(zip_path):
+            shutil.make_archive(folder, 'zip', folder)
+
+        mem = io.BytesIO()
+        with open(zip_path, 'rb') as f:
+            mem.write(f.read())
+        mem.seek(0)
+
+    except Exception as e:
+        log_errors([f"ZIP read/create failure: {e}"])
+        flash("Download failed.")
+        return redirect(url_for('dashboard'))
+
+    cleanup_token_data(token)
+
+    return send_file(
+        mem,
+        as_attachment=True,
+        mimetype="application/zip",
+        download_name=f"Technical_Documents_{_now_utc().strftime('%Y%m%d_%H%M%S')}.zip"
+    )
+
+# -----------------------
+# Main Execution
+# -----------------------
+from waitress import serve
+
+# 🔹 create app globally so waitress-serve can see it
+app = initialize_optimized_app()
+
+if __name__ == '__main__':
+    print("=== S4C APPLICATION STARTUP ===")
+    host_ip = get_ip_address()
+    print(f"Your IP address: {host_ip}")
+
+    port = 8081
+
+    print(f"\nAccess URLs:")
+    print(f"Local: http://localhost:{port}")
+    print(f"Network: http://{host_ip}:{port}")
+    print("=================================\n")
+
+    # run with waitress directly if launched via python
+    serve(app, host="0.0.0.0", port=port, threads=4)
