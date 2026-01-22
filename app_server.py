@@ -1512,8 +1512,17 @@ def handle_macro_route(route_type, template_name):
         flash("Please log in to continue.")
         return redirect(url_for('login'))
 
-    if request.method == 'POST':
+    # Linux Compatibility Check
+    if not HAS_WIN32COM and route_type in ['language', 'macro_processing']:
+         if request.method == 'POST':
+             flash("This feature relies on Microsoft Word automation and is not available on Linux servers.", "error")
+             # Fall through to render template with error
+
+    if request.method == 'POST' and HAS_WIN32COM:
         return _process_macro_request(route_type)
+    elif request.method == 'POST':
+        # already flashed error above
+        pass
 
     download_token = request.args.get('download_token')
     route_config = ROUTE_MACROS.get(route_type, {})
