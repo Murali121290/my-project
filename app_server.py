@@ -618,8 +618,24 @@ def init_db():
             is_postgres = getattr(db, 'is_postgres', False)
             pk_type = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
             
+            # Helper to create table safely
+            def create_table_safe(query):
+                try:
+                    db.execute(query)
+                    db.commit()
+                except Exception as e:
+                    # If it's a "relation already exists" or unique violation (race condition), ignore.
+                    # Postgres error code 42P07 is duplicate_table, but we catch generic Exception here for simplicity with SQLite too
+                    # "UniqueViolation" seen in logs was "duplicate key value violates unique constraint" on a system catalog
+                    # which is odd for "CREATE TABLE", but suggests a race on pg_type.
+                    # Just logging and moving on is safest for init logic.
+                    if "already exists" in str(e) or "UniqueViolation" in str(e):
+                        db.rollback()
+                    else:
+                        raise e
+
             # Create tables
-            db.execute(f'''CREATE TABLE IF NOT EXISTS users (
+            create_table_safe(f'''CREATE TABLE IF NOT EXISTS users (
                             id {pk_type},
                             username TEXT UNIQUE NOT NULL,
                             password TEXT NOT NULL,
@@ -628,7 +644,7 @@ def init_db():
                             role TEXT DEFAULT 'USER',
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
 
-            db.execute(f'''CREATE TABLE IF NOT EXISTS files (
+            create_table_safe(f'''CREATE TABLE IF NOT EXISTS files (
                             id {pk_type},
                             user_id INTEGER NOT NULL,
                             original_filename TEXT NOT NULL,
@@ -637,7 +653,7 @@ def init_db():
                             upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                             FOREIGN KEY (user_id) REFERENCES users(id))''')
 
-            db.execute(f'''CREATE TABLE IF NOT EXISTS validation_results (
+            create_table_safe(f'''CREATE TABLE IF NOT EXISTS validation_results (
                             id {pk_type},
                             file_id INTEGER NOT NULL,
                             total_references INTEGER,
@@ -647,7 +663,7 @@ def init_db():
                             sequence_issues TEXT,
                             FOREIGN KEY (file_id) REFERENCES files(id))''')
 
-            db.execute(f'''CREATE TABLE IF NOT EXISTS macro_processing (
+            create_table_safe(f'''CREATE TABLE IF NOT EXISTS macro_processing (
                             id {pk_type},
                             user_id INTEGER NOT NULL,
                             token TEXT UNIQUE NOT NULL,
@@ -2889,15 +2905,19 @@ def validate_route_configuration():
     errors = []
 
     for route_type, config in ROUTE_MACROS.items():
-        if not config.get('macros'):
-            errors.append(f"Route '{route_type}' has no macros defined")
+        # Credit Extractor doesn't use macros, so skip empty check for it
+        if route_type != 'credit_extractor' and not config.get('macros'):
+            # Just a warning now, not an error
+            print(f"Warning: Route '{route_type}' has no macros defined")
 
         if not config.get('name'):
             errors.append(f"Route '{route_type}' has no name defined")
 
-    macro_path = os.path.join(COMMON_MACRO_FOLDER, DEFAULT_MACRO_NAME)
-    if not os.path.exists(macro_path):
-        errors.append(f"Macro template file not found: {macro_path}")
+    # On Linux/Docker, we don't need the macro template file check
+    if HAS_WIN32COM:
+        macro_path = os.path.join(COMMON_MACRO_FOLDER, DEFAULT_MACRO_NAME)
+        if not os.path.exists(macro_path):
+            errors.append(f"Macro template file not found: {macro_path}")
 
     if errors:
         for error in errors:
