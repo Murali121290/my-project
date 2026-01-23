@@ -134,6 +134,13 @@ ROUTE_MACROS['credit_extractor'] = {
     'macros': []
 }
 
+ROUTE_MACROS['word_to_xml'] = {
+    'name': 'Word to XML Converter',
+    'description': 'Convert Word documents to XML format',
+    'icon': 'file-code',
+    'macros': []
+}
+
 # Flask app
 app = Flask(__name__)
 
@@ -182,7 +189,8 @@ ROUTE_PERMISSIONS = {
     'technical': ['COPYEDIT', 'ADMIN'],
     'macro_processing': ['COPYEDIT', 'ADMIN'],
     'ppd': ['COPYEDIT', 'PPD', 'PM', 'ADMIN'],
-    'credit_extractor': ['PERMISSIONS', 'PM', 'ADMIN']
+    'credit_extractor': ['PERMISSIONS', 'PM', 'ADMIN'],
+    'word_to_xml': ['PM', 'PPD', 'ADMIN']
 }
 
 def get_user_role():
@@ -351,6 +359,203 @@ def credit_extractor():
 
     return render_template("upload_credit.html")
 
+def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, user_id, username):
+    """
+    Process Word to XML conversion job using Perl script.
+    Creates ZIP file containing original Word files and generated XML files.
+    """
+    with app.app_context():
+        import subprocess
+        
+        # Helper to update progress file
+        def update_progress(updates):
+            try:
+                p_path = os.path.join(temp_dir, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current.update(updates)
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+            except Exception as ex:
+                print(f"Progress update failed: {ex}")
+
+        # Initialize progress file
+        update_progress({
+            "total": len(file_paths),
+            "current": 0,
+            "status": "Starting conversion",
+            "folder": temp_dir
+        })
+
+        try:
+            # Path to Word to XML tools
+            wordtoxml_dir = os.path.join(BASE_DIR, "wordtoxml")
+            perl_script = os.path.join(wordtoxml_dir, "Word2XML_Books.pl")
+            
+            # Check if Perl script exists
+            if not os.path.exists(perl_script):
+                update_progress({"status": f"Failed: Perl script not found at {perl_script}"})
+                return
+
+            # Update progress
+            update_progress({
+                "current": 0,
+                "status": f"Converting {len(file_paths)} file(s) to XML"
+            })
+
+            # Execute Perl script with temp_dir as argument
+            # The Perl script expects a directory path and processes all .docx files in it
+            try:
+                result = subprocess.run(
+                    ["perl", perl_script, temp_dir],
+                    cwd=wordtoxml_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                
+                if result.returncode != 0:
+                    error_msg = result.stderr or "Unknown error during conversion"
+                    update_progress({"status": f"Failed: {error_msg}"})
+                    return
+                    
+            except subprocess.TimeoutExpired:
+                update_progress({"status": "Failed: Conversion timeout (5 minutes)"})
+                return
+            except Exception as e:
+                update_progress({"status": f"Failed: {str(e)}"})
+                return
+
+            # Check if XML files were created in html subdirectory
+            html_dir = os.path.join(temp_dir, "html")
+            if not os.path.exists(html_dir):
+                update_progress({"status": "Failed: No XML output generated"})
+                return
+
+            # Find generated XML files
+            xml_files = [f for f in os.listdir(html_dir) if f.endswith('.xml')]
+            
+            if not xml_files:
+                update_progress({"status": "Failed: No XML files found in output"})
+                return
+
+            update_progress({
+                "current": len(file_paths),
+                "status": "Creating ZIP file"
+            })
+
+            # Create ZIP file containing both Word and XML files
+            zip_path = os.path.join(temp_dir, "word_to_xml_output.zip")
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+                # Add original Word files
+                for path, orig_name in zip(file_paths, original_filenames):
+                    z.write(path, arcname=f"word/{orig_name}")
+                
+                # Add generated XML files
+                for xml_file in xml_files:
+                    xml_path = os.path.join(html_dir, xml_file)
+                    z.write(xml_path, arcname=f"xml/{xml_file}")
+
+            # Register download token
+            token = uuid.uuid4().hex
+            download_tokens[token] = {
+                "path": temp_dir,
+                "expires": _now_utc() + TOKEN_TTL,
+                "user": username,
+                "route_type": "word_to_xml"
+            }
+
+            # DB logging
+            with db_pool.get_connection() as db:
+                db.execute(
+                    '''INSERT INTO macro_processing
+                       (user_id, token, original_filenames, processed_filenames, selected_tasks, route_type)
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (
+                        user_id,
+                        token,
+                        json.dumps(original_filenames),
+                        json.dumps(["word_to_xml_output.zip"]),
+                        json.dumps({"route_type": "word_to_xml", "xml_files": xml_files}),
+                        "word_to_xml"
+                    )
+                )
+                db.commit()
+
+            update_progress({
+                "status": "Completed",
+                "download_token": token,
+                "zip_path": zip_path,
+                "xml_files_count": len(xml_files)
+            })
+
+        except Exception as e:
+            update_progress({"status": f"Failed: {str(e)}"})
+            traceback.print_exc()
+
+@app.route("/word-to-xml", methods=["GET", "POST"])
+@csrf.exempt
+@role_required(ROUTE_PERMISSIONS.get('word_to_xml', ['ADMIN']))
+def word_to_xml():
+    """Word to XML conversion route handler"""
+    if request.method == "POST":
+        files = request.files.getlist("files")
+
+        if not files or all(f.filename == "" for f in files):
+            return jsonify({"error": "No files selected"}), 400
+
+        # Validate file types
+        for f in files:
+            if f.filename and not allowed_file(f.filename):
+                return jsonify({"error": f"Invalid file type: {f.filename}. Only .doc and .docx files are allowed."}), 400
+
+        # Use token as job_id for consistency
+        token = uuid.uuid4().hex
+        job_id = token 
+        
+        # Save files synchronously before threading
+        temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], token)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        saved_paths = []
+        original_filenames = []
+        
+        try:
+            for f in files:
+                if f.filename:
+                    safe_name = secure_filename(f.filename) or f"document_{len(saved_paths)}.docx"
+                    path = os.path.join(temp_dir, safe_name)
+                    f.save(path)
+                    saved_paths.append(path)
+                    original_filenames.append(f.filename)
+        except Exception as e:
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+            return jsonify({"error": f"File save failed: {e}"}), 500
+
+        # In-memory update for same-worker immediate feedback (optional)
+        app.config.setdefault("PROGRESS_DATA", {})
+        app.config["PROGRESS_DATA"][job_id] = {
+            "total": len(saved_paths),
+            "current": 0,
+            "status": "Starting"
+        }
+
+        threading.Thread(
+            target=process_word_to_xml_job,
+            args=(job_id, temp_dir, saved_paths, original_filenames, session['user_id'], session['username']),
+            daemon=True
+        ).start()
+
+        return jsonify({"job_id": job_id})
+
+    return render_template("upload_word_to_xml.html")
+
+
 # -----------------------
 # Database Connection Pool (SQLite + Postgres)
 # -----------------------
@@ -394,6 +599,47 @@ class PostgresWrapper:
         # Return connection to pool
         if self.pool_ref:
             self.pool_ref.putconn(self.conn)
+
+class SQLiteWrapper:
+    """Wrapper for SQLite connections to provide consistent interface with PostgreSQL"""
+    def __init__(self, conn, pool_ref):
+        self.conn = conn
+        self.pool_ref = pool_ref
+        self.is_postgres = False
+
+    def execute(self, query, params=None):
+        try:
+            if params:
+                return self.conn.execute(query, params)
+            else:
+                return self.conn.execute(query)
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def fetchone(self):
+        # SQLite cursor is returned by execute
+        pass
+
+    def fetchall(self):
+        # SQLite cursor is returned by execute
+        pass
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        # Return connection to pool
+        if self.pool_ref:
+            try:
+                self.pool_ref.put(self.conn, block=False)
+            except:
+                self.conn.close()
+        else:
+            self.conn.close()
 
 class DatabasePool:
     def __init__(self, database_path, pool_size=5):
@@ -450,21 +696,25 @@ class DatabasePool:
                 # So we should close/put back here.
                 wrapper.close()
         else:
+            conn = None
+            wrapper = None
             try:
                 conn = self.pool.get(timeout=5)
-                # Monkey-patch is_postgres for compatibility checks
-                conn.is_postgres = False
-                yield conn
+                wrapper = SQLiteWrapper(conn, self.pool)
+                yield wrapper
             except Empty:
                 conn = sqlite3.connect(self.database_path, check_same_thread=False)
                 conn.row_factory = sqlite3.Row
-                conn.is_postgres = False
-                yield conn
+                wrapper = SQLiteWrapper(conn, None)
+                yield wrapper
+            except Exception:
+                if wrapper:
+                    wrapper.rollback()
+                raise
             finally:
-                try:
-                    self.pool.put(conn, block=False)
-                except:
-                    conn.close()
+                if wrapper:
+                    wrapper.close()
+
 
 db_pool = DatabasePool(DATABASE)
 
@@ -1642,18 +1892,10 @@ def ppd():
     threading.Thread(target=process_job, args=(username, current_user_id), daemon=True).start()
     return jsonify({"job_id": job_id})
 
-
-
-
 @app.route("/progress/<job_id>")
 def progress(job_id):
     # Try reading from file system first (multi-worker support)
     try:
-        # job_id is the token folder name in new implementation
-        # For backward compatibility, check if job_id is in config
-        if job_id in app.config.get("PROGRESS_DATA", {}):
-            return jsonify(app.config["PROGRESS_DATA"][job_id])
-            
         # Check file system using job_id as token
         token_path = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
         progress_path = os.path.join(token_path, "progress.json")
@@ -1661,6 +1903,11 @@ def progress(job_id):
         if os.path.exists(progress_path):
             with open(progress_path, "r") as f:
                 return jsonify(json.load(f))
+                
+        # Fallback: check if job_id is in config (legacy or very early state)
+        if job_id in app.config.get("PROGRESS_DATA", {}):
+            return jsonify(app.config["PROGRESS_DATA"][job_id])
+            
     except Exception:
         pass
         
@@ -1718,11 +1965,13 @@ def download_zip(job_id):
     # -------------------------
 
     # Return ZIP to client
+    download_filename = os.path.basename(zip_path) if zip_path else "download.zip"
+    
     return send_file(
         io.BytesIO(zip_bytes),
         mimetype="application/zip",
         as_attachment=True,
-        download_name="MSS_Review_Result.zip"
+        download_name=download_filename
     )
 
 
@@ -2168,6 +2417,32 @@ def macro_download():
 
     token_data = download_tokens.get(token)
     
+    # Check database if not in memory (multi-worker or restart scenario)
+    if not token_data:
+        try:
+            with db_pool.get_connection() as db:
+                result = db.execute(
+                    "SELECT * FROM macro_processing WHERE token = ?",
+                    (token,)
+                ).fetchone()
+                
+                if result:
+                    # Reconstruct token_data from database record
+                    token_data = {
+                        'path': os.path.join(app.config['UPLOAD_FOLDER'], token),
+                        'route_type': result['route_type'] if result['route_type'] else 'general',
+                        'user_id': result['user_id']
+                    }
+                    # Check if processing is complete
+                    if not result['errors'] or result['errors'] == '':
+                        # Assume completed if no errors recorded
+                        pass
+                    else:
+                        # Has errors, might not be ready
+                        token_data = None
+        except Exception as e:
+            app.logger.error(f"Error checking database for token {token}: {e}")
+    
     # Fallback to file system
     if not token_data:
         possible_folder = os.path.join(app.config['UPLOAD_FOLDER'], token)
@@ -2181,6 +2456,7 @@ def macro_download():
         flash("Invalid or expired download token.")
         return redirect(url_for('dashboard'))
 
+    # Skip expiry check for database-recovered tokens (they don't have 'expires' field)
     if 'expires' in token_data and is_token_expired(token_data):
         cleanup_token_data(token)
         flash("Download token has expired.")
@@ -2240,8 +2516,6 @@ def file_history():
     route_filter = request.args.get('route', 'all')
 
     with get_db() as conn:
-        cursor = conn.cursor()
-
         # Filter logic
         filter_condition = ""
         params = []
@@ -2305,7 +2579,7 @@ def file_history():
         """
 
         params.extend([per_page, offset])
-        cursor.execute(query, params)
+        cursor = conn.execute(query, params)
         history = cursor.fetchall()
 
         # Count total records for pagination
@@ -2320,7 +2594,7 @@ def file_history():
             {filter_condition}
             {user_condition}
         """
-        cursor.execute(count_query, params[:-2])  # exclude LIMIT/OFFSET
+        cursor = conn.execute(count_query, params[:-2])  # exclude LIMIT/OFFSET
         total_records = cursor.fetchone()[0]
 
     total_pages = (total_records + per_page - 1) // per_page

@@ -120,7 +120,7 @@
     {
       "id": 17,
       "username": "rajavallis",
-      "password": "pbkdf2:sha256:1000000$j2V5lXff6b7Fc04C$adb82fa9a82678f642681d6fc0d39f6acb07a5907254f679915e4079748b2ada",
+      "password": "scrypt:32768:8:1$ZKpIEAPb785VGYyv$c73c3b34a76ebdee48b3878001e5cc0fd3b000ab9ace07ef87c1869021572711f4394f96e17f7f21c9f8b504b8ccf1f5886670d8a40da8b0472b024815994ce8",
       "email": "rajavallis@s4carlisle.com",
       "is_admin": 0,
       "created_at": "2025-10-30 10:09:33",
@@ -206,6 +206,15 @@
       "is_admin": 0,
       "created_at": "2025-12-22 06:21:19",
       "role": "PPD"
+    },
+    {
+      "id": 29,
+      "username": "saranya",
+      "password": "pbkdf2:sha256:1000000$M5No4GU03n8svkqd$6b8477ebf4cd338d5a38a9890664ed925571c24e706f57dd05dab0338e3311ea",
+      "email": "saranyak@s4carlisle.com",
+      "is_admin": 0,
+      "created_at": "2026-01-21 08:21:51",
+      "role": "COPYEDIT"
     }
   ],
   "files": [
@@ -1791,7 +1800,7 @@
       "original_filename": "Duggan9781975244347-ch035.docx",
       "stored_filename": "Duggan9781975244347-ch035.docx",
       "report_filename": "Duggan9781975244347-ch035_Process_Report.txt",
-      "upload_date": "2026-01-16 11:35:42"
+      "upload_date": "2026-01-16 10:22:48"
     },
     {
       "id": 199,
@@ -1799,15 +1808,95 @@
       "original_filename": "Duggan9781975244347-ch035.docx",
       "stored_filename": "Duggan9781975244347-ch035.docx",
       "report_filename": "Duggan9781975244347-ch035_Process_Report.txt",
-      "upload_date": "2026-01-17 03:24:34"
+      "upload_date": "2026-01-16 10:24:32"
     },
     {
       "id": 200,
-      "user_id": 1,
-      "original_filename": "Duggan9781975244347-ch035.docx",
-      "stored_filename": "Duggan9781975244347-ch035.docx",
-      "report_filename": "Duggan9781975244347-ch035_Process_Report.txt",
-      "upload_date": "2026-01-17 03:27:51"
+      "user_id": 23,
+      "original_filename": "Defoor9781975252038-ch049.docx",
+      "stored_filename": "Defoor9781975252038-ch049.docx",
+      "report_filename": "Defoor9781975252038-ch049_Process_Report.txt",
+      "upload_date": "2026-01-17 06:18:31"
+    },
+    {
+      "id": 201,
+      "user_id": 23,
+      "original_filename": "Goroll9e_9781975212643-ch238.docx",
+      "stored_filename": "Goroll9e_9781975212643-ch238.docx",
+      "report_filename": "Goroll9e_9781975212643-ch238_Process_Report.txt",
+      "upload_date": "2026-01-17 09:02:57"
+    },
+    {
+      "id": 202,
+      "user_id": 3,
+      "original_filename": "Edwards9781975219314-ch018.docx",
+      "stored_filename": "Edwards9781975219314-ch018.docx",
+      "report_filename": "Edwards9781975219314-ch018_Process_Report.txt",
+      "upload_date": "2026-01-19 05:34:44"
+    },
+    {
+      "id": 203,
+      "user_id": 23,
+      "original_filename": "Edwards9781975219314-ch018.docx",
+      "stored_filename": "Edwards9781975219314-ch018.docx",
+      "report_filename": "Edwards9781975219314-ch018_Process_Report.txt",
+      "upload_date": "2026-01-19 05:36:02"
+    },
+    {
+      "id": 204,
+      "user_id": 23,
+      "original_filename": "Edwards9781975219314-ch019.docx",
+      "stored_filename": "Edwards9781975219314-ch019.docx",
+      "report_filename": "Edwards9781975219314-ch019_Process_Report.txt",
+      "upload_date": "2026-01-19 05:36:14"
+    },
+    {
+      "id": 205,
+      "user_id": 23,
+      "original_filename": "Defoor9781975252038-ch038.docx",
+      "stored_filename": "Defoor9781975252038-ch038.docx",
+      "report_filename": "Defoor9781975252038-ch038_Process_Report.txt",
+      "upload_date": "2026-01-19 05:42:12"
+    },
+    {
+      "id": 206,
+      "user_id": 23,
+      "original_filename": "Defoor9781975252038-ch049.docx",
+      "stored_filename": "Defoor9781975252038-ch049.docx",
+      "report_filename": "Defoor9781975252038-ch049_Process_Report.txt",
+      "upload_date": "2026-01-19 05:42:18"
+    },
+    {
+      "id": 207,
+      "user_id": 3,
+      "original_filename": "Goroll9e_9781975212643-ch238.docx",
+      "stored_filename": "Goroll9e_9781975212643-ch238.docx",
+      "report_filename": "Goroll9e_9781975212643-ch238_Process_Report.txt",
+      "upload_date": "2026-01-19 05:46:13"
+    },
+    {
+      "id": 208,
+      "user_id": 23,
+      "original_filename": "Defoor9781975252038-ch043.docx",
+      "stored_filename": "Defoor9781975252038-ch043.docx",
+      "report_filename": "Defoor9781975252038-ch043_Process_Report.txt",
+      "upload_date": "2026-01-19 09:05:12"
+    },
+    {
+      "id": 209,
+      "user_id": 3,
+      "original_filename": "Edwards9781975219314-ch004.docx",
+      "stored_filename": "Edwards9781975219314-ch004.docx",
+      "report_filename": "Edwards9781975219314-ch004_Process_Report.txt",
+      "upload_date": "2026-01-23 09:16:41"
+    },
+    {
+      "id": 210,
+      "user_id": 3,
+      "original_filename": "Edwards9781975219314-ch005.docx",
+      "stored_filename": "Edwards9781975219314-ch005.docx",
+      "report_filename": "Edwards9781975219314-ch005_Process_Report.txt",
+      "upload_date": "2026-01-23 09:16:46"
     }
   ],
   "validation_results": [
@@ -3588,10 +3677,10 @@
       "id": 198,
       "file_id": 198,
       "total_references": 21,
-      "total_citations": 45,
+      "total_citations": 34,
       "missing_references": "",
-      "unused_references": "",
-      "sequence_issues": "[{\"position\": 6, \"current\": 18, \"expected\": 6}, {\"position\": 7, \"current\": 6, \"expected\": 7}, {\"position\": 8, \"current\": 7, \"expected\": 8}, {\"position\": 9, \"current\": 8, \"expected\": 9}, {\"position\": 10, \"current\": 9, \"expected\": 10}, {\"position\": 11, \"current\": 19, \"expected\": 11}, {\"position\": 12, \"current\": 21, \"expected\": 12}, {\"position\": 13, \"current\": 10, \"expected\": 13}, {\"position\": 14, \"current\": 11, \"expected\": 14}, {\"position\": 15, \"current\": 12, \"expected\": 15}, {\"position\": 16, \"current\": 13, \"expected\": 16}, {\"position\": 17, \"current\": 14, \"expected\": 17}, {\"position\": 18, \"current\": 15, \"expected\": 18}, {\"position\": 19, \"current\": 16, \"expected\": 19}, {\"position\": 20, \"current\": 17, \"expected\": 20}, {\"position\": 21, \"current\": 20, \"expected\": 21}]"
+      "unused_references": "19, 21",
+      "sequence_issues": "[{\"position\": 6, \"current\": 18, \"expected\": 6}, {\"position\": 7, \"current\": 6, \"expected\": 7}, {\"position\": 8, \"current\": 7, \"expected\": 8}, {\"position\": 9, \"current\": 8, \"expected\": 9}, {\"position\": 10, \"current\": 9, \"expected\": 10}, {\"position\": 11, \"current\": 10, \"expected\": 11}, {\"position\": 12, \"current\": 11, \"expected\": 12}, {\"position\": 13, \"current\": 12, \"expected\": 13}, {\"position\": 14, \"current\": 13, \"expected\": 14}, {\"position\": 15, \"current\": 14, \"expected\": 15}, {\"position\": 16, \"current\": 15, \"expected\": 16}, {\"position\": 17, \"current\": 16, \"expected\": 17}, {\"position\": 18, \"current\": 17, \"expected\": 18}, {\"position\": 19, \"current\": 20, \"expected\": 19}]"
     },
     {
       "id": 199,
@@ -3605,11 +3694,101 @@
     {
       "id": 200,
       "file_id": 200,
-      "total_references": 21,
-      "total_citations": 45,
+      "total_references": 0,
+      "total_citations": 0,
       "missing_references": "",
       "unused_references": "",
-      "sequence_issues": "[{\"position\": 6, \"current\": 18, \"expected\": 6}, {\"position\": 7, \"current\": 6, \"expected\": 7}, {\"position\": 8, \"current\": 7, \"expected\": 8}, {\"position\": 9, \"current\": 8, \"expected\": 9}, {\"position\": 10, \"current\": 9, \"expected\": 10}, {\"position\": 11, \"current\": 19, \"expected\": 11}, {\"position\": 12, \"current\": 21, \"expected\": 12}, {\"position\": 13, \"current\": 10, \"expected\": 13}, {\"position\": 14, \"current\": 11, \"expected\": 14}, {\"position\": 15, \"current\": 12, \"expected\": 15}, {\"position\": 16, \"current\": 13, \"expected\": 16}, {\"position\": 17, \"current\": 14, \"expected\": 17}, {\"position\": 18, \"current\": 15, \"expected\": 18}, {\"position\": 19, \"current\": 16, \"expected\": 19}, {\"position\": 20, \"current\": 17, \"expected\": 20}, {\"position\": 21, \"current\": 20, \"expected\": 21}]"
+      "sequence_issues": "[]"
+    },
+    {
+      "id": 201,
+      "file_id": 201,
+      "total_references": 41,
+      "total_citations": 41,
+      "missing_references": "",
+      "unused_references": "",
+      "sequence_issues": "[]"
+    },
+    {
+      "id": 202,
+      "file_id": 202,
+      "total_references": 0,
+      "total_citations": 0,
+      "missing_references": "",
+      "unused_references": "",
+      "sequence_issues": "[]"
+    },
+    {
+      "id": 203,
+      "file_id": 203,
+      "total_references": 0,
+      "total_citations": 0,
+      "missing_references": "",
+      "unused_references": "",
+      "sequence_issues": "[]"
+    },
+    {
+      "id": 204,
+      "file_id": 204,
+      "total_references": 118,
+      "total_citations": 231,
+      "missing_references": "113",
+      "unused_references": "3, 10, 17, 37, 59, 87, 97, 119",
+      "sequence_issues": "[{\"position\": 3, \"current\": 4, \"expected\": 3}, {\"position\": 4, \"current\": 5, \"expected\": 4}, {\"position\": 5, \"current\": 6, \"expected\": 5}, {\"position\": 6, \"current\": 7, \"expected\": 6}, {\"position\": 7, \"current\": 8, \"expected\": 7}, {\"position\": 8, \"current\": 9, \"expected\": 8}, {\"position\": 9, \"current\": 11, \"expected\": 9}, {\"position\": 10, \"current\": 12, \"expected\": 10}, {\"position\": 11, \"current\": 13, \"expected\": 11}, {\"position\": 12, \"current\": 14, \"expected\": 12}, {\"position\": 13, \"current\": 15, \"expected\": 13}, {\"position\": 14, \"current\": 16, \"expected\": 14}, {\"position\": 15, \"current\": 19, \"expected\": 15}, {\"position\": 16, \"current\": 20, \"expected\": 16}, {\"position\": 17, \"current\": 21, \"expected\": 17}, {\"position\": 18, \"current\": 22, \"expected\": 18}, {\"position\": 19, \"current\": 18, \"expected\": 19}, {\"position\": 20, \"current\": 23, \"expected\": 20}, {\"position\": 21, \"current\": 25, \"expected\": 21}, {\"position\": 22, \"current\": 26, \"expected\": 22}, {\"position\": 23, \"current\": 27, \"expected\": 23}, {\"position\": 24, \"current\": 28, \"expected\": 24}, {\"position\": 25, \"current\": 29, \"expected\": 25}, {\"position\": 26, \"current\": 30, \"expected\": 26}, {\"position\": 27, \"current\": 31, \"expected\": 27}, {\"position\": 28, \"current\": 32, \"expected\": 28}, {\"position\": 29, \"current\": 33, \"expected\": 29}, {\"position\": 30, \"current\": 34, \"expected\": 30}, {\"position\": 31, \"current\": 35, \"expected\": 31}, {\"position\": 32, \"current\": 24, \"expected\": 32}, {\"position\": 33, \"current\": 36, \"expected\": 33}, {\"position\": 34, \"current\": 38, \"expected\": 34}, {\"position\": 35, \"current\": 39, \"expected\": 35}, {\"position\": 36, \"current\": 40, \"expected\": 36}, {\"position\": 37, \"current\": 41, \"expected\": 37}, {\"position\": 38, \"current\": 42, \"expected\": 38}, {\"position\": 39, \"current\": 43, \"expected\": 39}, {\"position\": 40, \"current\": 44, \"expected\": 40}, {\"position\": 41, \"current\": 45, \"expected\": 41}, {\"position\": 42, \"current\": 46, \"expected\": 42}, {\"position\": 43, \"current\": 47, \"expected\": 43}, {\"position\": 44, \"current\": 48, \"expected\": 44}, {\"position\": 45, \"current\": 49, \"expected\": 45}, {\"position\": 46, \"current\": 50, \"expected\": 46}, {\"position\": 47, \"current\": 51, \"expected\": 47}, {\"position\": 48, \"current\": 52, \"expected\": 48}, {\"position\": 49, \"current\": 53, \"expected\": 49}, {\"position\": 50, \"current\": 54, \"expected\": 50}, {\"position\": 51, \"current\": 55, \"expected\": 51}, {\"position\": 52, \"current\": 56, \"expected\": 52}, {\"position\": 53, \"current\": 57, \"expected\": 53}, {\"position\": 54, \"current\": 58, \"expected\": 54}, {\"position\": 55, \"current\": 60, \"expected\": 55}, {\"position\": 56, \"current\": 61, \"expected\": 56}, {\"position\": 57, \"current\": 62, \"expected\": 57}, {\"position\": 58, \"current\": 63, \"expected\": 58}, {\"position\": 59, \"current\": 64, \"expected\": 59}, {\"position\": 60, \"current\": 65, \"expected\": 60}, {\"position\": 61, \"current\": 66, \"expected\": 61}, {\"position\": 62, \"current\": 67, \"expected\": 62}, {\"position\": 63, \"current\": 68, \"expected\": 63}, {\"position\": 64, \"current\": 69, \"expected\": 64}, {\"position\": 65, \"current\": 70, \"expected\": 65}, {\"position\": 66, \"current\": 71, \"expected\": 66}, {\"position\": 67, \"current\": 72, \"expected\": 67}, {\"position\": 68, \"current\": 73, \"expected\": 68}, {\"position\": 69, \"current\": 74, \"expected\": 69}, {\"position\": 70, \"current\": 75, \"expected\": 70}, {\"position\": 71, \"current\": 76, \"expected\": 71}, {\"position\": 72, \"current\": 77, \"expected\": 72}, {\"position\": 73, \"current\": 78, \"expected\": 73}, {\"position\": 74, \"current\": 79, \"expected\": 74}, {\"position\": 75, \"current\": 80, \"expected\": 75}, {\"position\": 76, \"current\": 81, \"expected\": 76}, {\"position\": 77, \"current\": 82, \"expected\": 77}, {\"position\": 78, \"current\": 83, \"expected\": 78}, {\"position\": 79, \"current\": 84, \"expected\": 79}, {\"position\": 80, \"current\": 85, \"expected\": 80}, {\"position\": 81, \"current\": 86, \"expected\": 81}, {\"position\": 82, \"current\": 88, \"expected\": 82}, {\"position\": 83, \"current\": 89, \"expected\": 83}, {\"position\": 84, \"current\": 90, \"expected\": 84}, {\"position\": 85, \"current\": 91, \"expected\": 85}, {\"position\": 86, \"current\": 92, \"expected\": 86}, {\"position\": 87, \"current\": 93, \"expected\": 87}, {\"position\": 88, \"current\": 94, \"expected\": 88}, {\"position\": 89, \"current\": 95, \"expected\": 89}, {\"position\": 90, \"current\": 96, \"expected\": 90}, {\"position\": 91, \"current\": 98, \"expected\": 91}, {\"position\": 92, \"current\": 99, \"expected\": 92}, {\"position\": 93, \"current\": 100, \"expected\": 93}, {\"position\": 94, \"current\": 101, \"expected\": 94}, {\"position\": 95, \"current\": 102, \"expected\": 95}, {\"position\": 96, \"current\": 103, \"expected\": 96}, {\"position\": 97, \"current\": 104, \"expected\": 97}, {\"position\": 98, \"current\": 105, \"expected\": 98}, {\"position\": 99, \"current\": 106, \"expected\": 99}, {\"position\": 100, \"current\": 107, \"expected\": 100}, {\"position\": 101, \"current\": 108, \"expected\": 101}, {\"position\": 102, \"current\": 109, \"expected\": 102}, {\"position\": 103, \"current\": 110, \"expected\": 103}, {\"position\": 104, \"current\": 111, \"expected\": 104}, {\"position\": 105, \"current\": 112, \"expected\": 105}, {\"position\": 106, \"current\": 113, \"expected\": 106}, {\"position\": 107, \"current\": 114, \"expected\": 107}, {\"position\": 108, \"current\": 115, \"expected\": 108}, {\"position\": 109, \"current\": 116, \"expected\": 109}, {\"position\": 110, \"current\": 117, \"expected\": 110}, {\"position\": 111, \"current\": 118, \"expected\": 111}]"
+    },
+    {
+      "id": 205,
+      "file_id": 205,
+      "total_references": 0,
+      "total_citations": 50,
+      "missing_references": "2019, 2020, 2021, 2022, 2023, 2024",
+      "unused_references": "",
+      "sequence_issues": "[{\"position\": 1, \"current\": 2024, \"expected\": 1}, {\"position\": 2, \"current\": 2019, \"expected\": 2}, {\"position\": 3, \"current\": 2023, \"expected\": 3}, {\"position\": 4, \"current\": 2021, \"expected\": 4}, {\"position\": 5, \"current\": 2022, \"expected\": 5}, {\"position\": 6, \"current\": 2020, \"expected\": 6}]"
+    },
+    {
+      "id": 206,
+      "file_id": 206,
+      "total_references": 0,
+      "total_citations": 0,
+      "missing_references": "",
+      "unused_references": "",
+      "sequence_issues": "[]"
+    },
+    {
+      "id": 207,
+      "file_id": 207,
+      "total_references": 41,
+      "total_citations": 41,
+      "missing_references": "",
+      "unused_references": "",
+      "sequence_issues": "[]"
+    },
+    {
+      "id": 208,
+      "file_id": 208,
+      "total_references": 0,
+      "total_citations": 114,
+      "missing_references": "2020, 2021, 2022, 2023, 2024, 2025",
+      "unused_references": "",
+      "sequence_issues": "[{\"position\": 1, \"current\": 2022, \"expected\": 1}, {\"position\": 2, \"current\": 2023, \"expected\": 2}, {\"position\": 3, \"current\": 2024, \"expected\": 3}, {\"position\": 4, \"current\": 2021, \"expected\": 4}, {\"position\": 5, \"current\": 2025, \"expected\": 5}, {\"position\": 6, \"current\": 2020, \"expected\": 6}]"
+    },
+    {
+      "id": 209,
+      "file_id": 209,
+      "total_references": 9,
+      "total_citations": 18,
+      "missing_references": "",
+      "unused_references": "",
+      "sequence_issues": "[{\"position\": 6, \"current\": 7, \"expected\": 6}, {\"position\": 7, \"current\": 6, \"expected\": 7}]"
+    },
+    {
+      "id": 210,
+      "file_id": 210,
+      "total_references": 41,
+      "total_citations": 111,
+      "missing_references": "",
+      "unused_references": "41",
+      "sequence_issues": "[{\"position\": 14, \"current\": 15, \"expected\": 14}, {\"position\": 15, \"current\": 16, \"expected\": 15}, {\"position\": 16, \"current\": 17, \"expected\": 16}, {\"position\": 17, \"current\": 18, \"expected\": 17}, {\"position\": 18, \"current\": 19, \"expected\": 18}, {\"position\": 19, \"current\": 20, \"expected\": 19}, {\"position\": 20, \"current\": 21, \"expected\": 20}, {\"position\": 21, \"current\": 22, \"expected\": 21}, {\"position\": 22, \"current\": 23, \"expected\": 22}, {\"position\": 23, \"current\": 24, \"expected\": 23}, {\"position\": 24, \"current\": 25, \"expected\": 24}, {\"position\": 25, \"current\": 26, \"expected\": 25}, {\"position\": 26, \"current\": 27, \"expected\": 26}, {\"position\": 27, \"current\": 28, \"expected\": 27}, {\"position\": 28, \"current\": 14, \"expected\": 28}]"
     }
   ],
   "macro_processing": [
@@ -9709,12 +9888,386 @@
     },
     {
       "id": 555,
-      "user_id": 1,
-      "token": "ff5ba225a34f444e812392156bf3e154",
-      "original_filenames": "[\"Edwards9781975219314-ch018.docx\", \"Edwards9781975219314-ch019.docx\"]",
-      "processed_filenames": "[\"Edwards9781975219314-ch018_Dashboard.html\", \"Edwards9781975219314-ch018_Dashboard_20260119_104129.xls\", \"Edwards9781975219314-ch019_Dashboard.html\", \"Edwards9781975219314-ch019_Dashboard_20260119_104132.xls\"]",
+      "user_id": 7,
+      "token": "9938473824f84d0ea845e7d82864cafb",
+      "original_filenames": "[\"01_Miller.docx\", \"02_Perkins.docx\", \"03_Garcia.docx\", \"04_Engelland.docx\"]",
+      "processed_filenames": "[\"01_Miller_Dashboard.html\", \"01_Miller_Dashboard_20260117_102150.xls\", \"02_Perkins_Dashboard.html\", \"02_Perkins_Dashboard_20260117_102151.xls\", \"03_Garcia_Dashboard.html\", \"03_Garcia_Dashboard_20260117_102152.xls\", \"04_Engelland_Dashboard.html\", \"04_Engelland_Dashboard_20260117_102153.xls\"]",
       "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
-      "processing_date": "2026-01-19 05:11:32",
+      "processing_date": "2026-01-17 04:51:53",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 556,
+      "user_id": 7,
+      "token": "964221f1fd764cac90c48fdde01a4e9e",
+      "original_filenames": "[\"05_Corry.docx\", \"06_Capes.docx\", \"07_Beillard.docx\", \"08_Austin.docx\", \"09_Anderson.docx\", \"10_Watson.docx\"]",
+      "processed_filenames": "[\"05_Corry_Dashboard.html\", \"05_Corry_Dashboard_20260117_102300.xls\", \"06_Capes_Dashboard.html\", \"06_Capes_Dashboard_20260117_102301.xls\", \"07_Beillard_Dashboard.html\", \"07_Beillard_Dashboard_20260117_102301.xls\", \"08_Austin_Dashboard.html\", \"08_Austin_Dashboard_20260117_102301.xls\", \"09_Anderson_Dashboard.html\", \"09_Anderson_Dashboard_20260117_102301.xls\", \"10_Watson_Dashboard.html\", \"10_Watson_Dashboard_20260117_102301.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-17 04:53:02",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 557,
+      "user_id": 11,
+      "token": "0615b6fc837647e29b1adf8786785d4d",
+      "original_filenames": "[\"Edwards9781975219314-ch018.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch018.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-17 08:38:26",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 558,
+      "user_id": 11,
+      "token": "1c0141377aa34e4bbd157530269645f9",
+      "original_filenames": "[\"Edwards9781975219314-ch019.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch019.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-17 08:43:48",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 559,
+      "user_id": 1,
+      "token": "6f29e0f44e9e42a6935fb16cb1fc210d",
+      "original_filenames": "[\"Edwards9781975219314-ch018.docx\", \"Edwards9781975219314-ch019.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch018_Dashboard.html\", \"Edwards9781975219314-ch018_Dashboard_20260119_104213.xls\", \"Edwards9781975219314-ch019_Dashboard.html\", \"Edwards9781975219314-ch019_Dashboard_20260119_104215.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 05:12:15",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 560,
+      "user_id": 3,
+      "token": "a03b53ce73ac4c12bc1840e5d1576a85",
+      "original_filenames": "[\"Edwards9781975219314-ch019.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch019.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-19 05:17:44",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 561,
+      "user_id": 3,
+      "token": "f034e14c79b64d5d91f2c1350d33133a",
+      "original_filenames": "[\"Edwards9781975219314-ch019.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch019.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-19 05:17:50",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 562,
+      "user_id": 2,
+      "token": "ad313862062f429caf0cd8fcbd3fb9bc",
+      "original_filenames": "[\"Edwards9781975219314-ch019.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch019_Dashboard.html\", \"Edwards9781975219314-ch019_Dashboard_20260119_110006.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 05:30:06",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 563,
+      "user_id": 3,
+      "token": "bcf219a5a3f74a7fb30225cbdfb4c4ad",
+      "original_filenames": "[\"Edwards9781975219314-ch018.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch018_Dashboard.html\", \"Edwards9781975219314-ch018_Dashboard_20260119_110349.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 05:33:49",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 564,
+      "user_id": 3,
+      "token": "2541d02c40de45318d096e3bdfdb6102",
+      "original_filenames": "[\"Edwards9781975219314-ch018.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch018_Dashboard.html\", \"Edwards9781975219314-ch018_Dashboard_20260119_110405.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 05:34:05",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 565,
+      "user_id": 23,
+      "token": "244ea56fda7c4381a21af47d1a02d9e7",
+      "original_filenames": "[\"Edwards9781975219314-ch018.docx\", \"Edwards9781975219314-ch019.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch018_Dashboard.html\", \"Edwards9781975219314-ch018_Dashboard_20260119_110542.xls\", \"Edwards9781975219314-ch019_Dashboard.html\", \"Edwards9781975219314-ch019_Dashboard_20260119_110543.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 05:35:43",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 566,
+      "user_id": 23,
+      "token": "84c5bea616c646b88d2416c6ecef9e55",
+      "original_filenames": "[\"Defoor9781975252038-ch038.docx\", \"Defoor9781975252038-ch049.docx\"]",
+      "processed_filenames": "[\"Defoor9781975252038-ch038_Dashboard.html\", \"Defoor9781975252038-ch038_Dashboard_20260119_111144.xls\", \"Defoor9781975252038-ch049_Dashboard.html\", \"Defoor9781975252038-ch049_Dashboard_20260119_111145.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 05:41:46",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 567,
+      "user_id": 3,
+      "token": "6b5b90d644c04c7c83bb7a8c8b44c190",
+      "original_filenames": "[\"Goroll9e_9781975212643-ch238.docx\"]",
+      "processed_filenames": "[\"Goroll9e_9781975212643-ch238_Dashboard.html\", \"Goroll9e_9781975212643-ch238_Dashboard_20260119_111446.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 05:44:46",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 568,
+      "user_id": 7,
+      "token": "46714eaaef754788a933ec2b5b4608bb",
+      "original_filenames": "[\"9781284311143_CH24.docx\", \"9781284311143_CH38.docx\", \"9781284311143_CH43.docx\", \"9781284311143_CH47.docx\", \"9781284311143_CH57.docx\"]",
+      "processed_filenames": "[\"9781284311143_CH24_Dashboard.html\", \"9781284311143_CH24_Dashboard_20260119_115137.xls\", \"9781284311143_CH38_Dashboard.html\", \"9781284311143_CH38_Dashboard_20260119_115139.xls\", \"9781284311143_CH43_Dashboard.html\", \"9781284311143_CH43_Dashboard_20260119_115142.xls\", \"9781284311143_CH47_Dashboard.html\", \"9781284311143_CH47_Dashboard_20260119_115144.xls\", \"9781284311143_CH57_Dashboard.html\", \"9781284311143_CH57_Dashboard_20260119_115148.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 06:21:48",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 569,
+      "user_id": 7,
+      "token": "fedcac8324384aadbe428cd6a30c608a",
+      "original_filenames": "[\"Complete Book.docx\"]",
+      "processed_filenames": "[\"Complete Book_Dashboard.html\", \"Complete Book_Dashboard_20260119_134441.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 08:14:41",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 570,
+      "user_id": 23,
+      "token": "906a2ad4d1014c009715e11e862be882",
+      "original_filenames": "[\"Defoor9781975252038-ch043.docx\"]",
+      "processed_filenames": "[\"Defoor9781975252038-ch043_Dashboard.html\", \"Defoor9781975252038-ch043_Dashboard_20260119_143429.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-19 09:04:29",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 571,
+      "user_id": 11,
+      "token": "64d05d7681b94607a17e931d21dfa70d",
+      "original_filenames": "[\"Howley9781975221171-ch076.docx\"]",
+      "processed_filenames": "[\"Howley9781975221171-ch076.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-20 04:24:12",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 572,
+      "user_id": 26,
+      "token": "293048991a354c308abecd8a3a98d99f",
+      "original_filenames": "[\"Chapter 27 - Disruptive- Impulse-Control-and Conduct Disorders 1-15-26.docx\", \"Chapter 24 Eating Disorders 1-15-26.docx\"]",
+      "processed_filenames": "[\"Chapter 27 - Disruptive- Impulse-Control-and Conduct Disorders 1-15-26_Dashboard.html\", \"Chapter 27 - Disruptive- Impulse-Control-and Conduct Disorders 1-15-26_Dashboard_20260120_103322.xls\", \"Chapter 24 Eating Disorders 1-15-26_Dashboard.html\", \"Chapter 24 Eating Disorders 1-15-26_Dashboard_20260120_103322.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-20 05:03:22",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 573,
+      "user_id": 11,
+      "token": "8829a87ad941409682c20c00315ca7fa",
+      "original_filenames": "[\"Walton-Fisette3E_L1070_ch09_jh.docx\"]",
+      "processed_filenames": "[\"Walton-Fisette3E_L1070_ch09_jh.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-20 06:30:42",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 574,
+      "user_id": 11,
+      "token": "aa7bd6259a324c48aff654ab2c08a45c",
+      "original_filenames": "[\"Walton-Fisette3E_L1070_ch10_jh.docx\"]",
+      "processed_filenames": "[\"Walton-Fisette3E_L1070_ch10_jh.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-20 11:03:29",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 575,
+      "user_id": 17,
+      "token": "6dc0fe55bfcc4c8d8d27be4234972c83",
+      "original_filenames": "[\"Edwards9781975219314-ch006.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch006.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-21 04:04:22",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 576,
+      "user_id": 11,
+      "token": "dc3f04d2e5384ec0a3b8a03f131627e9",
+      "original_filenames": "[\"Edwards9781975219314-ch013.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch013.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-21 06:36:50",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 577,
+      "user_id": 29,
+      "token": "d43211d2d87b427b8e3c266aa7254344",
+      "original_filenames": "[\"Defoor9781975252038-ch049.docx\"]",
+      "processed_filenames": "[\"Defoor9781975252038-ch049.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-21 09:43:07",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 578,
+      "user_id": 17,
+      "token": "0000616c7c3a4de086089109f4e2f483",
+      "original_filenames": "[\"Defoor9781975252038-app.docx\"]",
+      "processed_filenames": "[\"Defoor9781975252038-app.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 03:43:00",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 579,
+      "user_id": 11,
+      "token": "62bfbfde35fb4da2aeee48ceeaa823da",
+      "original_filenames": "[\"Walton-Fisette3E_L1070_ch11_jh.docx\"]",
+      "processed_filenames": "[\"Walton-Fisette3E_L1070_ch11_jh.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 05:59:54",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 580,
+      "user_id": 11,
+      "token": "c5ac6675e9d949b4bee9f9451b62ffd9",
+      "original_filenames": "[\"Walton-Fisette3E_L1070_ch12_jh.docx\"]",
+      "processed_filenames": "[\"Walton-Fisette3E_L1070_ch12_jh.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 06:00:37",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 581,
+      "user_id": 11,
+      "token": "7ec885bbc0444f8e8a335801a4fd2fcf",
+      "original_filenames": "[\"Walton-Fisette3E_L1070_ch13_jh.docx\"]",
+      "processed_filenames": "[\"Walton-Fisette3E_L1070_ch13_jh.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 06:01:21",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 582,
+      "user_id": 11,
+      "token": "73ebd97320ee4e2a9cbfa2993019c9f9",
+      "original_filenames": "[\"Walton-Fisette3E_L1070_ch14_jh.docx\"]",
+      "processed_filenames": "[\"Walton-Fisette3E_L1070_ch14_jh.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 06:01:55",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 583,
+      "user_id": 11,
+      "token": "69a48acba5644d7ca854c35bb7463fa4",
+      "original_filenames": "[\"Walton-Fisette3E_L1070_ch15_jh.docx\"]",
+      "processed_filenames": "[\"Walton-Fisette3E_L1070_ch15_jh.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 06:02:45",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 584,
+      "user_id": 3,
+      "token": "35945012cdc5424a827b2269d452ffb5",
+      "original_filenames": "[\"Norris9781975263492-ch003.docx\", \"Norris9781975263492-ch006.docx\"]",
+      "processed_filenames": "[\"Norris9781975263492-ch003_Dashboard.html\", \"Norris9781975263492-ch003_Dashboard_20260122_121438.xls\", \"Norris9781975263492-ch006_Dashboard.html\", \"Norris9781975263492-ch006_Dashboard_20260122_121440.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-22 06:44:40",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 585,
+      "user_id": 3,
+      "token": "d79c31bb2d9f401da97fe28107df602c",
+      "original_filenames": "[\"Norris9781975263492-ch004.docx\", \"Norris9781975263492-ch005.docx\", \"Norris9781975263492-ch007.docx\"]",
+      "processed_filenames": "[\"Norris9781975263492-ch004_Dashboard.html\", \"Norris9781975263492-ch004_Dashboard_20260122_142506.xls\", \"Norris9781975263492-ch005_Dashboard.html\", \"Norris9781975263492-ch005_Dashboard_20260122_142508.xls\", \"Norris9781975263492-ch007_Dashboard.html\", \"Norris9781975263492-ch007_Dashboard_20260122_142518.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-22 08:55:18",
+      "errors": null,
+      "route_type": "ppd"
+    },
+    {
+      "id": 586,
+      "user_id": 29,
+      "token": "e191f8d73606445c90aa766929cf9dfb",
+      "original_filenames": "[\"Defoor9781975252038-ch043.docx\"]",
+      "processed_filenames": "[\"Defoor9781975252038-ch043.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 09:41:29",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 587,
+      "user_id": 17,
+      "token": "4010af1c1f564c80863507ac001f59e1",
+      "original_filenames": "[\"Norris9781975263492-ch003.docx\"]",
+      "processed_filenames": "[\"Norris9781975263492-ch003.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-22 12:43:58",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 588,
+      "user_id": 17,
+      "token": "8bfe34940ee44f67b06cdba534ac77cf",
+      "original_filenames": "[\"Norris9781975263492-ch006.docx\"]",
+      "processed_filenames": "[\"Norris9781975263492-ch006.docx\"]",
+      "selected_tasks": "{\"route_type\": \"technical\", \"run_technical_editing\": true, \"task_indices\": [\"4\"]}",
+      "processing_date": "2026-01-23 08:12:05",
+      "errors": null,
+      "route_type": "technical"
+    },
+    {
+      "id": 589,
+      "user_id": 3,
+      "token": "b6edda764b1b424f8019ef0bc00951e5",
+      "original_filenames": "[\"Edwards9781975219314-ch004.docx\", \"Edwards9781975219314-ch005.docx\"]",
+      "processed_filenames": "[\"Edwards9781975219314-ch004_Dashboard.html\", \"Edwards9781975219314-ch004_Dashboard_20260123_144527.xls\", \"Edwards9781975219314-ch005_Dashboard.html\", \"Edwards9781975219314-ch005_Dashboard_20260123_144528.xls\"]",
+      "selected_tasks": "{\"route_type\": \"ppd\", \"task_indices\": []}",
+      "processing_date": "2026-01-23 09:15:28",
       "errors": null,
       "route_type": "ppd"
     }

@@ -8,9 +8,21 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     netcat-openbsd \
     tini \
+    perl \
+    default-jre \
+    cpanminus \
+    make \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Install Perl dependencies
+RUN cpanm --notest \
+    Archive::Zip \
+    File::Copy::Recursive \
+    File::HomeDir \
+    String::Substitution \
+    Try::Tiny
 
 # Copy requirements first for cache efficiency
 COPY requirements.txt .

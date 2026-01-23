@@ -26,6 +26,8 @@ services:
       - ./logs:/app/logs
       # Mount Macros if you need to edit them from host
       - ./S4c-Macros:/app/S4c-Macros
+      # Mount Word to XML tools
+      - ./wordtoxml:/app/wordtoxml
     networks:
       - hub_network
 
