@@ -42,9 +42,12 @@ def export_data():
             
             for row in rows:
                 vals = []
-                for val in row:
+                for key in columns:
+                    val = row[key]
                     if val is None:
                         vals.append("NULL")
+                    elif key == 'is_admin': # Handle boolean specifically
+                        vals.append('TRUE' if val else 'FALSE')
                     elif isinstance(val, (int, float)):
                         vals.append(str(val))
                     else:
@@ -53,7 +56,8 @@ def export_data():
                         vals.append(f"'{cleaned}'")
                 
                 val_str = ", ".join(vals)
-                sql = f"INSERT INTO {table} ({col_str}) VALUES ({val_str});\n"
+                # Use ON CONFLICT DO NOTHING to handle duplicates (like admin user) gracefully
+                sql = f"INSERT INTO {table} ({col_str}) VALUES ({val_str}) ON CONFLICT DO NOTHING;\n"
                 sql_file.write(sql)
 
     conn.close()
