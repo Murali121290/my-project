@@ -9,20 +9,13 @@ from flask import Flask, request, render_template_string, send_from_directory, r
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any
-try:
-    import pythoncom
-except ImportError:
-    pythoncom = None
+pythoncom = None
 from flask import Flask, request, render_template_string, send_file, redirect, url_for, jsonify
 import threading
 
 progress_data = {}
 # --- Detect optional libraries safely ---
-try:
-    import win32com.client
-    HAS_WIN32COM = True
-except Exception:
-    HAS_WIN32COM = False
+HAS_WIN32COM = False
 
 try:
     from docx import Document
@@ -401,206 +394,11 @@ class CitationAnalyzer:
         pass
 
 
-def remove_tags_keep_formatting_docx(self, doc_path):
-    """
-    Full cleanup for Word file:
-    ✔ Removes all <tags>
-    ✔ Removes leading spaces in paragraphs
-    ✔ Converts double/multiple spaces → single space
-    ✔ Removes blank lines
-    ✔ Works on ALL Word story ranges (headers, footers, textboxes, comments, footnotes)
-    """
+def remove_tags_keep_formatting_docx(doc_path):
+    pass
 
-    import re
-    try:
-        import pythoncom
-        import win32com.client
-    except ImportError:
-        return
-    pythoncom.CoInitialize()
-
-    # === Patterns ===
-    tag_patterns = [
-        r"<[^ >]+>",
-        r"</[^ >]+>",
-        r"</([0-9A-Za-z]+)>",
-        r"<([0-9A-Za-z]+)>",
-        r"<([0-9A-Za-z_-]+)[^ >]*>",
-        r"</([0-9A-Za-z_-]+)[^ >]*>",
-        r"</([0-9A-Za-z_-]+)>",
-        r"<([0-9A-Za-z_]+)>"
-    ]
-
-    word = win32com.client.Dispatch("Word.Application")
-    word.Visible = False
-    doc = word.Documents.Open(doc_path, ReadOnly=False)
-
-    try:
-        # Loop all stories
-        story_range = doc.StoryRanges
-
-        for rng in story_range:
-            current = rng
-            while current is not None:
-                text = current.Text
-                original = text
-
-                # 1️⃣ Remove all <tags>
-                for pat in tag_patterns:
-                    text = re.sub(pat, "", text)
-
-                # 2️⃣ Remove leading spaces in paragraphs
-                text = re.sub(r"(?m)^\s+", "", text)
-
-                # 3️⃣ Replace multiple spaces with single
-                text = re.sub(r" {2,}", " ", text)
-
-                # 4️⃣ Remove blank lines (empty paragraph markers)
-                text = re.sub(r"(?m)^\s*$\r?", "", text)
-
-                # Only update if changed
-                if text != original:
-                    current.Text = text
-
-                current = current.NextStoryRange
-
-        # Save the SAME file
-        doc.Save()
-
-    finally:
-        doc.Close(SaveChanges=False)
-        word.Quit()
-        pythoncom.CoUninitialize()
-
-    return doc_path
-
-
-
-
-# --- keep your remaining formatting, multilingual, and HTML helper functions here ---
-# (from your working version)
-
-try:
-    import pythoncom
-    import win32com.client
-except ImportError:
-    pythoncom = None
-    win32com = None
-import re
-
-def highlight_keywords_plus_next_word_com(doc):
-    """
-    Highlights keywords + next word in Word document using COM automation.
-    Returns:
-        True  -> at least one highlight applied
-        False -> no highlight applied
-    """
-    keywords = [
-        "Refer", "Insert", "Pick-up", "pickup", "See",
-        "COMP", "AU", "AQ", "SPU", "Compositor",
-        "Ph", "Photo", "video", "images"
-    ]
-
-    highlight_done = False
-    pattern = r'\b(' + '|'.join(re.escape(k) for k in keywords) + r')\b\s+(\S+)'
-
-    # Iterate paragraphs
-    for para in doc.Paragraphs:
-        rng = para.Range
-        text = rng.Text
-
-        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
-            start, end = match.span()
-            match_range = rng.Duplicate
-            match_range.Start = rng.Start + start
-            match_range.End = rng.Start + end
-
-            try:
-                match_range.HighlightColorIndex = 4  # wdYellow
-            except:
-                match_range.Font.HighlightColorIndex = 4
-
-            highlight_done = True   # <<-- FLAG SET
-
-    return highlight_done
-
-# ------------------------------
-# Document extraction helpers
-# ------------------------------
 def extract_with_word(doc_path: str):
-    """
-    Uses Word automation (pywin32).
-    Returns:
-        paragraphs, comments, img_count, footnotes, endnotes
-    Also:
-        Saves document ONLY IF highlights were applied.
-    """
-    pythoncom.CoInitialize()
-    word = None
-
-    try:
-        word = win32com.client.Dispatch("Word.Application")
-        word.Visible = False
-        doc = word.Documents.Open(doc_path, ReadOnly=False)
-
-        try:
-            doc.Repaginate()
-        except:
-            pass
-
-        analyzer = CitationAnalyzer()
-
-        # >>> Detect keyword highlighting
-        keyword_highlighted = highlight_keywords_plus_next_word_com(doc)
-
-        paragraphs = []
-        for para in doc.Paragraphs:
-            txt = para.Range.Text.strip('\r\x07')
-            if not txt:
-                continue
-            page_no = para.Range.Information(3)
-
-            is_highlighted = (para.Range.HighlightColorIndex != 0)
-            try:
-                # Attempt to get style name safely
-                s_name = para.Style.NameLocal
-            except:
-                s_name = ""
-
-            is_caption = analyzer.is_caption_paragraph(txt, style_name=s_name)
-
-            paragraphs.append((txt, page_no, is_caption, is_highlighted))
-
-        comments = []
-        for c in doc.Comments:
-            try:
-                comments.append((c.Author, c.Range.Text.strip('\r'), c.Scope.Information(3)))
-            except:
-                continue
-
-        img_count = doc.InlineShapes.Count + sum(1 for s in doc.Shapes if s.Type in (13, 11))
-        footnotes = doc.Footnotes.Count
-        endnotes = doc.Endnotes.Count
-
-        # >>> SAVE ONLY IF HIGHLIGHTS WERE APPLIED
-        if keyword_highlighted:
-            doc.Save()
-
-        doc.Close(SaveChanges=False)
-        word.Quit()
-
-        return paragraphs, comments, img_count, footnotes, endnotes
-
-    except Exception as e:
-        raise Exception(f"Word extraction failed: {e}")
-
-    finally:
-        if word:
-            try:
-                word.Quit()
-            except:
-                pass
-        pythoncom.CoUninitialize()
+    raise NotImplementedError("Word automation is not supported on Linux.")
 
 
 
@@ -813,95 +611,32 @@ $(document).ready(function(){
 # Helper pieces ported from VBA (best-effort)
 # ------------------------------
 def generate_formatting_html(doc_path: str, used_word: bool) -> str:
-    # Best-effort formatting scan
+    # Best-effort formatting scan using python-docx only
     rows = []
-    if used_word and HAS_WIN32COM:
-        # use Word to detect strikethrough / hidden / text boxes & section breaks
-        pythoncom.CoInitialize()
-        word = win32com.client.Dispatch("Word.Application")
-        word.Visible = False
-        doc = word.Documents.Open(doc_path, ReadOnly=True)
+    
+    if HAS_DOCX:
         try:
-            rng = doc.Content
-            # Strikethrough
-            rng.Find.ClearFormatting()
-            rng.Find.Font.StrikeThrough = True
-            rng.Find.Text = ""
-            rng.Find.Forward = True
-            rng.Find.Format = True
-            while rng.Find.Execute():
-                page = rng.Information(3)
-                rows.append(("Formatting", page, "Strikethrough", escape_html(rng.Text.strip())))
-                rng.Collapse(0)
-            # Hidden
-            rng = doc.Content
-            rng.Find.ClearFormatting()
-            rng.Find.Font.Hidden = True
-            rng.Find.Text = ""
-            rng.Find.Forward = True
-            rng.Find.Format = True
-            while rng.Find.Execute():
-                page = rng.Information(3)
-                rows.append(("Formatting", page, "Hidden", escape_html(rng.Text.strip())))
-                rng.Collapse(0)
-            # Section breaks
-            for sec in doc.Sections:
-                rows.append(("Formatting", sec.Range.Information(3), "Section Break", "(Section Break)"))
-            # Text frames: doc.Shapes
-            for shp in doc.Shapes:
-                try:
-                    if shp.Type == 17:  # msoTextBox sometimes varies; fallback to reading text
-                        anchor_page = shp.Anchor.Information(3)
-                        rows.append(("Formatting", anchor_page, "Text Frame", escape_html(shp.TextFrame.TextRange.Text.strip())))
-                except Exception:
-                    pass
-        finally:
-            doc.Close(False)
-            word.Quit()
-    else:
-        # fallback: quick heuristics using python-docx runs to find strikethrough or hidden (python-docx doesn't expose hidden)
-        if HAS_DOCX:
             doc = Document(doc_path)
             for i, p in enumerate(doc.paragraphs):
                 for run in p.runs:
                     if getattr(run.font, "strike", False):
                         rows.append(("Formatting", f"approx.{i//40+1}", "Strikethrough", escape_html(run.text)))
-            # section breaks: approximate by page breaks
-            rows.append(("Formatting", "N/A", "Note", "Nil"))
-        else:
-            rows.append(("Formatting", "N/A", "Note", "Nil"))
+            # python-docx doesn't typically expose section breaks or hidden text easily in a way consistent with Word, 
+            # so we'll skip complex formatting checks.
+        except Exception:
+            pass
 
-    # Build table HTML
+    if not rows:
+        rows.append(("Formatting", "N/A", "Note", "Detailed formatting analysis requires Word (Windows)."))
+
     html = "<table><thead><tr><th>Type</th><th>Page</th><th>Category</th><th>Details</th></tr></thead><tbody>"
-    if rows:
-        for r in rows:
-            html += f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td></tr>"
-    else:
-        html += "<tr><td colspan='4'>No formatting issues found or not detectable without Word automation.</td></tr>"
+    for r in rows:
+        html += f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td></tr>"
     html += "</tbody></table>"
     return html
 
 
-from collections import defaultdict
-try:
-    import pythoncom
-    import win32com.client
-except ImportError:
-    pass
-from docx import Document
 
-# Optional imports
-try:
-    import win32com.client
-    HAS_WIN32COM = True
-except ImportError:
-    HAS_WIN32COM = False
-
-try:
-    from docx import Document
-    HAS_DOCX = True
-except ImportError:
-    HAS_DOCX = False
 
 
 def page_ranges(pages):
@@ -930,140 +665,12 @@ except ImportError:
 
 def generate_multilingual_html(doc_path: str) -> str:
     """
-    Uses merged highlighter. Highlights directly in same file.
     Returns HTML for multilingual characters only.
     """
-    try:
-        if not HAS_WIN32COM:
-             return "<p>Multilingual analysis requires Word (Windows only).</p>"
-    except NameError:
-         return "<p>Multilingual analysis requires Word (Windows only).</p>"
-
-    pythoncom.CoInitialize()
-    word = win32com.client.Dispatch("Word.Application")
-    word.Visible = False
-
-    doc = word.Documents.Open(doc_path, ReadOnly=False)
-
-    try:
-        try:
-            doc.Repaginate()
-        except:
-            pass
-
-        # 🔥 Our new merged highlighter
-        page_map, highlighted = highlight_all_in_one(doc)
-
-        # Save only if changed
-        if highlighted:
-            doc.Save()
-
-    finally:
-        doc.Close(SaveChanges=False)
-        word.Quit()
-        pythoncom.CoUninitialize()
-
-    # Build HTML summary
-    html = "<table><thead><tr><th>Language/Type</th><th>Page</th></tr></thead><tbody>"
-    for lang, pages in page_map.items():
-        for p in sorted(pages):
-            html += f"<tr><td>{lang}</td><td>{p}</td></tr>"
-
-    if not page_map:
-        html += "<tr><td colspan='2'>No multilingual characters found</td></tr>"
-
-    html += "</tbody></table>"
-    return html
-
+    return "<p>Multilingual analysis requires Word automation (Not supported on Linux).</p>"
 
 def highlight_all_in_one(doc):
-    """
-    Performs ALL highlighting in ONE pass:
-    - Keyword next-word highlight
-    - Multilingual character highlight
-    Returns:
-        page_map: dict of multilingual pages
-        highlighted: True/False if ANY highlight was applied
-    """
-
-    keywords = [
-        "Refer", "Insert", "Pick-up", "pickup", "See",
-        "COMP", "AU", "AQ", "SPU", "Compositor",
-        "Ph", "Photo", "video", "images"
-    ]
-
-    keyword_pattern = r'\b(' + '|'.join(re.escape(k) for k in keywords) + r')\b\s+(\S+)'
-
-    multilingual_ranges = [
-        ("Chinese",      0x4E00, 0x9FFF),
-        ("Greek",        0x0370, 0x03FF),
-        ("Cyrillic",     0x0400, 0x04FF),
-        ("Hebrew",       0x0590, 0x05FF),
-        ("Arabic",       0x0600, 0x06FF),
-        ("Arabic",       0x0750, 0x077F),
-        ("Devanagari",   0x0900, 0x097F),
-        ("Japanese",     0x3040, 0x309F),
-        ("Japanese",     0x30A0, 0x30FF),
-        ("Korean",       0xAC00, 0xD7AF),
-        ("Thai",         0x0E00, 0x0E7F),
-        ("Currency",     0x20A0, 0x20CF),
-    ]
-
-    page_map = defaultdict(set)
-    highlighted = False
-
-    total_pages = doc.ComputeStatistics(2)
-
-    # SINGLE COM LOOP — MUCH FASTER
-    for para in doc.Paragraphs:
-        rng = para.Range
-        text = rng.Text
-        page_no = rng.Information(3)
-        if page_no > total_pages:
-            page_no = total_pages
-
-        # -----------------------------------
-        # 1) Keyword highlight (keyword + next word)
-        # -----------------------------------
-        for match in re.finditer(keyword_pattern, text, flags=re.IGNORECASE):
-            start, end = match.span()
-            r = rng.Duplicate
-            r.Start = rng.Start + start
-            r.End   = rng.Start + end
-
-            try:
-                r.HighlightColorIndex = 7    # Yellow
-            except:
-                r.Font.HighlightColorIndex = 7
-
-            highlighted = True
-
-        # -----------------------------------
-        # 2) Multilingual character detection
-        # -----------------------------------
-        for i, ch in enumerate(text):
-            code = ord(ch)
-
-            for lang, low, high in multilingual_ranges:
-                if low <= code <= high:
-
-                    # Highlight character
-                    char_r = rng.Duplicate
-                    char_r.Start = rng.Start + i
-                    char_r.End   = rng.Start + i + 1
-
-                    try:
-                        char_r.HighlightColorIndex = 4   # BrightGreen
-                    except:
-                        char_r.Font.HighlightColorIndex = 4
-
-                    highlighted = True
-
-                    # Add to HTML table
-                    page_map[lang].add(page_no)
-                    break
-
-    return page_map, highlighted
+    return {}, False
 
 
 

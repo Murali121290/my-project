@@ -16,20 +16,17 @@ import socket
 import time
 import threading
 import concurrent.futures
+try:
+    import psycopg2
+    from psycopg2 import pool, extras
+except ImportError:
+    psycopg2 = None
 
 # Windows/Linux Compatibility
-try:
-    import pythoncom
-    import win32com.client as win32
-    import pywintypes
-    HAS_WIN32COM = True
-except ImportError:
-    HAS_WIN32COM = False
-    class pywintypes:
-        class com_error(Exception):
-            pass
-    pythoncom = None
-    win32 = None
+# Word automation removed for Linux deployment
+HAS_WIN32COM = False
+pythoncom = None
+win32 = None
 
 from pathlib import Path
 from threading import Lock
@@ -355,177 +352,138 @@ def credit_extractor():
     return render_template("upload_credit.html")
 
 # -----------------------
-# Database Connection Pool
+# Database Connection Pool (SQLite + Postgres)
 # -----------------------
+class PostgresWrapper:
+    def __init__(self, conn, pool_ref):
+        self.conn = conn
+        self.pool_ref = pool_ref
+        self.cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        self.is_postgres = True
+
+    def execute(self, query, params=None):
+        # Translate SQLite ? placeholders to Postgres %s
+        # This is a basic regex replace; for complex queries with literal ? it might be risky, 
+        # but for this app's simple queries it's sufficient.
+        pg_query = query.replace('?', '%s')
+        
+        try:
+            if params:
+                self.cursor.execute(pg_query, params)
+            else:
+                self.cursor.execute(pg_query)
+        except Exception:
+            self.conn.rollback()
+            raise
+        return self.cursor
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.cursor.close()
+        # Return connection to pool
+        if self.pool_ref:
+            self.pool_ref.putconn(self.conn)
+
 class DatabasePool:
     def __init__(self, database_path, pool_size=5):
         self.database_path = database_path
-        self.pool = Queue(maxsize=pool_size)
         self.lock = threading.Lock()
-
-        for _ in range(pool_size):
-            conn = sqlite3.connect(database_path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA cache_size=10000")
-            self.pool.put(conn)
+        
+        self.db_host = os.environ.get('DB_HOST')
+        self.db_name = os.environ.get('DB_NAME')
+        self.db_user = os.environ.get('DB_USER')
+        self.db_pass = os.environ.get('DB_PASSWORD')
+        self.db_port = os.environ.get('DB_PORT', '5432')
+        
+        self.use_postgres = (self.db_host is not None and psycopg2 is not None)
+        
+        if self.use_postgres:
+            # Initialize Postgres Pool
+            self.pg_pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=1,
+                maxconn=pool_size,
+                host=self.db_host,
+                database=self.db_name,
+                user=self.db_user,
+                password=self.db_pass,
+                port=self.db_port
+            )
+            print(f"✅ Connected to PostgreSQL at {self.db_host}")
+        else:
+            # Initialize SQLite Pool
+            self.pool = Queue(maxsize=pool_size)
+            for _ in range(pool_size):
+                conn = sqlite3.connect(database_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                # cache_size pragma
+                self.pool.put(conn)
+            print(f"✅ using SQLite at {database_path}")
 
     @contextmanager
     def get_connection(self):
-        try:
-            conn = self.pool.get(timeout=5)
-            yield conn
-        except Empty:
-            conn = sqlite3.connect(self.database_path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            yield conn
-        finally:
+        if self.use_postgres:
+            conn = self.pg_pool.getconn()
+            wrapper = PostgresWrapper(conn, self.pg_pool)
             try:
-                self.pool.put(conn, block=False)
-            except:
-                conn.close()
-
+                yield wrapper
+            except Exception:
+                wrapper.rollback()
+                raise
+            finally:
+                # Wrapper.close() puts it back, but let's ensure safety
+                # Ideally the user calls wrapper.close()? No, the context manager should handle it.
+                # Actually, our wrapper.close() puts it back. 
+                # But typical context manager usage in this app is `with get_connection() as db: ...`
+                # So we should close/put back here.
+                wrapper.close()
+        else:
+            try:
+                conn = self.pool.get(timeout=5)
+                # Monkey-patch is_postgres for compatibility checks
+                conn.is_postgres = False
+                yield conn
+            except Empty:
+                conn = sqlite3.connect(self.database_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                conn.is_postgres = False
+                yield conn
+            finally:
+                try:
+                    self.pool.put(conn, block=False)
+                except:
+                    conn.close()
 
 db_pool = DatabasePool(DATABASE)
 
 
 # -----------------------
-# Optimized Word Processor
+# Word Processor (Disabled for Linux)
 # -----------------------
 class OptimizedDocumentProcessor:
     def __init__(self):
-        self.word = None
-        self.docs = []
-        self.macro_template_loaded = False
+        pass
 
     def __enter__(self):
-        if HAS_WIN32COM:
-            pythoncom.CoInitialize()
-            self.word = self._start_word_optimized()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._cleanup()
-
-    def _start_word_optimized(self):
-        if not HAS_WIN32COM:
-            return None
-            
-        for attempt in range(WORD_START_RETRIES):
-            try:
-                subprocess.run(["taskkill", "/f", "/im", "winword.exe"],
-                               capture_output=True, check=False)
-
-                word = win32.Dispatch("Word.Application")
-                word.Visible = False
-                word.DisplayAlerts = False
-                word.AutomationSecurity = 1
-                word.ScreenUpdating = False
-                word.Options.DoNotPromptForConvert = True
-                word.Options.ConfirmConversions = False
-                return word
-            except Exception as e:
-                if attempt == WORD_START_RETRIES - 1:
-                    raise RuntimeError(f"Failed to start Word: {e}")
-                time.sleep(1)
-
-    def _load_macro_template(self):
-        if not self.word:
-            return False
-
-        if self.macro_template_loaded:
-            return True
-
-        try:
-            macro_path = os.path.join(COMMON_MACRO_FOLDER, DEFAULT_MACRO_NAME)
-            if not os.path.exists(macro_path):
-                return False
-
-            for addin in self.word.AddIns:
-                try:
-                    if hasattr(addin, 'FullName') and addin.FullName.lower().endswith(DEFAULT_MACRO_NAME.lower()):
-                        self.macro_template_loaded = True
-                        return True
-                except:
-                    continue
-
-            self.word.AddIns.Add(macro_path, True)
-            self.macro_template_loaded = True
-            return True
-
-        except Exception as e:
-            log_errors([f"Failed to load macro template: {str(e)}"])
-            return False
+        pass
 
     def process_documents_batch(self, file_paths, selected_tasks, route_type):
-        errors = []
-
-        if not self.word:
-            return ["Word automation (macros) not supported on Linux."]
-
-        if not self._load_macro_template():
-            errors.append("Failed to load macro template")
-            return errors
-
-        route_macros = ROUTE_MACROS.get(route_type, {}).get('macros', [])
-
-        for doc_path in file_paths:
-            try:
-                abs_path = os.path.abspath(doc_path)
-                if not os.path.exists(abs_path):
-                    errors.append(f"File not found: {abs_path}")
-                    continue
-
-                doc = self.word.Documents.Open(abs_path, ReadOnly=False, AddToRecentFiles=False)
-                self.docs.append(doc)
-
-                for task_index in selected_tasks:
-                    try:
-                        idx = int(task_index)
-                        if 0 <= idx < len(route_macros):
-                            macro_name = route_macros[idx]
-                            try:
-                                self.word.Run(macro_name)
-                            except pywintypes.com_error as ce:
-                                errors.append(f"COM error running '{macro_name}': {ce}")
-                            except Exception as me:
-                                errors.append(f"Macro '{macro_name}' failed: {me}")
-                        else:
-                            errors.append(f"Invalid task index {idx} for route {route_type}")
-                    except ValueError:
-                        errors.append(f"Invalid task index: {task_index}")
-
-                try:
-                    doc.Save()
-                    doc.Close(SaveChanges=False)
-                    self.docs.remove(doc)
-                except Exception as se:
-                    errors.append(f"Failed to save document: {se}")
-
-            except Exception as doc_err:
-                errors.append(f"Document processing failed: {doc_err}")
-
-        return errors
-
-    def _cleanup(self):
-        for doc in self.docs:
-            try:
-                doc.Close(SaveChanges=False)
-            except:
-                pass
-
-        if self.word:
-            try:
-                self.word.Quit()
-            except:
-                pass
-
-        try:
-            if HAS_WIN32COM:
-                pythoncom.CoUninitialize()
-        except:
-            pass
+        return ["Word automation (macros) is not supported in this Linux environment."]
 
 
 # -----------------------
@@ -608,13 +566,7 @@ def cleanup_expired_tokens():
 
 
 def kill_word_processes():
-    if os.name != 'nt':
-        return
-    try:
-        subprocess.run(["taskkill", "/f", "/im", "winword.exe"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+    pass
 
 
 def save_uploaded_file(file, folder):
@@ -663,9 +615,12 @@ def get_db():
 def init_db():
     with app.app_context():
         with db_pool.get_connection() as db:
+            is_postgres = getattr(db, 'is_postgres', False)
+            pk_type = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+            
             # Create tables
-            db.execute('''CREATE TABLE IF NOT EXISTS users (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            db.execute(f'''CREATE TABLE IF NOT EXISTS users (
+                            id {pk_type},
                             username TEXT UNIQUE NOT NULL,
                             password TEXT NOT NULL,
                             email TEXT,
@@ -673,8 +628,8 @@ def init_db():
                             role TEXT DEFAULT 'USER',
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
 
-            db.execute('''CREATE TABLE IF NOT EXISTS files (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            db.execute(f'''CREATE TABLE IF NOT EXISTS files (
+                            id {pk_type},
                             user_id INTEGER NOT NULL,
                             original_filename TEXT NOT NULL,
                             stored_filename TEXT NOT NULL,
@@ -682,8 +637,8 @@ def init_db():
                             upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                             FOREIGN KEY (user_id) REFERENCES users(id))''')
 
-            db.execute('''CREATE TABLE IF NOT EXISTS validation_results (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            db.execute(f'''CREATE TABLE IF NOT EXISTS validation_results (
+                            id {pk_type},
                             file_id INTEGER NOT NULL,
                             total_references INTEGER,
                             total_citations INTEGER,
@@ -692,8 +647,8 @@ def init_db():
                             sequence_issues TEXT,
                             FOREIGN KEY (file_id) REFERENCES files(id))''')
 
-            db.execute('''CREATE TABLE IF NOT EXISTS macro_processing (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            db.execute(f'''CREATE TABLE IF NOT EXISTS macro_processing (
+                            id {pk_type},
                             user_id INTEGER NOT NULL,
                             token TEXT UNIQUE NOT NULL,
                             original_filenames TEXT NOT NULL,
@@ -710,26 +665,34 @@ def init_db():
                 db.execute("CREATE INDEX IF NOT EXISTS idx_files_upload_date ON files(upload_date)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_macro_user_id ON macro_processing(user_id)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_macro_route_type ON macro_processing(route_type)")
-            except sqlite3.OperationalError as e:
-                if "no such column" in str(e):
-                    print("Warning: Column doesn't exist yet, skipping index creation")
-                else:
-                    raise
+            except Exception as e:
+                # ignore specific index errors or just log
+                print(f"Index creation warning: {e}")
 
             # Create default admin
-            admin_user = db.execute("SELECT * FROM users WHERE username='admin'").fetchone()
+            admin_user = db.execute("SELECT * FROM users WHERE username=%s" if is_postgres else "SELECT * FROM users WHERE username=?", ('admin',)).fetchone()
             if not admin_user:
                 hashed_password = generate_password_hash("admin123", method='pbkdf2:sha256')
-                db.execute("INSERT INTO users (username,password,email,is_admin) VALUES (?,?,?,?)",
-                           ('admin', hashed_password, 'admin@example.com', True))
+                query = "INSERT INTO users (username,password,email,is_admin) VALUES (%s,%s,%s,%s)" if is_postgres else "INSERT INTO users (username,password,email,is_admin) VALUES (?,?,?,?)"
+                db.execute(query, ('admin', hashed_password, 'admin@example.com', True))
                 db.commit()
 
 def migrate_add_role_column():
     """Ensure the 'role' column exists for legacy DBs."""
     try:
         with db_pool.get_connection() as db:
-            cur = db.execute("PRAGMA table_info(users)")
-            cols = [r["name"] for r in cur.fetchall()]
+            is_postgres = getattr(db, 'is_postgres', False)
+            
+            cols = []
+            if is_postgres:
+                # Postgres check
+                cur = db.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")
+                cols = [r[0] for r in cur.fetchall()]
+            else:
+                # SQLite check
+                cur = db.execute("PRAGMA table_info(users)")
+                cols = [r["name"] for r in cur.fetchall()]
+
             if "role" not in cols:
                 db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'USER'")
                 db.commit()
@@ -1306,167 +1269,9 @@ def html_to_excel_no_images(html_path, output_dir):
 # Generic Route Handler
 # -----------------------
 def _process_macro_request(route_type):
-    """
-    Generic handler for macro routes. Accepts files from form field 'word_files[]'
-    and task indices from 'tasks[]'. Processes documents using OptimizedDocumentProcessor
-    (protected by WORD_LOCK), then if route_type == 'ppd' converts any produced HTML
-    files in the output folder to .xls (images removed).
-    Thread-safe access to download_tokens is used via download_tokens_lock.
-    """
-    word_files = request.files.getlist('word_files[]')
-    selected_tasks = request.form.getlist('tasks[]')
-    user_id = session.get('user_id')
-    username = session.get('username', 'unknown')
-
-    if not word_files or not selected_tasks:
-        flash("Please upload files and select at least one task.")
-        return redirect(url_for(route_type))
-
-    token = uuid.uuid4().hex
-    unique_folder = os.path.join(app.config['UPLOAD_FOLDER'], token)
-    os.makedirs(unique_folder, exist_ok=True)
-
-    # Register download token (thread-safe)
-    try:
-        with download_tokens_lock:
-            download_tokens[token] = {
-                'path': unique_folder,
-                'expires': _now_utc() + TOKEN_TTL,
-                'user': username,
-                'route_type': route_type
-            }
-    except NameError:
-        # If the lock isn't present for some reason, fall back (but warn)
-        download_tokens[token] = {
-            'path': unique_folder,
-            'expires': _now_utc() + TOKEN_TTL,
-            'user': username,
-            'route_type': route_type
-        }
-
-    word_paths = []
-    original_filenames = []
-
-    for f in word_files:
-        if f and allowed_file(f.filename):
-            filename = secure_filename(f.filename)
-            save_path = os.path.join(unique_folder, filename)
-            try:
-                f.save(save_path)
-                word_paths.append(save_path)
-                original_filenames.append(filename)
-            except Exception as e:
-                log_errors([f"Error saving uploaded file {filename}: {str(e)}"])
-
-    if not word_paths:
-        flash("No valid Word files uploaded.")
-        return redirect(url_for(route_type))
-
-    all_errors = []
-
-    try:
-        with WORD_LOCK:
-            with OptimizedDocumentProcessor() as processor:
-                # reuse processor.process_documents_batch to run macros and collect errors
-                try:
-                    batch_errors = processor.process_documents_batch(word_paths, selected_tasks, route_type)
-                    if batch_errors:
-                        all_errors.extend(batch_errors)
-                except Exception as e:
-                    all_errors.append(f"Batch processing failed: {str(e)}")
-                    log_errors([traceback.format_exc()])
-
-                # log processed docs
-                for doc_path in word_paths:
-                    log_activity(username, f"MACRO_PROCESS_{route_type.upper()}",
-                                 details=os.path.basename(doc_path))
-
-    except Exception as e:
-        all_errors.append(f"Processing failed: {str(e)}")
-        log_errors([traceback.format_exc()])
-
-    # -----------------------
-    # PPD-specific processing: Convert HTML outputs to Excel without images
-    # This must happen AFTER document processing completes
-    # -----------------------
-    if route_type.lower() == 'ppd':
-        try:
-            if os.path.exists(unique_folder):
-                html_files = [f for f in os.listdir(unique_folder) if f.lower().endswith(".html")]
-            else:
-                html_files = []
-
-            # debug prints can be kept or removed
-            app.logger.debug(f"PPD: found HTML files -> {html_files}")
-
-            converted_files = []
-            for file in html_files:
-                html_path = os.path.join(unique_folder, file)
-                app.logger.debug(f"PPD: converting {html_path} to Excel (no images)")
-                out_xls = html_to_excel_no_images(html_path, unique_folder)
-                if out_xls:
-                    converted_files.append(os.path.basename(out_xls))
-                else:
-                    all_errors.append(f"Failed converting {file} to Excel")
-
-            # Optionally: add converted files to processed_filenames list in DB later
-        except Exception as e:
-            error_msg = f"HTML to Excel conversion failed: {str(e)}"
-            all_errors.append(error_msg)
-            log_errors([error_msg])
-
-    # -----------------------
-    # Store in database
-    # -----------------------
-    try:
-        selected_macro_names = []
-        route_macros = ROUTE_MACROS.get(route_type, {}).get('macros', [])
-        for task_idx in selected_tasks:
-            try:
-                idx = int(task_idx)
-                if 0 <= idx < len(route_macros):
-                    selected_macro_names.append(route_macros[idx])
-            except Exception:
-                pass
-
-        # Build processed_filenames: include original filenames and any generated files in the folder
-        processed_filenames = list(original_filenames)
-        try:
-            if os.path.exists(unique_folder):
-                for root, _, files in os.walk(unique_folder):
-                    for fn in files:
-                        if fn not in processed_filenames:
-                            processed_filenames.append(fn)
-        except Exception:
-            # If walking the folder fails, we'll still save original filenames
-            pass
-
-        with db_pool.get_connection() as db:
-            db.execute('''INSERT INTO macro_processing 
-                          (user_id, token, original_filenames, processed_filenames, selected_tasks, errors, route_type)
-                          VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                       (user_id, token,
-                        json.dumps(original_filenames),
-                        json.dumps(processed_filenames),
-                        json.dumps({
-                            'route_type': route_type,
-                            'task_indices': selected_tasks,
-                            'macro_names': selected_macro_names
-                        }),
-                        json.dumps(all_errors) if all_errors else None,
-                        route_type))
-            db.commit()
-    except Exception as e:
-        log_errors([f"Error saving macro processing: {str(e)}"])
-
-    route_name = ROUTE_MACROS.get(route_type, {}).get('name', 'Processing')
-    if all_errors:
-        flash(f"{route_name} completed with some errors. Check log for details.")
-        log_errors(all_errors)
-    else:
-        flash(f"{route_name} completed successfully!")
-
-    return redirect(url_for(route_type, download_token=token))
+    # Stub function since automation is removed
+    flash("This feature relies on Microsoft Word automation and is not available.")
+    return redirect(url_for(route_type))
 
 # -----------------------
 # Routes
@@ -1546,18 +1351,19 @@ def handle_macro_route(route_type, template_name):
         flash("Please log in to continue.")
         return redirect(url_for('login'))
 
-    # Linux Compatibility Check
-    if not HAS_WIN32COM and route_type in ['language', 'macro_processing']:
-         if request.method == 'POST':
-             flash("This feature relies on Microsoft Word automation and is not available on Linux servers.", "error")
-             # Fall through to render template with error
-
-    if request.method == 'POST' and HAS_WIN32COM:
-        return _process_macro_request(route_type)
-    elif request.method == 'POST':
-        # already flashed error above
-        pass
-
+    # Linux Compatibility - Disable Macro POSTs
+    if request.method == 'POST':
+        flash("This feature relies on Microsoft Word automation and is not available on Linux servers.", "error")
+        # Can also return here if we don't want to attempt processing even if code stub exists
+        # return render_template(template_name, ...)
+        
+    # We still allow rendering the page so users can see the UI, but actions fail nicely.
+    # However, since we removed the logic, calling _process_macro_request (which we'll keep as stub) is safe-ish.
+    if request.method == 'POST':
+         # In a real scenario we might just block it.
+         pass
+         
+    # Stub config for rendering (names are fine, execution is disabled)
     download_token = request.args.get('download_token')
     route_config = ROUTE_MACROS.get(route_type, {})
 
