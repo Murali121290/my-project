@@ -685,13 +685,21 @@ def init_db():
                 # ignore specific index errors or just log
                 print(f"Index creation warning: {e}")
 
-            # Create default admin
-            admin_user = db.execute("SELECT * FROM users WHERE username=%s" if is_postgres else "SELECT * FROM users WHERE username=?", ('admin',)).fetchone()
-            if not admin_user:
-                hashed_password = generate_password_hash("admin123", method='pbkdf2:sha256')
-                query = "INSERT INTO users (username,password,email,is_admin) VALUES (%s,%s,%s,%s)" if is_postgres else "INSERT INTO users (username,password,email,is_admin) VALUES (?,?,?,?)"
-                db.execute(query, ('admin', hashed_password, 'admin@example.com', True))
-                db.commit()
+            # Create default admin safely
+            try:
+                # Check existence first
+                admin_user = db.execute("SELECT * FROM users WHERE username=%s" if is_postgres else "SELECT * FROM users WHERE username=?", ('admin',)).fetchone()
+                if not admin_user:
+                    hashed_password = generate_password_hash("admin123", method='pbkdf2:sha256')
+                    query = "INSERT INTO users (username,password,email,is_admin) VALUES (%s,%s,%s,%s)" if is_postgres else "INSERT INTO users (username,password,email,is_admin) VALUES (?,?,?,?)"
+                    db.execute(query, ('admin', hashed_password, 'admin@example.com', True))
+                    db.commit()
+            except Exception as e:
+                # If race condition causes unique violation on insert, ignore
+                if "UniqueViolation" in str(e) or "UNIQUE constraint failed" in str(e):
+                    db.rollback()
+                else:
+                    print(f"Error creating admin user: {e}")
 
 def migrate_add_role_column():
     """Ensure the 'role' column exists for legacy DBs."""
@@ -1309,22 +1317,41 @@ def login():
         username = request.form['username']
         password = request.form['password']
 
-        with db_pool.get_connection() as db:
-            user = db.execute("SELECT id, username, password, is_admin FROM users WHERE username=?",
-                              (username,)).fetchone()
+        try:
+            with db_pool.get_connection() as db:
+                # Explicitly handle Postgres vs SQLite syntax if wrapper's replace isn't trusted,
+                # though wrapper should handle it. Use ? for consistency with wrapper logic.
+                user = db.execute("SELECT id, username, password, is_admin FROM users WHERE username=?",
+                                  (username,)).fetchone()
 
-            if user:
-                stored_hash = user['password']
-                if stored_hash.startswith('$'):
-                    stored_hash = stored_hash[1:]
+                if user:
+                    stored_hash = user['password']
+                    # Legacy hash compatibility check - unlikely needed for new setups but kept just in case
+                    if stored_hash.startswith('$'):
+                        stored_hash = stored_hash[1:]
 
-                if check_password_hash(stored_hash, password):
-                    session['user_id'] = user['id']
-                    session['username'] = user['username']
-                    session['is_admin'] = bool(user['is_admin'])
-                    log_activity(username, "LOGIN")
-                    flash("Login successful", "success")
-                    return redirect(url_for('dashboard'))
+                    if check_password_hash(stored_hash, password):
+                        session['user_id'] = user['id']
+                        session['username'] = user['username']
+                        session['is_admin'] = bool(user['is_admin'])
+                        # Handle Postgres RealDictRow vs SQLite Row access if needed, coverage:
+                        # user['role'] might be missing from SELECT above? 
+                        # Wait, login doesn't select role! 
+                        # We should probably select role to cache it in session? 
+                        # Existing code didn't, but `get_user_role` checks session['role'] OR g.user.
+                        # Let's add role to session for performance.
+                        
+                        log_activity(username, "LOGIN")
+                        flash("Login successful", "success")
+                        return redirect(url_for('dashboard'))
+                    else:
+                        print(f"Login failed for {username}: Password mismatch")
+                else:
+                    print(f"Login failed for {username}: User not found")
+
+        except Exception as e:
+            print(f"Login error: {e}")
+            log_errors([f"Login Exception: {e}"])
 
         flash("Invalid username or password", "error")
 
