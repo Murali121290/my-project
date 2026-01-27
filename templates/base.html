@@ -58,6 +58,17 @@
             gap: 8px;
             align-items: center;
         }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .main-content {
+            flex: 1;
+            width: 100%;
+        }
     </style>
 </head>
 
@@ -150,7 +161,7 @@
                 </a>
 
                 <!-- PPD (roles: PPD, PM, ADMIN) -->
-                {% if current_role in ['PPD','PM','ADMIN'] %}
+                {% if current_role in ['PPD','PM','PERMISSIONS','ADMIN'] %}
                 <a href="{{ url_for('ppd') }}" class="nav-link {% if request.endpoint == 'ppd' %}active{% endif %}">
                     <i class="fas fa-magic"></i> Mss Reviews
                 </a>
@@ -187,7 +198,7 @@
                 {% endif %}
 
                 <!-- Credit Extractor (roles: PERMISSIONS, PM, ADMIN) -->
-                {% if current_role in ['PERMISSIONS', 'PM', 'ADMIN'] %}
+                {% if current_role in ['PERMISSIONS', 'PM','PPD', 'ADMIN'] %}
                 <a href="{{ url_for('credit_extractor') }}"
                     class="nav-link {% if request.endpoint == 'credit_extractor' %}active{% endif %}">
                     <i class="fas fa-file-contract"></i> Credit Extractor
@@ -261,6 +272,10 @@
 
         {% block content %}{% endblock %}
     </main>
+
+    <footer class="app-footer" style="text-align: center; padding: 20px; color: #666; font-size: 0.9rem; margin-top: auto;">
+        <p>&copy; 2026 S4Carlisle Publishing Services Pvt Ltd. All rights reserved.</p>
+    </footer>
 
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
     {% block extra_js %}{% endblock %}

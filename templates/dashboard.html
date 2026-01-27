@@ -312,7 +312,7 @@
         {% endif %}
 
         <!-- PPD Processing (PPD, PM, ADMIN) -->
-        {% if session.get('is_admin') or current_role in ['PPD', 'PM', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['PPD', 'PM', 'PERMISSIONS','ADMIN'] %}
         <a href="{{ url_for('ppd') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-magic"></i>
@@ -323,7 +323,7 @@
         {% endif %}
 
         <!-- Credit Extractor (PERMISSIONS, PM, ADMIN) -->
-        {% if session.get('is_admin') or current_role in ['PERMISSIONS', 'PM', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['PERMISSIONS','PPD', 'PM', 'ADMIN'] %}
         <a href="{{ url_for('credit_extractor') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-file-contract"></i>

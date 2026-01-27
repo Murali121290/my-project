@@ -188,8 +188,8 @@ ROUTE_PERMISSIONS = {
     'language': ['COPYEDIT', 'ADMIN'],
     'technical': ['COPYEDIT', 'ADMIN'],
     'macro_processing': ['COPYEDIT', 'ADMIN'],
-    'ppd': ['COPYEDIT', 'PPD', 'PM', 'ADMIN'],
-    'credit_extractor': ['PERMISSIONS', 'PM', 'ADMIN'],
+    'ppd': ['PERMISSIONS','COPYEDIT', 'PPD', 'PM', 'ADMIN'],
+    'credit_extractor': ['PERMISSIONS', 'PM', 'PPD','ADMIN'],
     'word_to_xml': ['PM', 'PPD', 'ADMIN']
 }
 
