@@ -394,6 +394,18 @@ sudo chmod -R 777 S4C-Processed-Documents reports logs
 sudo chown -R 1000:1000 certbot/
 ```
 
+### Git SSL Verification Failed
+If you see `server certificate verification failed` when pulling:
+```bash
+# Option 1: Update certificates (Recommended)
+sudo apt-get update && sudo apt-get install --reinstall ca-certificates
+
+# Option 2: Disable verification temporarily
+git config http.sslVerify false
+git pull origin main
+git config http.sslVerify true
+```
+
 ---
 
 ## 9. Important Notes

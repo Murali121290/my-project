@@ -334,7 +334,7 @@
         {% endif %}
 
         <!-- Word to XML (PM, PPD, ADMIN) -->
-        {% if session.get('is_admin') or current_role in ['PM', 'PPD', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['ADMIN'] %}
         <a href="{{ url_for('word_to_xml') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-file-code"></i>

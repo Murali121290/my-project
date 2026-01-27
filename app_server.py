@@ -190,7 +190,7 @@ ROUTE_PERMISSIONS = {
     'macro_processing': ['COPYEDIT', 'ADMIN'],
     'ppd': ['PERMISSIONS','COPYEDIT', 'PPD', 'PM', 'ADMIN'],
     'credit_extractor': ['PERMISSIONS', 'PM', 'PPD','ADMIN'],
-    'word_to_xml': ['PM', 'PPD', 'ADMIN']
+    'word_to_xml': ['ADMIN']
 }
 
 def get_user_role():

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S4carlisle Reference Tools - {% block title %}{% endblock %}</title>
+    <title>S4carlisle Pre-Prod-Hub - {% block title %}{% endblock %}</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/S4c.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -205,8 +205,8 @@
                 </a>
                 {% endif %}
 
-                <!-- Word to XML (roles: PM, PPD, ADMIN) -->
-                {% if current_role in ['PM', 'PPD', 'ADMIN'] %}
+                <!-- Word to XML (roles: ADMIN) -->
+                {% if current_role in ['ADMIN'] %}
                 <a href="{{ url_for('word_to_xml') }}"
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
