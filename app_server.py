@@ -925,6 +925,24 @@ def init_db():
                             route_type TEXT DEFAULT 'general',
                             FOREIGN KEY (user_id) REFERENCES users(id))''')
 
+            # --- MIGRATION: Check and Add 'route_type' to macro_processing if missing ---
+            try:
+                # Check for column existence (SQLite/Postgres agnostic check)
+                try:
+                    # Try selecting the column. If it fails, it doesn't exist.
+                    db.execute("SELECT route_type FROM macro_processing LIMIT 1")
+                except Exception:
+                     # Column missing, add it
+                     print("Migrating: Adding 'route_type' column to macro_processing table...")
+                     db.rollback() # Clear error state for Postgres
+                     alter_query = "ALTER TABLE macro_processing ADD COLUMN route_type TEXT DEFAULT 'general'"
+                     db.execute(alter_query)
+                     db.commit()
+                     print("Migration successful.")
+            except Exception as e:
+                print(f"Migration check failed (might already exist or other error): {e}")
+                db.rollback()
+
             # Create indexes for performance
             try:
                 db.execute("CREATE INDEX IF NOT EXISTS idx_files_user_id ON files(user_id)")
@@ -2275,6 +2293,14 @@ def validate_file():
                     except Exception as e:
                         log_errors([f"Failed to generate HTML report for {res.get('filename')}: {e}"])
 
+            # Save results list to disk for persistence (Fix for multi-worker)
+            try:
+                results_json_path = os.path.join(processing_dir, 'results.json')
+                with open(results_json_path, 'w', encoding='utf-8') as f:
+                     json.dump(results_list, f, default=str)
+            except Exception as e:
+                log_errors([f"Failed to save results.json: {e}"])
+
             # Register for download if we have results
             if processed_file_paths:
                 download_tokens[token] = {
@@ -2313,11 +2339,36 @@ def validate_file():
         return redirect(url_for('validate_file'))
 
     token = session.get('validation_token')
-    if not token or token not in download_tokens:
+    
+    # Check if token exists in memory, if not check disk (Fix for multi-worker)
+    data = None
+    if token:
+        if token in download_tokens:
+            data = download_tokens[token]
+        else:
+             # Try to recover from disk
+             possible_dir = os.path.join(app.config['UPLOAD_FOLDER'], token)
+             results_path = os.path.join(possible_dir, 'results.json')
+             if os.path.exists(results_path):
+                 try:
+                     with open(results_path, 'r', encoding='utf-8') as f:
+                         loaded_results = json.load(f)
+                     data = {
+                         'path': possible_dir,
+                         'results_list': loaded_results,
+                         'route_type': 'validation',
+                         'user': session.get('username', 'unknown'),
+                         'expires': datetime.now() + timedelta(hours=1)
+                     }
+                     # Restore to memory cache
+                     download_tokens[token] = data
+                 except Exception as e:
+                     log_errors([f"Failed to recover results from disk: {e}"])
+                     data = None
+
+    if not data:
         # Show upload page if no results or expired
         return render_template("upload.html")
-    
-    data = download_tokens[token]
     
     # We serve the result page. 
     # The 'download_token' logic in `macro_download` can handle the ZIP download if we pass the token.
