@@ -18,6 +18,8 @@ services:
       - DB_PORT=5432
       # If you switch app_server.py to use Postgres later, these env vars are ready
     volumes:
+      # Mount source code for hot-reloading/updates without rebuild
+      - .:/app
       # Persist SQLite Database
       - ./reference_validator.db:/app/reference_validator.db
       # Persist Uploads and Reports
