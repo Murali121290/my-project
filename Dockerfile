@@ -42,4 +42,4 @@ EXPOSE 8000
 
 # Run with Gunicorn using Tini as entrypoint
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["gunicorn", "--workers", "3", "--bind", "0.0.0.0:8000", "--timeout", "120", "app_server:app"]
+CMD ["gunicorn", "-c", "gunicorn_config.py", "app_server:app"]
