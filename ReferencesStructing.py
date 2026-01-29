@@ -111,7 +111,7 @@ def get_requests_session() -> requests.Session:
     retries = Retry(total=5, backoff_factor=1.0,
                     status_forcelist=(429, 500, 502, 503, 504),
                     allowed_methods=frozenset(['GET', 'POST', 'HEAD']))
-    adapter = HTTPAdapter(max_retries=retries)
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=25, pool_maxsize=25)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     session.headers.update({'User-Agent': 'refboth/1.0 (+https://example.org)'})
@@ -2638,7 +2638,7 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None) -> Di
 
     # Execute Futures
     print(f"Submitting {len(tasks)} references for parallel validation...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         for t in tasks:
             t['future'] = executor.submit(find_best_metadata_for_reference, t['raw_for_search'], t['style'])
             
