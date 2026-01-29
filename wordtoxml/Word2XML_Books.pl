@@ -52,12 +52,12 @@ foreach my $file (@docx)
 		my $zipname = $Doc_File;
 
 		my $File_Path=dirname(abs_path($0));
-		$File_Path=~s#\/#\\#gsi;
+		# $File_Path=~s#\/#\\#gsi;
 
-		my $Final_File="$docPath\\html\\$FileName.xml";
-		my $Comments="$docPath\\html\\Comments.html";
-		my $Footnotes="$docPath\\html\\$FileName\_Footnotes.html";
-		mkdir ("$docPath\\html") if (!-d "$docPath\\html");
+		my $Final_File="$docPath/html/$FileName.xml";
+		my $Comments="$docPath/html/Comments.html";
+		my $Footnotes="$docPath/html/$FileName\_Footnotes.html";
+		mkdir ("$docPath/html") if (!-d "$docPath/html");
 
 		print "Converting to XML $FileName...\n";
 #========================== Read ZIP File ==========================#
@@ -493,7 +493,7 @@ sub DTDvalidate
 sub ReadFile
 {
 	my ($infile, $type)=@_;
-	open (IN,"<$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
+	open (IN,"<$infile") or die "Unable to open $type file $infile";
 	undef $/; my $cont=<IN>;
 	close IN;
 	return $cont;
@@ -503,7 +503,7 @@ sub WriteFile
 	my $outfile=shift;
 	my $cont=shift;
 	my $type=shift;
-	open (OUT,">$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
+	open (OUT,">$outfile") or die "Unable to write $type file $outfile";
 	print OUT $cont;
 	close OUT;
 }

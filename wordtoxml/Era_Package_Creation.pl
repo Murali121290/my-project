@@ -532,7 +532,7 @@ print "\n\tNAV creation\n";
 		unlink("$Source_Dir/mimetype");
 		$zip->addTree($Source_Dir,'');
 		unless ( $zip->writeToFileNamed("${Dest_Epub}") == AZ_OK ) {
-			   die Win32::MsgBox("",0,"S4C");
+			   die "Error writing zip file";
 		}
 
 		open (OUT, ">$Source_Dir/mimetype");
