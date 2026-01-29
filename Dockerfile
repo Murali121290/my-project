@@ -12,17 +12,18 @@ RUN apt-get update && apt-get install -y \
     default-jre \
     cpanminus \
     make \
+    libxml-libxml-perl \
+    libarchive-zip-perl \
+    libfile-copy-recursive-perl \
+    libtry-tiny-perl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Install Perl dependencies
 RUN cpanm --notest \
-    Archive::Zip \
-    File::Copy::Recursive \
     File::HomeDir \
-    String::Substitution \
-    Try::Tiny
+    String::Substitution
 
 # Copy requirements first for cache efficiency
 COPY requirements.txt .
