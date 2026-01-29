@@ -328,7 +328,6 @@
             xhr.upload.onprogress = function (e) {
                 if (e.lengthComputable) {
                     const percent = Math.round((e.loaded / e.total) * 100);
-                    // Update all progress bars roughly together
                     selectedFiles.forEach((_, idx) => {
                         const bar = document.getElementById(`progress-${idx}`);
                         const status = document.getElementById(`status-${idx}`);
@@ -341,25 +340,23 @@
             xhr.onload = function () {
                 if (xhr.status === 200) {
                     const data = JSON.parse(xhr.responseText);
-                    if (data.success) {
+
+                    if (data.success && data.job_id) {
+                        // Switch to Polling Mode
                         selectedFiles.forEach((_, idx) => {
                             const status = document.getElementById(`status-${idx}`);
-                            if (status) status.textContent = "✅ Validated successfully";
+                            if (status) status.textContent = "Queued for processing...";
                         });
+                        pollProgress(data.job_id);
 
-                        if (data.redirect) {
-                            setTimeout(() => {
-                                window.location.href = data.redirect;
-                            }, 500);
-                            return;
-                        }
-
-                        if (data.processed_files) {
-                            showSuccess(data.processed_files);
-                        }
+                    } else if (data.success && data.redirect) {
+                        setTimeout(() => {
+                            window.location.href = data.redirect;
+                        }, 500);
+                        return;
                     } else {
                         selectedFiles.forEach((_, idx) => {
-                            document.getElementById(`status-${idx}`).textContent = "❌ " + (data.message || "Validation failed");
+                            document.getElementById(`status-${idx}`).textContent = "❌ " + (data.message || "Failed");
                         });
                         startUpload.disabled = false;
                     }
@@ -381,24 +378,64 @@
             xhr.send(formData);
         }
 
-        function showSuccess(processedFiles) {
+        function pollProgress(jobId) {
+            const timer = setInterval(() => {
+                fetch(`/progress/${jobId}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.status === 'Completed') {
+                            clearInterval(timer);
+                            selectedFiles.forEach((_, idx) => {
+                                const status = document.getElementById(`status-${idx}`);
+                                if (status) status.textContent = "✅ Processing Complete";
+
+                                // Fill bar
+                                const bar = document.getElementById(`progress-${idx}`);
+                                if (bar) bar.style.width = '100%';
+                            });
+                            showSuccess(d.download_token);
+                        } else if (d.status && d.status.startsWith('Failed')) {
+                            clearInterval(timer);
+                            selectedFiles.forEach((_, idx) => {
+                                document.getElementById(`status-${idx}`).textContent = "❌ " + d.status;
+                            });
+                            startUpload.disabled = false;
+                        } else {
+                            // Update Status
+                            if (d.status) {
+                                // If we have an index, update that specific file
+                                if (typeof d.current !== 'undefined') {
+                                    const statusEl = document.getElementById(`status-${d.current}`);
+                                    if (statusEl) statusEl.textContent = "⏳ " + d.status;
+
+                                    // Make previous files showing completed?
+                                    for (let i = 0; i < d.current; i++) {
+                                        const prevStatus = document.getElementById(`status-${i}`);
+                                        if (prevStatus && !prevStatus.textContent.includes("Completed")) {
+                                            prevStatus.textContent = "✅ Done";
+                                            document.getElementById(`progress-${i}`).style.width = '100%';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .catch(e => {
+                        console.error("Polling error", e);
+                    });
+            }, 1000);
+        }
+
+        function showSuccess(token) {
             uploadSuccess.style.display = 'block';
             downloadLinks.innerHTML = "";
 
-            if (processedFiles.length > 0) {
-                processedFiles.forEach(file => {
-                    const link = document.createElement("a");
-                    link.href = file.report_url;
-                    link.className = "btn-download";
-                    link.innerHTML = `<i class="fas fa-download"></i> ${file.filename}`;
-                    link.target = "_blank";
-                    downloadLinks.appendChild(link);
-                });
-            } else {
-                const noFiles = document.createElement("p");
-                noFiles.textContent = "No reports available.";
-                downloadLinks.appendChild(noFiles);
-            }
+            const link = document.createElement("a");
+            link.href = `/macro-download?token=${token}`;
+            link.className = "btn-download";
+            link.innerHTML = `<i class="fas fa-download"></i> Download Processed Files (ZIP)`;
+            link.target = "_blank";
+            downloadLinks.appendChild(link);
         }
     });
 </script>

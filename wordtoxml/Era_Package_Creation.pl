@@ -100,19 +100,19 @@ if (-d "$InPath/img")
 		$EpubFolder="$InPath/OUTPUT";
 	}
 	
-	my $META_INF="$EpubFolder\\META-INF";
-	my $OEBPS="$EpubFolder\\OEBPS";
+	my $META_INF="$EpubFolder/META-INF";
+	my $OEBPS="$EpubFolder/OEBPS";
 	
-	my $HtmlPath="$OEBPS\\html";
-	my $CSSPath="$OEBPS\\css";
-	my $IMGPath="$OEBPS\\img";
+	my $HtmlPath="$OEBPS/html";
+	my $CSSPath="$OEBPS/css";
+	my $IMGPath="$OEBPS/img";
 	
 	foreach ("$EpubFolder", "$META_INF", "$OEBPS", "$HtmlPath", "$CSSPath", "$IMGPath")
 	{
 		mkdir("$_");
 	}
 	#-- version 3.0
-	my $NAVPath="$OEBPS\\nav";
+	my $NAVPath="$OEBPS/nav";
 	if ($Version eq '3.0')
 	{
 		mkdir("$NAVPath");
