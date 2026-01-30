@@ -1066,5 +1066,58 @@
             searchPubMedCrossRef();
         }
     });
+
+    // Export functions
+    function exportResults(type) {
+        if (!processingResults || processingResults.length === 0) {
+            showAlert('No results to export', 'error');
+            return;
+        }
+
+        let content = '';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        let filename = `citations_${type}_${timestamp}.txt`;
+
+        if (type === 'apa') {
+            content = processingResults
+                .filter(r => r.success)
+                .map(r => r.apa)
+                .join('\n\n');
+        } else if (type === 'ama') {
+            content = processingResults
+                .filter(r => r.success)
+                .map(r => r.ama)
+                .join('\n\n');
+        } else if (type === 'all') {
+            content = processingResults.map(r => {
+                if (r.success) {
+                    return `Reference: ${r.reference}\nDOI: ${r.doi}\nAPA: ${r.apa}\nAMA: ${r.ama}\n-------------------`;
+                } else {
+                    return `Reference: ${r.reference}\nError: ${r.error}\n-------------------`;
+                }
+            }).join('\n\n');
+            filename = `citations_all_${timestamp}.txt`;
+        }
+
+        if (!content) {
+            showAlert('No valid citations found to export', 'warning');
+            return;
+        }
+
+        downloadFile(filename, content);
+    }
+
+    function downloadFile(filename, content) {
+        const element = document.createElement('a');
+        element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(content));
+        element.setAttribute('download', filename);
+
+        element.style.display = 'none';
+        document.body.appendChild(element);
+
+        element.click();
+
+        document.body.removeChild(element);
+    }
 </script>
 {% endblock %}
