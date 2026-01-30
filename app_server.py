@@ -1432,7 +1432,7 @@ def process_document(file_path):
     # DECISION:
     # 1. If Unused References exist -> ABORT renumbering.
     if before_stats["unused_references"]:
-        return doc, before_stats, before_stats, {}, "Aborted: Document validation failed due to unused references."
+        return doc, before_stats, before_stats, {}, "Failed: Document validation failed due to unused references."
 
     # 2. If Perfect -> No need.
     if before_stats["is_perfect"]:
@@ -1440,7 +1440,7 @@ def process_document(file_path):
         
     # 3. If Missing Refs -> Can't safely renumber usually
     if before_stats["missing_references"]:
-         return doc, before_stats, before_stats, {}, "Aborted: Missing references detected."
+         return doc, before_stats, before_stats, {}, "Failed: Missing references detected."
 
     # DO RENUMBER
     mapping = processor.renumber()
@@ -2085,6 +2085,9 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 before = {'status': 'Skipped'}
                 after = {'status': 'Skipped'}
                 mapping = {}
+                structuring_log_content = ""
+                apa_log_content = ""
+                val_msg = "Not validated"
                 
                 # -------------------------------------------------
                 # 1. Structuring
@@ -2096,7 +2099,8 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         struct_res = process_docx_file(Path(current_filepath), Path(processing_dir))
                         if struct_res.get('log_file') and struct_res.get('log_file').exists():
                             with open(struct_res.get('log_file'), 'r', encoding='utf-8') as lf:
-                                log_buffer.append(lf.read())
+                                structuring_log_content = lf.read()
+                                log_buffer.append(structuring_log_content)
                         else:
                             log_buffer.append("No structuring log generated.")
                             
@@ -2156,8 +2160,9 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         
                         # Generate text report logic
                         report_text = generate_apa_report(apa_results, filename)
+                        apa_log_content = str(report_text)
                         log_buffer.append("Report Summary:")
-                        log_buffer.append(str(report_text))
+                        log_buffer.append(apa_log_content)
                         
                         # Save
                         if comment_count > 0 or formatted_count > 0:
@@ -2183,16 +2188,52 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     f.write("\n".join(log_buffer))
                 
                 processed_file_paths.append(final_log_path) # Add log to zip
+
+                # Generate HTML Report (filename_report.html)
+                try:
+                    res = {
+                        'filename': filename,
+                        'status_msg': val_msg,
+                        'error': None,
+                        'before': before,
+                        'after': after,
+                        'mapping': mapping,
+                        'structuring_log': structuring_log_content,
+                        'apa_log': apa_log_content
+                    }
+                    
+                    # Use test_request_context to avoid "Working outside of request context" error
+                    # caused by context processors (like CSRF) or url_for in templates
+                    with app.test_request_context():
+                        # Initialize g.user to avoid AttributeError in context processors (e.g. inject_current_role)
+                        g.user = None 
+                        html_report = render_template(
+                            'result_content.html', 
+                            results_list=[res], 
+                            offline_mode=True, 
+                            now=datetime.now,
+                            token=job_id
+                        )
+                    
+                    report_filename = f"{base_name}_report.html"
+                    report_path = os.path.join(processing_dir, report_filename)
+                    with open(report_path, "w", encoding="utf-8") as rf:
+                        rf.write(html_report)
+                    
+                    processed_file_paths.append(report_path)
+                except Exception as e:
+                    log_errors([f"HTML Report generation failed for {filename}: {e}"])
+
                 
                 # Final processed doc (Single output file)
-                if not is_report_only:
-                    final_doc_name = f"{base_name}_Processed.docx"
-                    final_doc_path = os.path.join(processing_dir, final_doc_name)
-                    
-                    if os.path.abspath(current_filepath) != os.path.abspath(final_doc_path):
-                         shutil.copy2(current_filepath, final_doc_path)
-                    
-                    processed_file_paths.append(final_doc_path)
+                # Always generate processed doc regardless of options
+                final_doc_name = f"{base_name}_Processed.docx"
+                final_doc_path = os.path.join(processing_dir, final_doc_name)
+                
+                if os.path.abspath(current_filepath) != os.path.abspath(final_doc_path):
+                        shutil.copy2(current_filepath, final_doc_path)
+                
+                processed_file_paths.append(final_doc_path)
                 
                 # DB Logging (retained from original logic)
                 try:
@@ -2452,10 +2493,12 @@ def macro_download():
         with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zipf:
             for root, _, files in os.walk(user_folder):
                 for file in files:
-                    # Filter for validation route: only _Processed.docx and consolidated _log.txt
+                    # Filter for validation route: only _Processed.docx, _log.txt and _report.html
                     if route_type == 'validation':
                         lower_name = file.lower()
-                        if not (lower_name.endswith('_processed.docx') or lower_name.endswith('_log.txt')):
+                        if not (lower_name.endswith('_processed.docx') or 
+                                lower_name.endswith('_log.txt') or 
+                                lower_name.endswith('_report.html')):
                             continue
 
                     file_path = os.path.join(root, file)

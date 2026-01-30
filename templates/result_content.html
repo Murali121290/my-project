@@ -30,6 +30,7 @@
         {% if res.error %}
         <p class="error-text">Error: {{ res.error }}</p>
         {% else %}
+        {% if res.before.total_references is defined %}
         <div class="comparison-grid">
             <div class="stats-box">
                 <h4>Before Validation</h4>
@@ -95,6 +96,7 @@
                 </ul>
             </div>
         </div>
+        {% endif %}
 
         {% if res.mapping %}
         <div class="mapping-box">
