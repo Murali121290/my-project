@@ -40,7 +40,7 @@ import html
 # -------------------------
 # CONFIG
 # -------------------------
-INPUT_DOCX = Path(r"C:\Users\muraliba\Downloads\Wheeler (name & year references)\Chapter 5.docx")
+# INPUT_DOCX = Path("...") # Removed hardcoded path
 
 # Timeouts and parameters (tweakable)
 CROSSREF_TIMEOUT = 12
@@ -1242,6 +1242,145 @@ def generate_ama_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]
             segments.append((" ", None))
             segments.append((url, 'bib_url'))
 
+    return segments
+
+# -------------------------
+# Chicago Style Generator (18th Ed.)
+# -------------------------
+def generate_chicago_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]]]:
+    """
+    Generates Chicago Style (Bibliography) segments.
+    Format: Author. Title. Container. Publisher, Year.
+    """
+    ctype = item.get('type', 'journal-article')
+    date_parts = item.get('created', {}).get('date-parts') or item.get('published-print', {}).get('date-parts') or [[None]]
+    year = str(date_parts[0][0]) if date_parts[0][0] else (item.get('year') or 'n.d.')
+    
+    # helper to clean text
+    def clean_text(t):
+        if not t: return t
+        return html.unescape(t).replace('&amp;', '&')
+
+    title = clean_text((item.get('title') or ['No title available'])[0])
+    container = (item.get('container-title') or [''])[0]
+    container = clean_text(container)
+    
+    publisher = item.get('publisher', '')
+    volume = item.get('volume', '')
+    issue = item.get('issue', '')
+    pages = item.get('page', '')
+    doi = item.get('DOI', '')
+    url = item.get('URL', '')
+    
+    segments = []
+    
+    # --- Authors ---
+    authors_list = item.get('author', [])
+    if not authors_list:
+        segments.append(("Unknown authors", 'bib_unpubl'))
+    else:
+        # Chicago: First author inverted (Surname, Given), subsequent given surname.
+        limit = 10
+        count = len(authors_list)
+        subset = authors_list[:limit]
+        
+        for i, a in enumerate(subset):
+            fam = a.get('family', '').strip()
+            giv = a.get('given', '').strip()
+            
+            if i == 0:
+                segments.append((fam, 'bib_surname'))
+                if giv:
+                    segments.append((", ", None))
+                    segments.append((giv, 'bib_fname'))
+            else:
+                segments.append((", ", None))
+                if i == count - 1 and count <= limit:
+                    segments.append(("and ", None))
+                
+                if giv:
+                    segments.append((giv, 'bib_fname'))
+                    segments.append((" ", None))
+                segments.append((fam, 'bib_surname'))
+        
+        if count > limit:
+            segments.append((", et al", 'bib_etal'))
+            
+    segments.append((". ", None))
+    
+    # --- Title & Container ---
+    if ctype == 'book':
+        # Author. *Title*. Place: Publisher, Year.
+        segments.append((title, 'bib_book'))
+        segments.append((". ", None))
+        if publisher:
+            segments.append((publisher, 'bib_publisher'))
+            segments.append((", ", None))
+        segments.append((year, 'bib_year'))
+        segments.append((".", None))
+        
+    elif ctype == 'chapter' or ctype == 'book-chapter':
+        # Author. "Title." In *Book*, edited by..., pages. Pub, Year.
+        segments.append(('"', None))
+        segments.append((title, 'bib_chaptertitle'))
+        segments.append(('."', None))
+        segments.append((" In ", None))
+        segments.append((container, 'bib_book'))
+        segments.append((", ", None))
+        if pages:
+            segments.append((pages, 'bib_fpage')) 
+            segments.append((". ", None))
+        if publisher:
+            segments.append((publisher, 'bib_publisher'))
+            segments.append((", ", None))
+        segments.append((year, 'bib_year'))
+        segments.append((".", None))
+
+    elif ctype == 'web':
+        # Author. "Title." Site. Year. URL.
+        segments.append(('"', None))
+        segments.append((title, 'bib_title'))
+        segments.append(('."', None))
+        if container:
+             segments.append((" ", None))
+             segments.append((container, 'bib_journal'))
+        segments.append((". ", None))
+        segments.append((year, 'bib_year'))
+        segments.append((".", None))
+    
+    else:
+        # Journal
+        segments.append(('"', None))
+        segments.append((title, 'bib_article'))
+        segments.append(('."', None))
+        segments.append((" ", None))
+        segments.append((container, 'bib_journal'))
+        
+        if volume:
+            segments.append((" ", None))
+            segments.append((volume, 'bib_volume'))
+        if issue:
+            segments.append((", no. ", None))
+            segments.append((issue, 'bib_issue'))
+            
+        segments.append((" (", None))
+        segments.append((year, 'bib_year'))
+        segments.append(("): ", None))
+        
+        if pages:
+             segments.append((pages, 'bib_fpage'))
+        segments.append((".", None))
+
+    # --- Links ---
+    if doi:
+        segments.append((" https://doi.org/", 'bib_doi'))
+        segments.append((doi, 'bib_doi'))
+        segments.append((".", None))
+    elif url:
+         segments.append((" ", None))
+         segments.append((url, 'bib_url'))
+         segments.append((".", None))
+         
     return segments
 
 # -------------------------
@@ -2599,9 +2738,11 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None) -> Di
         if not in_ref_section:
             continue
             
-        if not style or style not in ('REF-N', 'REF-U'):
+        if not style or style not in ('REF-N', 'REF-U', 'REF'):
             if re.match(r'^\[?\d+\]?\.?', raw):
                 style = 'REF-N'
+            elif raw.startswith('REF'):
+                style = 'REF' # Heuristic if raw starts with REF? unlikely, but safety
             else:
                 style = 'REF-U'
         
@@ -2666,6 +2807,32 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None) -> Di
                     logger.error(f"Task failed for ref '{raw[:30]}...': {e}")
                     raise e
                 
+                # Validation Logic Checklist
+                # Check for missing elements in Books, edited books, etc.
+                validation_errors = []
+                if item:
+                    itype = item.get('type')
+                    # normalize type
+                    if itype in ('book', 'edited_book'):
+                         if not item.get('publisher') and not item.get('URL') and not item.get('DOI'):
+                             validation_errors.append("Publisher missing")
+                         if not item.get('year'):
+                             validation_errors.append("Year missing")
+                         if not item.get('author') and not item.get('editor'):
+                             validation_errors.append("Author/Editor missing")
+                    elif itype == 'web':
+                         if not item.get('URL'):
+                             validation_errors.append("URL missing")
+                    elif itype == 'thesis':
+                         if not item.get('publisher'): # Institution
+                             validation_errors.append("Institution missing")
+                    elif itype == 'journal-article' or itype == 'article-journal':
+                        # Journal needs Vol or DOI or Month/Day if year is recent?
+                        pass
+
+                if validation_errors:
+                    comment_text_to_add = f"Missing elements: {', '.join(validation_errors)}"
+                
                 if source == 'manual_skip':
                     source = 'manual_fallback'
                     log_lines.append(f"Detected manual type: {item.get('manual_type')}. bypassing API validation.\n")
@@ -2673,7 +2840,8 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None) -> Di
                 # Explicit handling for filtered Book/Web inputs:
                 if source in ('filtered_book_mismatch', 'filtered_web_mismatch'):
                     log_lines.append(f"Skipped API match due to {source}. Reverting to fallback styling.\n")
-                    comment_text_to_add = "Reference validation mismatch: Used standard formatting on original text."
+                    if not comment_text_to_add: 
+                        comment_text_to_add = "Reference validation mismatch: Used standard formatting on original text."
                     
                     source = 'fallback'
                     item = None 
@@ -2683,7 +2851,8 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None) -> Di
                 # Check for web conservative fallback
                 if is_original_web and item and source != 'web' and score < 0.9 and source != 'fallback':
                      log_lines.append("Low-confidence cross-type match for web reference; Reverting to fallback styling.\n")
-                     comment_text_to_add = "Low confidence API match. Applied standard formatting; please verify manually."
+                     if not comment_text_to_add:
+                        comment_text_to_add = "Low confidence API match. Applied standard formatting; please verify manually."
                      source = 'fallback'
                      item = None
                 
@@ -2826,10 +2995,12 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None) -> Di
 
                 # generate citation segments
                 if source in ('fallback', 'manual_fallback'):
-                     # Use raw_for_search (numbering removed) to prevent "1" being parsed as author.
+                     # Use raw_for_search to prevent numbering issues
                      segments = generate_fallback_citation(item, raw_for_search, style)
                 elif style == 'REF-U':
                     segments = generate_apa_citation(cr_item)
+                elif style == 'REF':
+                    segments = generate_chicago_citation(cr_item)
                 else:
                     segments = generate_ama_citation(cr_item)
                 
@@ -2966,11 +3137,6 @@ if __name__ == "__main__":
         if not input_path.exists():
             print(f"Error: File not found: {input_path}")
             exit(1)
-        INPUT_DOCX = input_path
-        process_docx_file(INPUT_DOCX)
+        process_docx_file(input_path)
     else:
-        if INPUT_DOCX and INPUT_DOCX.exists():
-            process_docx_file(INPUT_DOCX)
-        else:
-            print(f"Usage: python {Path(__file__).name} <input_docx>")
-            print(f"Or ensure default path exists: {INPUT_DOCX}")
+        print("Usage: python ReferencesStructing.py <input_docx>")

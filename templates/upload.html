@@ -188,7 +188,7 @@
         <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
             <input type="checkbox" id="reportOnlyRequest" name="report_only"
                 style="transform: scale(1.2); margin-right: 8px;">
-            Generate Report Only (Number Validation)
+            Generate Report Only (No Docx Update)
         </label>
     </div>
     <div style="margin-top: 10px;">
@@ -431,9 +431,9 @@
             downloadLinks.innerHTML = "";
 
             const link = document.createElement("a");
-            link.href = `/macro-download?token=${token}`;
+            link.href = `/download_zip/${token}`;
             link.className = "btn-download";
-            link.innerHTML = `<i class="fas fa-download"></i> Download Processed Files (ZIP)`;
+            link.innerHTML = `<i class="fas fa-download"></i> Download Reference_Process.zip`;
             link.target = "_blank";
             downloadLinks.appendChild(link);
         }

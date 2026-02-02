@@ -49,11 +49,12 @@ from docx.text.paragraph import Paragraph
 from docx.table import Table
 import difflib
 from highlighter.core_highlighter_docx import process_docx
-from ReferencesStructing import process_docx_file
+from ReferencesStructing import process_docx_file, parse_ama_reference_raw, parse_apa_reference_raw, generate_fallback_citation
 from ReferenceAPAValidation import validate_document_multi_style, insert_comments_in_document, generate_report as generate_apa_report, apply_citation_formatting
 import tempfile
 from io import BytesIO
 from extractor import extract_from_file, write_permission_log
+import bias_scanner
 
 def _now_utc():
     return datetime.now(timezone.utc)
@@ -151,6 +152,13 @@ ROUTE_MACROS['validation'] = {
     'macros': []
 }
 
+ROUTE_MACROS['bias_scan'] = {
+    'name': 'Bias Scanner',
+    'description': 'Scan documents for bias terms and generate reports',
+    'icon': 'search',
+    'macros': []
+}
+
 # Flask app
 app = Flask(__name__)
 
@@ -200,7 +208,8 @@ ROUTE_PERMISSIONS = {
     'macro_processing': ['COPYEDIT', 'ADMIN'],
     'ppd': ['PERMISSIONS','COPYEDIT', 'PPD', 'PM', 'ADMIN'],
     'credit_extractor': ['PERMISSIONS', 'PM', 'PPD','ADMIN'],
-    'word_to_xml': ['ADMIN']
+    'word_to_xml': ['ADMIN'],
+    'bias_scan': ['COPYEDIT', 'ADMIN']
 }
 
 def get_user_role():
@@ -368,6 +377,174 @@ def credit_extractor():
         return jsonify({"job_id": job_id})
 
     return render_template("upload_credit.html")
+
+def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user_id, username):
+    """
+    Process bias scanning job in background.
+    Scans documents for bias terms and creates ZIP with highlighted docs and Excel report.
+    """
+    with app.app_context():
+        # Helper to update progress file
+        def update_progress(updates):
+            try:
+                p_path = os.path.join(temp_dir, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current.update(updates)
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+            except Exception as ex:
+                print(f"Progress update failed: {ex}")
+
+        # Initialize progress file
+        update_progress({
+            "total": len(file_paths),
+            "current": 0,
+            "status": "Starting bias scan",
+            "folder": temp_dir
+        })
+
+        try:
+            # Load bias terms
+            bias_terms_path = os.path.join(BASE_DIR, "bias_terms.csv")
+            term_category_map, categories = bias_scanner.load_bias_terms(bias_terms_path)
+            
+            if not term_category_map:
+                update_progress({"status": "Failed: bias_terms.csv not found or empty"})
+                return
+
+            # Create output directories
+            word_out_dir = os.path.join(temp_dir, "word")
+            os.makedirs(word_out_dir, exist_ok=True)
+            
+            all_report_rows = []
+            
+            # Process each file
+            for idx, path in enumerate(file_paths, start=1):
+                filename = original_filenames[idx-1]
+                update_progress({
+                    "current": idx,
+                    "status": f"Scanning {filename}"
+                })
+
+                # Scan document
+                highlighted_path, report_rows = bias_scanner.scan_docx(
+                    path, 
+                    term_category_map, 
+                    word_out_dir
+                )
+                all_report_rows.extend(report_rows)
+
+            # Generate Excel report
+            excel_path = os.path.join(temp_dir, "bias_report.xlsx")
+            bias_scanner.write_excel(all_report_rows, excel_path)
+
+            # Create ZIP file
+            zip_path = os.path.join(temp_dir, "bias_scan_output.zip")
+            bias_scanner.create_zip(word_out_dir, excel_path, zip_path)
+
+            # Clean up temporary PDF files
+            bias_scanner.cleanup_pdf_files()
+
+            # Register download token
+            token = uuid.uuid4().hex
+            download_tokens[token] = {
+                "path": temp_dir,
+                "expires": _now_utc() + TOKEN_TTL,
+                "user": username,
+                "route_type": "bias_scan"
+            }
+
+            # DB logging
+            with db_pool.get_connection() as db:
+                db.execute(
+                    '''INSERT INTO macro_processing
+                       (user_id, token, original_filenames, processed_filenames, selected_tasks, route_type)
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (
+                        user_id,
+                        token,
+                        json.dumps(original_filenames),
+                        json.dumps(["bias_scan_output.zip"]),
+                        json.dumps({"route_type": "bias_scan", "terms_found": len(all_report_rows)}),
+                        "bias_scan"
+                    )
+                )
+                db.commit()
+
+            update_progress({
+                "status": "Completed",
+                "download_token": token,
+                "zip_path": zip_path,
+                "terms_found": len(all_report_rows)
+            })
+
+        except Exception as e:
+            update_progress({"status": f"Failed: {e}"})
+            traceback.print_exc()
+
+@app.route("/bias-scan", methods=["GET", "POST"])
+@csrf.exempt
+@role_required(ROUTE_PERMISSIONS.get('bias_scan', ['ADMIN']))
+def bias_scan():
+    """Bias scanner route handler"""
+    if request.method == "POST":
+        files = request.files.getlist("files")
+
+        if not files or all(f.filename == "" for f in files):
+            return jsonify({"error": "No files selected"}), 400
+
+        # Validate file types
+        for f in files:
+            if f.filename and not allowed_file(f.filename):
+                return jsonify({"error": f"Invalid file type: {f.filename}. Only .doc and .docx files are allowed."}), 400
+
+        # Use token as job_id for consistency
+        token = uuid.uuid4().hex
+        job_id = token 
+        
+        # Save files synchronously before threading
+        temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], token)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        saved_paths = []
+        original_filenames = []
+        
+        try:
+            for f in files:
+                if f.filename:
+                    safe_name = secure_filename(f.filename) or f"document_{len(saved_paths)}.docx"
+                    path = os.path.join(temp_dir, safe_name)
+                    f.save(path)
+                    saved_paths.append(path)
+                    original_filenames.append(f.filename)
+        except Exception as e:
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+            return jsonify({"error": f"File save failed: {e}"}), 500
+
+        # In-memory update for same-worker immediate feedback (optional)
+        app.config.setdefault("PROGRESS_DATA", {})
+        app.config["PROGRESS_DATA"][job_id] = {
+            "total": len(saved_paths),
+            "current": 0,
+            "status": "Starting"
+        }
+
+        threading.Thread(
+            target=process_bias_scan_job,
+            args=(job_id, temp_dir, saved_paths, original_filenames, session['user_id'], session['username']),
+            daemon=True
+        ).start()
+
+        return jsonify({"job_id": job_id})
+
+    return render_template("upload_bias.html")
+
 
 def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, user_id, username):
     """
@@ -1961,14 +2138,23 @@ def download_zip(job_id):
         possible_progress = os.path.join(possible_folder, "progress.json")
         
         if os.path.exists(possible_progress):
-            try:
-                with open(possible_progress, "r") as f:
-                    file_data = json.load(f)
-                    if file_data.get("status") == "Completed" and "zip_path" in file_data:
+            with open(possible_progress, "r") as f:
+                file_data = json.load(f)
+                if file_data.get("status") == "Completed":
+                    if "zip_path" in file_data:
                         zip_path = file_data["zip_path"]
+                    else:
+                        # Fallback check for standard zip name
+                        cand = os.path.join(possible_folder, "Reference_Process.zip")
+                        if os.path.exists(cand):
+                            zip_path = cand
+                        # Legacy fallback
+                        elif "zip_path" not in file_data:
+                            # try checking for old name just in case? 
+                            pass
+                            
+                    if zip_path:
                         folder_path = possible_folder
-            except:
-                pass
 
     if not zip_path:
         return "Not ready", 404
@@ -2062,7 +2248,6 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 
         update_progress({"status": "Initializing...", "total": len(file_paths)})
         
-        results_list = []
         processed_file_paths = []
         
         run_structuring = options.get('run_structuring', False)
@@ -2073,6 +2258,12 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
         try:
             for idx, filepath in enumerate(file_paths):
                 filename = original_filenames[idx]
+                base_name = os.path.splitext(filename)[0]
+                
+                # Create per-file output folder
+                file_output_dir = os.path.join(processing_dir, f"{base_name}_Results")
+                os.makedirs(file_output_dir, exist_ok=True)
+                
                 update_progress({"status": f"Processing {filename}...", "current": idx})
                 
                 # Consolidated Log Buffer
@@ -2081,7 +2272,9 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 log_buffer.append(f"DATE: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 log_buffer.append("="*60)
                 
+                # Work on a copy in the temp dir initially
                 current_filepath = filepath
+                
                 before = {'status': 'Skipped'}
                 after = {'status': 'Skipped'}
                 mapping = {}
@@ -2096,11 +2289,20 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     update_progress({"status": f"Structuring {filename}..."})
                     log_buffer.append("\n--- STRUCTURING ---")
                     try:
-                        struct_res = process_docx_file(Path(current_filepath), Path(processing_dir))
+                        # process_docx_file takes input and output dir
+                        # It generates _fixed.docx and _fix_log.txt in output_dir
+                        struct_res = process_docx_file(Path(current_filepath), Path(file_output_dir))
+                        
                         if struct_res.get('log_file') and struct_res.get('log_file').exists():
                             with open(struct_res.get('log_file'), 'r', encoding='utf-8') as lf:
                                 structuring_log_content = lf.read()
                                 log_buffer.append(structuring_log_content)
+                            # We absorb the log content into our main log, 
+                            # but we can also keep the individual file if user wants it.
+                            # For neatness, maybe just keep our main log? 
+                            # User asked for _log.txt, let's keep our consolidated one.
+                            # struct_res['log_file'].unlink() # Remove component log to avoid clutter?
+                            pass
                         else:
                             log_buffer.append("No structuring log generated.")
                             
@@ -2109,6 +2311,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                             log_buffer.append("Structuring successful.")
                         else:
                             log_buffer.append("Structuring failed to produce output.")
+                            
                     except Exception as e:
                         log_errors([f"Structuring error {filename}: {e}"])
                         log_buffer.append(f"Error during structuring: {e}")
@@ -2124,14 +2327,12 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         log_buffer.append(f"Result: {val_msg}")
                         log_buffer.append(f"Before Stats: {before}")
                         
-                        # Save intermediate result locally if changes happen, but don't expose as final yet
-                        # actually process_document returns a Doc object we must save if we want to keep it
                         has_citations = bool(mapping)
                         is_perfect = before.get('is_perfect', False)
                         
+                        # If validation changes things or we just need to pass the doc forward
                         if has_citations or (not is_perfect):
-                             # Save to temp
-                             temp_val_path = os.path.join(processing_dir, f"temp_val_{uuid.uuid4().hex}.docx")
+                             temp_val_path = os.path.join(file_output_dir, f"temp_val_{uuid.uuid4().hex}.docx")
                              doc.save(temp_val_path)
                              current_filepath = temp_val_path
                     except Exception as e:
@@ -2158,19 +2359,14 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         log_buffer.append(f"Comments inserted: {comment_count}")
                         log_buffer.append(f"Formatting applied: {formatted_count}")
                         
-                        # Generate text report logic
                         report_text = generate_apa_report(apa_results, filename)
                         apa_log_content = str(report_text)
-                        log_buffer.append("Report Summary:")
-                        log_buffer.append(apa_log_content)
                         
-                        # Save
                         if comment_count > 0 or formatted_count > 0:
-                            temp_ny_path = os.path.join(processing_dir, f"temp_ny_{uuid.uuid4().hex}.docx")
+                            temp_ny_path = os.path.join(file_output_dir, f"temp_ny_{uuid.uuid4().hex}.docx")
                             annotated_doc.save(temp_ny_path)
                             current_filepath = temp_ny_path
                             
-                        # Update stats if validation wasn't runs
                         if not run_validation:
                              before['total_references'] = apa_results.get('total_references', 0)
                     except Exception as e:
@@ -2178,18 +2374,18 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         log_buffer.append(f"Error during Name/Year check: {e}")
 
                 # -------------------------------------------------
-                # 4. Finalize Outputs
+                # 4. Finalize & Save Results
                 # -------------------------------------------------
-                # Consolidated Log File
-                base_name = os.path.splitext(filename)[0]
+                
+                # A. Log File
                 final_log_name = f"{base_name}_log.txt"
-                final_log_path = os.path.join(processing_dir, final_log_name)
+                final_log_path = os.path.join(file_output_dir, final_log_name)
                 with open(final_log_path, "w", encoding="utf-8") as f:
                     f.write("\n".join(log_buffer))
+                    f.write("\n\n--- Report Details ---\n")
+                    f.write(apa_log_content)
                 
-                processed_file_paths.append(final_log_path) # Add log to zip
-
-                # Generate HTML Report (filename_report.html)
+                # B. HTML Report
                 try:
                     res = {
                         'filename': filename,
@@ -2202,10 +2398,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         'apa_log': apa_log_content
                     }
                     
-                    # Use test_request_context to avoid "Working outside of request context" error
-                    # caused by context processors (like CSRF) or url_for in templates
                     with app.test_request_context():
-                        # Initialize g.user to avoid AttributeError in context processors (e.g. inject_current_role)
                         g.user = None 
                         html_report = render_template(
                             'result_content.html', 
@@ -2215,43 +2408,38 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                             token=job_id
                         )
                     
-                    report_filename = f"{base_name}_report.html"
-                    report_path = os.path.join(processing_dir, report_filename)
+                    report_filename = f"{base_name}_result.html"
+                    report_path = os.path.join(file_output_dir, report_filename)
                     with open(report_path, "w", encoding="utf-8") as rf:
                         rf.write(html_report)
-                    
-                    processed_file_paths.append(report_path)
                 except Exception as e:
                     log_errors([f"HTML Report generation failed for {filename}: {e}"])
 
-                
-                # Final processed doc (Single output file)
-                # Always generate processed doc regardless of options
-                final_doc_name = f"{base_name}_Processed.docx"
-                final_doc_path = os.path.join(processing_dir, final_doc_name)
-                
-                if os.path.abspath(current_filepath) != os.path.abspath(final_doc_path):
+                # C. Final Document (Conditionally)
+                if not is_report_only:
+                    final_doc_name = f"{base_name}_Processed.docx"
+                    final_doc_path = os.path.join(file_output_dir, final_doc_name)
+                    
+                    # Ensure we are copying the latest 'current_filepath'
+                    if os.path.abspath(current_filepath) != os.path.abspath(final_doc_path):
                         shutil.copy2(current_filepath, final_doc_path)
                 
-                processed_file_paths.append(final_doc_path)
+                # Cleanup temp intermediates in file_output_dir if any? 
+                # (We won't traverse and delete temp_* files to be safe, but OS cleans temp or we can rely on containing folder deletion)
                 
-                # DB Logging (retained from original logic)
+                # DB Logging (Simplified)
                 try:
                     with db_pool.get_connection() as db:
-                        # Insert into files
                         cursor = db.execute(
                             'INSERT INTO files (user_id, original_filename, stored_filename, report_filename) VALUES (?, ?, ?, ?)',
                             (user_id, filename, filename, final_log_name)
                         )
-                        file_id = cursor.lastrowid
-                        
-                        # Insert validation_results (simplified)
                         db.execute(
                             'INSERT INTO validation_results (file_id, total_references, total_citations, missing_references, unused_references, sequence_issues) VALUES (?, ?, ?, ?, ?, ?)',
-                            (file_id, 
+                            (cursor.lastrowid, 
                              before.get('total_references', 0),
                              before.get('total_citations', 0),
-                             "", "", "") # Skipping detailed arrays for brevity in this refactor
+                             "", "", "")
                         )
                         db.commit()
                 except Exception as ex:
@@ -2259,19 +2447,38 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
             
             # End of loop
             
-            # Create ZIP if multiple files, or just return token info
             update_progress({"status": "Finalizing..."})
             
-            # If > 1 file or user wants a container, we zip. 
-            # If 1 file + 1 log, we might still zip to keep it clean, OR just zip everything always.
-            # Original code zipped if needed (tech edit) but validation code produced lists.
-            # Let's ZIP everything for simplicity in download.
-            zip_name = f"Processed_Documents_{job_id[:8]}.zip"
+            # Create ZIP
+            zip_name = "Reference_Process.zip"
             zip_path = os.path.join(processing_dir, zip_name)
             
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
-                for p in processed_file_paths:
-                    z.write(p, arcname=os.path.basename(p))
+                # Walk through processing_dir
+                for root, dirs, files in os.walk(processing_dir):
+                    for file in files:
+                        if file == "progress.json" or file == zip_name or file.endswith(".docx"): # skip input docs in root, loop handled moved ones
+                            # Wait, input docs are in processing_dir root. Result folders are subdirs.
+                            # We want to ZIP the subdirs.
+                            pass
+                        
+                        file_abs_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(file_abs_path, processing_dir)
+                        
+                        # Include: 
+                        # 1. Anything inside a "_Results" folder
+                        # 2. Skip input files in root (checked by not having path separator?)
+                        
+                        if "_Results" in rel_path:
+                            # Cleanup temp files inside results?
+                            if file.startswith("temp_") or file.endswith("_fix_log.txt") or file.endswith("_fixed.docx"): # Structuring artifacts we might not want if we have _Processed
+                                # Logic check: _fixed.docx is the result of structuring. 
+                                # If we ran structuring but not report only, it became _Processed.docx? 
+                                # No, current_filepath became _fixed.docx. Then it was copied to _Processed.docx.
+                                # So _fixed.docx is redundant if _Processed exists.
+                                pass 
+                            
+                            z.write(file_abs_path, arcname=rel_path)
             
             # Register Download
             download_tokens[job_id] = {
@@ -2279,13 +2486,14 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 "expires": _now_utc() + TOKEN_TTL,
                 "user": username,
                 "route_type": "validation",
-                "zip_path": zip_path  # For simple download handler
+                "zip_path": zip_path
             }
             
             update_progress({
                 "status": "Completed", 
                 "download_token": job_id,
-                "current": len(file_paths)
+                "current": len(file_paths),
+                "zip_path": zip_path
             })
             
         except Exception as e:
@@ -3060,6 +3268,86 @@ def log_action_api():
         return jsonify({'status': 'logged'})
     except Exception as e:
         app.logger.error(f"Failed to log action: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/smart-format', methods=['POST'])
+def smart_format_api():
+    """
+    Heuristic formatting for non-journal references (Book, Web, Thesis)
+    when DOI/PubMed lookup fails.
+    """
+    try:
+        data = request.get_json()
+        raw_ref = data.get('reference', '').strip()
+        style = data.get('style', 'apa').lower() # 'apa' or 'ama'
+        
+        if not raw_ref:
+             return jsonify({'error': 'No reference text provided'}), 400
+             
+        # Detect Style mode for parsing
+        # (The parsing function expects raw string)
+        if style == 'ama':
+            parsed = parse_ama_reference_raw(raw_ref)
+            target_style = 'REF-N'
+        else:
+            parsed = parse_apa_reference_raw(raw_ref)
+            target_style = 'REF-U'
+            
+        # Refine type based on content if not set
+        if 'manual_type' not in parsed:
+             # simple heuristics
+             lower_ref = raw_ref.lower()
+             if 'dissertation' in lower_ref or 'thesis' in lower_ref:
+                 parsed['manual_type'] = 'thesis'
+             elif 'http' in lower_ref or 'www.' in lower_ref:
+                 parsed['manual_type'] = 'web'
+             elif 'isbn' in lower_ref:
+                 parsed['manual_type'] = 'book'
+             else:
+                 # Default to book for fallback formatting if it looks like Author. Title. Pub.
+                 parsed['manual_type'] = 'book'
+
+        # Generate segments
+        segments = generate_fallback_citation(parsed, raw_ref, style_mode=target_style)
+        
+        # Convert segments to HTML string
+        # Segments are tuples (text, style_name)
+        # We want to return a clean HTML string.
+        # Check usage in doi_finder.html -> it expects text.
+        # But for APA/AMA we might want some formatting (italics)?
+        # generate_fallback_citation returns list of (text, style).
+        # We need to render this to HTML.
+        
+        html_out = ""
+        for text, s_name in segments:
+             if s_name:
+                 # Map docx styles to HTML
+                 if s_name in ('bib_journal', 'bib_book', 'bib_title', 'bib_confproceedings'):
+                     # Italics
+                     html_out += f"<i>{text}</i>"
+                 elif s_name == 'bib_volume':
+                     if style == 'ama':
+                         # AMA volume is bold? No, usually italics or standard depending.
+                         # Let's stick to standard or minimal italics.
+                         # Actually checking standard AMA: Journal Title. Year;Volume(Issue):Pages.
+                         # ReferencesStructing logic handles punctuation.
+                         html_out += text
+                     else:
+                         # APA Volume is italic
+                         html_out += f"<i>{text}</i>"
+                 else:
+                     html_out += text
+             else:
+                 html_out += text
+                 
+        return jsonify({
+            'formatted': html_out,
+            'type': parsed.get('manual_type', 'unknown')
+        })
+
+    except Exception as e:
+        app.logger.error(f"Smart Format Error: {e}")
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route("/admin/macro-stats")

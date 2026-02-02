@@ -2767,3 +2767,38 @@
 2026-01-27 12:07:42 - muralib - LOGOUT - 
 2026-01-27 12:09:34 - muralib - LOGIN - 
 2026-01-27 12:09:44 - muralib - LOGOUT - 
+2026-01-29 12:43:22 - admin - LOGOUT - 
+2026-01-29 12:43:30 - admin - LOGIN - 
+2026-01-29 14:51:39 - admin - LOGOUT - 
+2026-01-29 14:56:23 - admin - LOGIN - 
+2026-01-29 15:09:46 - admin - LOGOUT - 
+2026-01-30 08:56:41 - admin - LOGIN - 
+2026-01-30T08:56:59.410446 - ERROR - HTML Report generation failed for ABM_16961.docx: Working outside of request context.
+
+This typically means that you attempted to use functionality that needed
+an active HTTP request. Consult the documentation on testing for
+information about how to avoid this problem.
+2026-01-30T08:58:15.605848 - ERROR - HTML Report generation failed for ABM_16961.docx: Working outside of request context.
+
+This typically means that you attempted to use functionality that needed
+an active HTTP request. Consult the documentation on testing for
+information about how to avoid this problem.
+2026-01-30T09:00:55.010037 - ERROR - HTML Report generation failed for ABM_16961.docx: user
+2026-01-30 09:43:17 - admin - LOGOUT - 
+2026-01-30 09:44:30 - admin - LOGIN - 
+2026-01-30 09:46:40 - admin - LOGOUT - 
+2026-01-30 10:33:33 - admin - LOGIN - 
+2026-01-30 10:42:17 - admin - LOGOUT - 
+2026-01-30 10:42:47 - admin - LOGIN - 
+2026-01-30 10:43:51 - admin - LOGOUT - 
+2026-01-30 11:02:26 - admin - LOGIN - 
+2026-01-30 16:18:13 - admin - LOGOUT - 
+2026-01-30 16:30:21 - admin - LOGOUT - 
+2026-01-30 16:33:48 - admin - LOGIN - 
+2026-01-30 16:36:19 - admin - LOGOUT - 
+2026-02-02 15:10:32 - admin - LOGIN - 
+2026-02-02 15:13:57 - admin - LOGOUT - 
+2026-02-02 16:40:14 - admin - LOGIN - 
+2026-02-02 16:41:28 - admin - LOGOUT - 
+2026-02-02 16:58:56 - admin - LOGIN - 
+2026-02-02 17:00:27 - admin - LOGOUT - 

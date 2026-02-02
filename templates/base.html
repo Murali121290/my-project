@@ -152,6 +152,11 @@
                     <i class="fas fa-user-plus"></i> Create User
                 </a>
 
+                <a href="{{ url_for('bias_scan') }}"
+                    class="nav-link {% if request.endpoint == 'bias_scan' %}active{% endif %}">
+                    <i class="fas fa-search"></i> Bias Scanner
+                </a>
+
                 {% elif 'user_id' in session %}
                 {# Non-admin users: show role-filtered links #}
 
@@ -210,6 +215,14 @@
                 <a href="{{ url_for('word_to_xml') }}"
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
+                </a>
+                {% endif %}
+
+                <!-- Bias Scanner (roles: COPYEDIT, ADMIN) -->
+                {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+                <a href="{{ url_for('bias_scan') }}"
+                    class="nav-link {% if request.endpoint == 'bias_scan' %}active{% endif %}">
+                    <i class="fas fa-search"></i> Bias Scanner
                 </a>
                 {% endif %}
 
@@ -273,7 +286,8 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="app-footer" style="text-align: center; padding: 20px; color: #666; font-size: 0.9rem; margin-top: auto;">
+    <footer class="app-footer"
+        style="text-align: center; padding: 20px; color: #666; font-size: 0.9rem; margin-top: auto;">
         <p>&copy; 2026 S4Carlisle Publishing Services Pvt Ltd. All rights reserved.</p>
     </footer>
 
