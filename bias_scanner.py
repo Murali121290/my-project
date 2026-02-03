@@ -240,11 +240,24 @@ def convert_to_pdf(docx_path):
     # Check for soffice
     soffice_cmd = "soffice"
     if os.name == 'nt':
-        # Check standard installation paths if not in PATH
+        # Windows: Check standard installation paths if not in PATH
         if not shutil.which("soffice"):
             possible_paths = [
                 r"C:\Program Files\LibreOffice\program\soffice.exe",
                 r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
+            ]
+            for p in possible_paths:
+                if os.path.exists(p):
+                    soffice_cmd = p
+                    break
+    else:
+        # Linux/Unix: Check standard installation paths if not in PATH
+        if not shutil.which("soffice"):
+            possible_paths = [
+                "/usr/bin/soffice",
+                "/usr/local/bin/soffice",
+                "/opt/libreoffice/program/soffice",
+                "/snap/bin/libreoffice"
             ]
             for p in possible_paths:
                 if os.path.exists(p):

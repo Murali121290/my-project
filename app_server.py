@@ -744,6 +744,102 @@ def word_to_xml():
     return render_template("upload_word_to_xml.html")
 
 
+@app.route("/progress/&lt;job_id&gt;", methods=["GET"])
+def get_progress(job_id):
+    """
+    Get progress status for a background job.
+    Reads from progress.json file in the job's temp directory.
+    """
+    try:
+        # Check in-memory progress first (for same-worker immediate feedback)
+        if job_id in app.config.get("PROGRESS_DATA", {}):
+            return jsonify(app.config["PROGRESS_DATA"][job_id])
+        
+        # Fall back to file-based progress (for multi-worker setups)
+        temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
+        progress_file = os.path.join(temp_dir, "progress.json")
+        
+        if os.path.exists(progress_file):
+            with open(progress_file, "r") as f:
+                progress_data = json.load(f)
+            return jsonify(progress_data)
+        else:
+            return jsonify({"status": "Not found", "total": 0, "current": 0}), 404
+    except Exception as e:
+        return jsonify({"status": f"Error: {e}", "total": 0, "current": 0}), 500
+
+
+@app.route("/macro-download", methods=["GET"])
+def macro_download():
+    """
+    Download processed files using a token.
+    Supports both ZIP files and individual files.
+    """
+    token = request.args.get("token")
+    
+    if not token:
+        flash("Invalid download link", "error")
+        return redirect(url_for("dashboard"))
+    
+    # Check if token exists and is valid
+    token_data = download_tokens.get(token)
+    
+    if not token_data:
+        flash("Download link has expired or is invalid", "error")
+        return redirect(url_for("dashboard"))
+    
+    # Check expiration
+    if _now_utc() &gt; token_data["expires"]:
+        download_tokens.pop(token, None)
+        flash("Download link has expired", "error")
+        return redirect(url_for("dashboard"))
+    
+    # Get the temp directory
+    temp_dir = token_data["path"]
+    
+    # Determine what file to send
+    # Check for common output file names based on route type
+    route_type = token_data.get("route_type", "")
+    
+    possible_files = []
+    if route_type == "bias_scan":
+        possible_files = ["bias_scan_output.zip"]
+    elif route_type == "credit_extractor":
+        possible_files = ["permission_logs.zip", "permission_log.xlsx"]
+    elif route_type == "word_to_xml":
+        possible_files = ["word_to_xml_output.zip"]
+    else:
+        # Generic: look for any ZIP file
+        possible_files = [f for f in os.listdir(temp_dir) if f.endswith('.zip')]
+    
+    # Find the first existing file
+    download_file = None
+    for filename in possible_files:
+        file_path = os.path.join(temp_dir, filename)
+        if os.path.exists(file_path):
+            download_file = file_path
+            break
+    
+    if not download_file:
+        flash("Download file not found", "error")
+        return redirect(url_for("dashboard"))
+    
+    try:
+        return send_file(
+            download_file,
+            as_attachment=True,
+            download_name=os.path.basename(download_file)
+        )
+    except Exception as e:
+        flash(f"Download failed: {e}", "error")
+        return redirect(url_for("dashboard"))
+
+
+def allowed_file(filename):
+    """Check if file has an allowed extension"""
+    return any(filename.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS)
+
+
 # -----------------------
 # Database Connection Pool (SQLite + Postgres)
 # -----------------------
