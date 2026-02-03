@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     libarchive-zip-perl \
     libfile-copy-recursive-perl \
     libtry-tiny-perl \
+    libreoffice \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
