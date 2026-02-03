@@ -744,7 +744,7 @@ def word_to_xml():
     return render_template("upload_word_to_xml.html")
 
 
-@app.route("/progress/&lt;job_id&gt;", methods=["GET"])
+@app.route("/progress/<job_id>", methods=["GET"])
 def get_progress(job_id):
     """
     Get progress status for a background job.
@@ -789,7 +789,7 @@ def macro_download():
         return redirect(url_for("dashboard"))
     
     # Check expiration
-    if _now_utc() &gt; token_data["expires"]:
+    if _now_utc() > token_data["expires"]:
         download_tokens.pop(token, None)
         flash("Download link has expired", "error")
         return redirect(url_for("dashboard"))
