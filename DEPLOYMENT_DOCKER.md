@@ -59,7 +59,7 @@ Clone your repository to the server (e.g., `/var/www/hub-server`):
 ```bash
 # Create directory and clone
 sudo mkdir -p /var/www/hub-server
-cd /var/www/hub-server
+cd /var/www/hub-server/
 sudo git clone https://github.com/Murali121290/my-project.git
 cd my-project
 ```

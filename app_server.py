@@ -745,6 +745,7 @@ def word_to_xml():
 
 
 @app.route("/progress/<job_id>", methods=["GET"])
+
 def get_progress(job_id):
     """
     Get progress status for a background job.
