@@ -148,7 +148,7 @@
 
 {% block content %}
 <div class="upload-container">
-    <h2>Upload Documents for Validation</h2>
+    <h2>Upload Documents for Reference Validation</h2>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -172,7 +172,7 @@
         <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
             <input type="checkbox" id="runValidationRequest" name="run_validation" checked
                 style="transform: scale(1.2); margin-right: 8px;">
-            Run Number Validation (Check References)
+            Run Number Validation (Vancouver, AMA)
         </label>
     </div>
 
@@ -188,15 +188,34 @@
         <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
             <input type="checkbox" id="reportOnlyRequest" name="report_only"
                 style="transform: scale(1.2); margin-right: 8px;">
-            Generate Report Only (No Docx Update)
+            Generate Report Only
         </label>
     </div>
     <div style="margin-top: 10px;">
         <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
             <input type="checkbox" id="runStructuringRequest" name="run_structuring"
                 style="transform: scale(1.2); margin-right: 8px;">
-            Run Reference Structuring (after validation)
+            Run Reference Structuring (before validation)
         </label>
+    </div>
+
+    <div style="margin-top: 10px;">
+        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+            <input type="checkbox" id="runGeminiRequest" name="run_gemini"
+                style="transform: scale(1.2); margin-right: 8px;">
+            Run Gemini AI Conversion (Enhanced)
+        </label>
+    </div>
+
+    <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee;">
+        <label style="font-size: 14px; font-weight: 600; color: #333; display: block; margin-bottom: 5px;">
+            Target Style (for Conversion):
+        </label>
+        <select id="targetStyleSelect" class="form-select" style="padding: 8px; border-radius: 8px; border: 1px solid #ccc; width: 100%; max-width: 300px;">
+            <option value="Auto" selected>Auto-detect (Keep Original)</option>
+            <option value="AMA">Convert to AMA (Vancouver)</option>
+            <option value="APA">Convert to APA</option>
+        </select>
     </div>
 
     <div id="fileList" class="file-list"></div>
@@ -316,6 +335,14 @@
             if (runStructuring) {
                 formData.append("run_structuring", "true");
             }
+
+            const runGemini = document.getElementById("runGeminiRequest") ? document.getElementById("runGeminiRequest").checked : false;
+            if (runGemini) {
+                formData.append("run_gemini", "true");
+            }
+
+            const targetStyle = document.getElementById("targetStyleSelect").value;
+            formData.append("target_style", targetStyle);
 
             selectedFiles.forEach(file => {
                 formData.append("files", file);

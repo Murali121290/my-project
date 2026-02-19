@@ -6,6 +6,9 @@ import os
 import io
 import shutil
 import zipfile
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import traceback
 import uuid
@@ -49,11 +52,13 @@ from docx.text.paragraph import Paragraph
 from docx.table import Table
 import difflib
 from highlighter.core_highlighter_docx import process_docx
-from ReferencesStructing import process_docx_file, parse_ama_reference_raw, parse_apa_reference_raw, generate_fallback_citation
+from ReferencesStructing import process_docx_file, parse_ama_reference_raw, parse_apa_reference_raw, generate_fallback_citation, detect_reference_style
 from ReferenceAPAValidation import validate_document_multi_style, insert_comments_in_document, generate_report as generate_apa_report, apply_citation_formatting
 import tempfile
 from io import BytesIO
 from extractor import extract_from_file, write_permission_log
+
+from extractor_ai import extract_from_file_ai
 import bias_scanner
 
 def _now_utc():
@@ -235,7 +240,7 @@ def role_required(allowed_roles):
         return wrapped
     return decorator
 
-def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filenames, user_id, username):
+def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filenames, user_id, username, extraction_method="manual", api_key=None):
     with app.app_context():
         # Helper to update progress file
         def update_progress(updates):
@@ -269,7 +274,10 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
                     "status": f"Processing {filename}"
                 })
 
-                all_results.extend(extract_from_file(path))
+                if extraction_method == "ai":
+                    all_results.extend(extract_from_file_ai(path, api_key))
+                else:
+                    all_results.extend(extract_from_file(path))
 
             if not all_results:
                 update_progress({"status": "No captions found"})
@@ -278,16 +286,9 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
             output_xlsx = os.path.join(temp_dir, "permission_log.xlsx")
             write_permission_log(all_results, output_xlsx)
 
-            # ZIP if multiple files
-            if len(original_filenames) > 1:
-                zip_path = os.path.join(temp_dir, "permission_logs.zip")
-                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-                    z.write(output_xlsx, arcname="permission_log.xlsx")
-                final_path = zip_path
-                processed_files = ["permission_logs.zip"]
-            else:
-                final_path = output_xlsx
-                processed_files = ["permission_log.xlsx"]
+            # Always return the Excel file directly
+            final_path = output_xlsx
+            processed_files = ["permission_log.xlsx"]
 
             # Register download token (Optional if relying solely on file system, but kept for consistency)
             token = uuid.uuid4().hex
@@ -334,9 +335,12 @@ def credit_extractor():
         if not files or all(f.filename == "" for f in files):
             return jsonify({"error": "No files selected"}), 400
 
+        extraction_method = request.form.get("extraction_method", "manual")
+        api_key = request.form.get("api_key", "")
+
         # Use token as job_id for consistency
         token = uuid.uuid4().hex
-        job_id = token 
+        job_id = token
         
         # Save files synchronously before threading
         temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], token)
@@ -370,13 +374,14 @@ def credit_extractor():
 
         threading.Thread(
             target=process_credit_extractor_job,
-            args=(job_id, temp_dir, saved_paths, original_filenames, session['user_id'], session['username']),
+            args=(job_id, temp_dir, saved_paths, original_filenames, session['user_id'], session['username'], extraction_method, api_key),
             daemon=True
         ).start()
 
         return jsonify({"job_id": job_id})
 
-    return render_template("upload_credit.html")
+    system_key_configured = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or app.config.get("GEMINI_API_KEY"))
+    return render_template("upload_credit.html", system_key_configured=system_key_configured)
 
 def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user_id, username):
     """
@@ -752,25 +757,22 @@ def get_progress(job_id):
     Reads from progress.json file in the job's temp directory.
     """
     try:
-        # Check in-memory progress first (for same-worker immediate feedback)
-        if job_id in app.config.get("PROGRESS_DATA", {}):
-            return jsonify(app.config["PROGRESS_DATA"][job_id])
-        
-        # Fall back to file-based progress (for multi-worker setups)
+        # Always prefer file-based progress (updated by background thread)
         temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
         progress_file = os.path.join(temp_dir, "progress.json")
-        
+
         if os.path.exists(progress_file):
             with open(progress_file, "r") as f:
                 progress_data = json.load(f)
             return jsonify(progress_data)
-        else:
-            return jsonify({"status": "Not found", "total": 0, "current": 0}), 404
+
+        # Fall back to in-memory (only useful before file is written)
+        if job_id in app.config.get("PROGRESS_DATA", {}):
+            return jsonify(app.config["PROGRESS_DATA"][job_id])
+
+        return jsonify({"status": "Not found", "total": 0, "current": 0}), 404
     except Exception as e:
         return jsonify({"status": f"Error: {e}", "total": 0, "current": 0}), 500
-
-
-
 
 
 # -----------------------
@@ -2282,6 +2284,9 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
         run_structuring = options.get('run_structuring', False)
         run_validation = options.get('run_validation', False)
         run_name_year = options.get('run_name_year', False)
+        run_gemini = options.get('run_gemini', False)
+        target_style = options.get('target_style', 'Auto')
+        
         is_report_only = options.get('is_report_only', False)
         
         try:
@@ -2320,7 +2325,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     try:
                         # process_docx_file takes input and output dir
                         # It generates _fixed.docx and _fix_log.txt in output_dir
-                        struct_res = process_docx_file(Path(current_filepath), Path(file_output_dir))
+                        struct_res = process_docx_file(Path(current_filepath), Path(file_output_dir), target_style=target_style)
                         
                         if struct_res.get('log_file') and struct_res.get('log_file').exists():
                             with open(struct_res.get('log_file'), 'r', encoding='utf-8') as lf:
@@ -2343,7 +2348,33 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                             
                     except Exception as e:
                         log_errors([f"Structuring error {filename}: {e}"])
-                        log_buffer.append(f"Error during structuring: {e}")
+                        log_buffer.append(f"Structuring error: {e}")
+
+                # -------------------------------------------------
+                # 1b. Gemini Conversion (Separate Step)
+                # -------------------------------------------------
+                if run_gemini:
+                    update_progress({"status": f"AI Converting {filename}..."})
+                    log_buffer.append("\n--- GEMINI CONVERSION ---")
+                    try:
+                        from ReferenceConversion import process_conversion_with_gemini
+                        conv_res = process_conversion_with_gemini(Path(current_filepath), Path(file_output_dir), target_style=target_style)
+                        
+                        if conv_res.get('log_file') and conv_res.get('log_file').exists():
+                            with open(conv_res.get('log_file'), 'r', encoding='utf-8') as lf:
+                                log_buffer.append(lf.read())
+                        
+                        if conv_res.get('output_docx') and conv_res.get('output_docx').exists():
+                            current_filepath = str(conv_res.get('output_docx'))
+                            log_buffer.append("Gemini conversion successful.")
+                        else:
+                            log_buffer.append("Gemini conversion failed to produce output.")
+                            
+                    except Exception as e:
+                        log_errors([f"Gemini conversion error {filename}: {e}"])
+                        log_buffer.append(f"Gemini conversion error: {e}")
+
+
 
                 # -------------------------------------------------
                 # 2. Validation (Check References)
@@ -2566,7 +2597,9 @@ def validate_file():
                 'is_report_only': str(request.form.get('report_only')).lower() in ['true', 'on', '1'],
                 'run_validation': str(request.form.get('run_validation')).lower() in ['true', 'on', '1'],
                 'run_structuring': str(request.form.get('run_structuring')).lower() in ['true', 'on', '1'],
-                'run_name_year': str(request.form.get('run_name_year_validation')).lower() in ['true', 'on', '1']
+                'run_name_year': str(request.form.get('run_name_year_validation')).lower() in ['true', 'on', '1'],
+                'run_gemini': str(request.form.get('run_gemini')).lower() in ['true', 'on', '1'],
+                'target_style': request.form.get('target_style', 'Auto')
             }
             
             # Use report only flag to force validation logic if not explicitly checked but needed
@@ -2726,6 +2759,24 @@ def macro_download():
         return redirect(url_for('dashboard'))
 
     try:
+        # Special handling for credit_extractor: Direct Excel download
+        if route_type == 'credit_extractor':
+            excel_path = os.path.join(user_folder, 'permission_log.xlsx')
+            if os.path.exists(excel_path):
+                with open(excel_path, 'rb') as f:
+                    memory_file = io.BytesIO(f.read())
+                
+                try:
+                    shutil.rmtree(user_folder)
+                    if token in download_tokens: del download_tokens[token]
+                except Exception as e:
+                    log_errors([f"Cleanup error: {str(e)}"])
+                    
+                return send_file(memory_file, 
+                               mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                               as_attachment=True, 
+                               download_name=f"Permission_Log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+
         memory_file = io.BytesIO()
         with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zipf:
             for root, _, files in os.walk(user_folder):
@@ -2733,9 +2784,15 @@ def macro_download():
                     # Filter for validation route: only _Processed.docx, _log.txt and _report.html
                     if route_type == 'validation':
                         lower_name = file.lower()
-                        if not (lower_name.endswith('_processed.docx') or 
-                                lower_name.endswith('_log.txt') or 
+                        if not (lower_name.endswith('_processed.docx') or
+                                lower_name.endswith('_log.txt') or
                                 lower_name.endswith('_report.html')):
+                            continue
+
+                    # Filter for credit_extractor: only the output Excel/zip, not source docs or progress.json
+                    elif route_type == 'credit_extractor':
+                        lower_name = file.lower()
+                        if not (lower_name == 'permission_log.xlsx' or lower_name == 'permission_logs.zip'):
                             continue
 
                     file_path = os.path.join(root, file)

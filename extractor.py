@@ -18,22 +18,27 @@ except ImportError:
 def _setup_regex_patterns() -> Dict[str, re.Pattern]:
     patterns = {}
     patterns['single'] = re.compile(
-        r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box)\.?\s*'
+        r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)\.?\s*'
         r'([0-9]+(?:[.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
         re.IGNORECASE
     )
     patterns['range'] = re.compile(
-        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?)\.?\s+'
+        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)\.?\s+'
         r'([0-9]+(?:[\.\-][0-9]+)+)([A-Za-z]?)\s*'
         r'(?:to|through|–|—|-)\s*'
         r'([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
         re.IGNORECASE
     )
     patterns['and'] = re.compile(
-        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?)\.?\s+'
+        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)\.?\s+'
         r'([0-9]+(?:[\.\-][0-9]+)+)([A-Za-z]?)\s+'
         r'(?:and|&)\s*'
         r'([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
+        re.IGNORECASE
+    )
+    # Catch-all for unnumbered items or those that didn't match strict numbering
+    patterns['unnumbered'] = re.compile(
+        r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)\.?(?:\s+|$)',
         re.IGNORECASE
     )
     return patterns
@@ -47,7 +52,7 @@ CAPTION_PATTERNS = _setup_regex_patterns()
 # ======================================================
 
 CHAPTER_REGEX = re.compile(
-    r"(?i)^(chapter\s+\d+|\d+\s+[A-Z][A-Za-z ].+)"
+    r"(?i)^(chapter\s+\d+|\d+\.\s+[A-Z][A-Za-z ].+)"
 )
 
 
@@ -56,11 +61,13 @@ CHAPTER_REGEX = re.compile(
 # ======================================================
 
 CREDIT_KEYWORDS = [
-    r"sources?[\.\s:]*",
-    r"adapted\s+from",
-    r"modified\s+from",
-    r"reprinted\s+from",
-    r"reproduced\s+from",
+    r"sources?:\s*",
+    r"adapted\s+(?:with\s+permission\s+)?(?:from|of)",
+    r"modified\s+(?:with\s+permission\s+)?(?:from|of)",
+    r"based\s+on",
+    r"reprinted\s+(?:with\s+permission\s+)?(?:from|of)",
+    r"reproduced\s+(?:with\s+permission\s+)?(?:from|of)",
+    r"data\s+from",
     r"with\s+permission",
     r"published\s+with\s+permission",
     r"copyright",
@@ -99,10 +106,11 @@ EDITORIAL_EXCLUDE_REGEX = re.compile(
 
 PERMISSION_RISK_REGEX = re.compile(
     r"""(?i)(
-        adapted\s+from|
-        modified\s+from|
+        adapted\s+(?:with\s+permission\s+)?from|
+        modified\s+(?:with\s+permission\s+)?from|
         based\s+on|
-        reproduced\s+from|
+        reproduced\s+(?:with\s+permission\s+)?from|
+        reprinted\s+(?:with\s+permission\s+)?from|
         courtesy\s+of|
         copyright|
         ©|
@@ -118,7 +126,7 @@ PERMISSION_RISK_REGEX = re.compile(
 )
 
 CAPTION_START_REGEX = re.compile(
-    r'^\s*(Figure|Fig\.?|Table|Tab\.?|Box)',
+    r'^\s*(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)',
     re.IGNORECASE
 )
 # ======================================================
@@ -139,7 +147,8 @@ def extract_credit_sentence(text):
     credits = []
 
     # Special handling for "Sources:" at paragraph start (must be at very start)
-    if text.lower().startswith("sources:") or text.lower().startswith("sources "):
+    # Special handling for "Source(s):" at paragraph start
+    if re.match(r'^sources?[\s:]', text, re.IGNORECASE):
         # Capture entire paragraph for sources block
         credit_block = text
         # Stop at obvious breaks (note, please advise, etc)
@@ -155,6 +164,10 @@ def extract_credit_sentence(text):
             # Original logic for other credit keywords
             for match in CREDIT_REGEX.finditer(text):
                 start = match.start()
+                # Capture preceding parenthesis if present
+                if start > 0 and text[start-1] in '([':
+                    start -= 1
+                
                 credit_block = text[start:]
                 
                 # Stop at obvious editorial instructions
@@ -167,6 +180,20 @@ def extract_credit_sentence(text):
 
     if not credits:
         return None
+
+    # Post-process credits to clean up common prefixes
+    cleaned_credits = []
+    for c in credits:
+        c = c.strip()
+        # Remove leading parenthesis
+        if c.startswith('('):
+            c = c[1:].strip()
+        
+        # Remove "Used" prefix variants (Used, Used:, Used-, etc)
+        c = re.sub(r'^used\b[\s:\-\.]*', '', c, flags=re.IGNORECASE)
+            
+        cleaned_credits.append(c)
+    credits = cleaned_credits
 
     # De-duplicate: remove exact duplicates and overlapping URL/DOI patterns
     seen = set()
@@ -263,6 +290,8 @@ def normalize_item_type(raw):
         return "Table"
     if "box" in raw:
         return "Box"
+    if "image" in raw or "img" in raw or "photo" in raw or "illustration" in raw:
+        return "Figure"
     if "exhibit" in raw:
         return "Exhibit"
     if "appendix" in raw:
@@ -297,14 +326,27 @@ def extract_from_file(path):
         raw_type = match.group(1)
         item_type = normalize_item_type(raw_type)
 
-        # Item number handling
         if ptype == "single":
             item_no = match.group(2) + (match.group(3) or "")
+        elif ptype == "range":
+            item_no = f"{match.group(2)}{match.group(3) or ''}–{match.group(4)}{match.group(5) or ''}"
+        elif ptype == "and":
+            item_no = f"{match.group(2)}{match.group(3) or ''} & {match.group(4)}{match.group(5) or ''}" 
         else:
-            item_no = f"{match.group(2)}–{match.group(4)}"
+            # Unnumbered
+            item_no = ""
 
-        # Extract chapter number from item number (e.g., "1.1" -> "1", "1.1–1.5" -> "1")
-        chapter_from_item = item_no.split('.')[0].split('–')[0] if item_no else current_chapter
+        # Extract chapter number from item number (e.g., "1.1" -> "1", "1.1–1.5" -> "1", "2-3" -> "2")
+        # Prioritize explicitly detected current_chapter over inference from item_no
+        if current_chapter:
+            # Try to extract just the number from the chapter string if possible
+            # e.g. "Chapter 2" -> "2", "2 Intro" -> "2"
+            chapter_match = re.search(r'\d+', current_chapter)
+            chapter_from_item = chapter_match.group(0) if chapter_match else current_chapter
+        elif item_no:
+            chapter_from_item = re.split(r'[.\-–]', item_no)[0]
+        else:
+            chapter_from_item = ""
 
         caption = para[match.end():].strip(" :.-")
 
@@ -342,14 +384,45 @@ def extract_from_file(path):
                             credit_line = " ".join(source_lines)
                     break
 
-        results.append({
-            "chapter": chapter_from_item,
-            "item_type": item_type,
-            "item_no": item_no,
-            "caption": caption,
-            "credit": credit_line,
-            "needs_permission": needs_permission(caption, credit_line)
-        })
+        # User requested to ignore empty captions and only include items with credit lines
+        if caption and credit_line:
+            # Clean caption: remove the credit line if it appears at the end
+            # Normalize strings for comparison to handle whitespace differences
+            norm_caption = " ".join(caption.split())
+            norm_credit = " ".join(credit_line.split())
+            
+            if norm_credit in norm_caption:
+                # Find index of credit in original caption to preserve original formatting of the rest
+                # This is a simple approximation
+                idx = caption.replace("\n", " ").find(credit_line.split()[0]) # Try to find start
+                if idx != -1:
+                     # Check if the rest roughly matches? 
+                     # Simpler: just replace if exact match in normalized
+                     pass
+
+            # Robust replacement
+            if credit_line in caption:
+                caption = caption.replace(credit_line, "")
+            else:
+                # Fallback: check if caption ends with the credit text (ignoring potential paren differences)
+                # e.g. caption ends in "Source.)" and credit is "Source."
+                pass
+            
+            # Simple cleanup
+            caption = caption.replace(credit_line, "") 
+            caption = caption.strip(" .):")
+            # If caption ends with open paren (leftover), remove it
+            if caption.endswith("("):
+                caption = caption[:-1].strip()
+
+            results.append({
+                "chapter": chapter_from_item,
+                "item_type": item_type,
+                "item_no": item_no,
+                "caption": caption.strip(),
+                "credit": credit_line,
+                "needs_permission": needs_permission(caption, credit_line)
+            })
 
     return results
 
