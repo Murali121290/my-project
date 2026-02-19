@@ -7,10 +7,6 @@ from docx import Document
 import io
 import zipfile
 from citation_parsers import get_parser, auto_detect_style
-from utils import track_changes
-import logging
-
-TRACK_CHANGES_ENABLED = True
 
 # Configure logging
 logging.basicConfig(
@@ -1276,90 +1272,57 @@ def apply_citation_formatting(file_path, results):
                  # Robust Replacement Logic
                  full_text = full_text_found
                  
-                 if TRACK_CHANGES_ENABLED:
-                     # 1. Delete all runs in the group
-                     anchor_elem = None
-                     for i, r in enumerate(run_group):
-                         track_changes.delete_tracked_run(para, r)
-                         if i == 0:
-                             # The first run's wrapper (del) will be our anchor point
-                             # But delete_tracked_run wraps r in del. r is child of del. del is child of para.
-                             anchor_elem = r._element.getparent() 
+                 # Collapse run group to single run
+                 for r in run_group[1:]:
+                     r.text = ""
+                 
+                 final_citation_text = matched_candidate
+                 
+                 # Apply Shortening if Valid
+                 if is_valid and should_shorten and "et al" not in matched_candidate.lower():
+                     has_open_paren = '(' in matched_candidate
+                     has_close_paren = ')' in matched_candidate
                      
-                     # Check anchor consistency
-                     if anchor_elem is None or anchor_elem.tag != track_changes.qn('w:del'):
-                         # Fallback if wrapping failed or something odd
-                         if run_group:
-                             anchor_elem = run_group[0]._element
-                             
-                     # 2. Insert Pre Text
-                     try:
-                         start_idx = full_text.find(final_citation_text)
-                         if start_idx != -1:
-                             end_idx = start_idx + len(final_citation_text)
-                             
-                             pre_text = full_text[:start_idx]
-                             post_text = full_text[end_idx:]
-                             
-                             # Insert Pre
-                             if pre_text:
-                                 ins_pre = track_changes.add_tracked_text(para, pre_text)
-                                 anchor_elem.addnext(ins_pre)
-                                 anchor_elem = ins_pre
-                             
-                             # Insert Citation
-                             ins_cite = track_changes.add_tracked_text(para, final_citation_text, style='cite_bib')
-                             anchor_elem.addnext(ins_cite)
-                             anchor_elem = ins_cite
-                             
-                             # Insert Post
-                             if post_text:
-                                 ins_post = track_changes.add_tracked_text(para, post_text)
-                                 anchor_elem.addnext(ins_post)
-                                 
-                             count += 1
-                     except Exception as e:
-                         logger.error(f"Track changes text split failed: {e}")
-
-                 else:
-                     # ORIGINAL LOGIC
-                     # Collapse run group to single run
-                     for r in run_group[1:]:
-                         r.text = ""
+                     replacement_str = full_shortened_str
+                     if not has_open_paren and not has_close_paren:
+                         replacement_str = full_shortened_str.replace('(', '').replace(')', '')
                      
-                     # Split and Style
-                     run = run_group[0]
-                     run.text = full_text 
-                     
-                     try:
-                         start_idx = full_text.find(final_citation_text)
-                         if start_idx != -1:
-                             end_idx = start_idx + len(final_citation_text)
+                     # Simple replace
+                     full_text = full_text.replace(matched_candidate, replacement_str, 1)
+                     final_citation_text = replacement_str
+                 
+                 # Split and Style
+                 run = run_group[0]
+                 run.text = full_text 
+                 
+                 try:
+                     start_idx = full_text.find(final_citation_text)
+                     if start_idx != -1:
+                         end_idx = start_idx + len(final_citation_text)
+                         
+                         pre_text = full_text[:start_idx]
+                         post_text = full_text[end_idx:]
+                         
+                         run.text = pre_text
+                         
+                         cite_run = para.add_run(final_citation_text)
+                         cite_run.style = 'cite_bib'
+                         cite_run.font.highlight_color = highlight_color
+                         
+                         run._element.addnext(cite_run._element)
+                         
+                         if post_text:
+                             post_run = para.add_run(post_text)
+                             if run.style and run.style.name != 'Default Paragraph Font':
+                                  post_run.style = run.style
+                             cite_run._element.addnext(post_run._element)
                              
-                             pre_text = full_text[:start_idx]
-                             post_text = full_text[end_idx:]
-                             
-                             run.text = pre_text
-                             
-                             cite_run = para.add_run(final_citation_text)
-                             cite_run.style = 'cite_bib'
-                             cite_run.font.highlight_color = highlight_color
-                             
-                             run._element.addnext(cite_run._element)
-                             
-                             if post_text:
-                                 post_run = para.add_run(post_text)
-                                 if run.style and run.style.name != 'Default Paragraph Font':
-                                      post_run.style = run.style
-                                 cite_run._element.addnext(post_run._element)
-                                 
-                             count += 1
-                         else:
-                             # Fallback if text replacement made find impossible?
-                             pass
-                     except Exception as e:
-                         logger.error(f"Error splitting runs for formatting: {e}")
-
+                         count += 1
+                     else:
+                         # Fallback if text replacement made find impossible?
+                         pass
+                 except Exception as e:
+                     logger.error(f"Error splitting runs for formatting: {e}")
                             
     doc.save(file_path)
     return count

@@ -103,7 +103,9 @@
             <h4>Renumbering Mapping (Old &rarr; New)</h4>
             <div class="mapping-list">
                 {% for old, new in res.mapping.items()|sort(attribute='1') %}
+                {% if old != new %}
                 <span class="map-item">{{ old }} &rarr; {{ new }}</span>
+                {% endif %}
                 {% endfor %}
             </div>
         </div>

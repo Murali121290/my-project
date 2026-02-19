@@ -3,7 +3,6 @@
 
 {% block extra_css %}
 <style>
-    /* Consistent styling with technical_edit.html and macro_processing.html */
     .content-card {
         background: white;
         border-radius: var(--border-radius);
@@ -121,7 +120,7 @@
     <div class="text-center mb-3">
         <h1
             style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-            Caption & Credit Extractor
+            Caption &amp; Credit Extractor
         </h1>
         <p class="text-muted">Extract captions and credit lines for permission logs</p>
     </div>
@@ -131,12 +130,28 @@
         <label class="form-label">Upload Word Files</label>
         <div id="dropZone" class="drop-zone">
             <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
-            <p>Drag & drop your Word files here or click to browse</p>
+            <p>Drag &amp; drop your Word files here or click to browse</p>
             <p class="text-muted">Supports .doc and .docx files</p>
             <input type="file" id="files" name="files" class="form-control" multiple accept=".doc,.docx"
                 style="display: none;">
         </div>
         <div id="fileList" class="file-list"></div>
+    </div>
+
+    <!-- Extraction Method Selection -->
+    <div class="mb-4 p-3 bg-light rounded border">
+        <h5 class="mb-3">Extraction Method</h5>
+        <div class="d-flex align-items-center">
+            <div class="form-check me-4">
+                <input class="form-check-input" type="radio" name="extraction_method" id="methodManual" value="manual"
+                    checked>
+                <label class="form-check-label ms-1" for="methodManual">Manual (Regex)</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="extraction_method" id="methodAI" value="ai">
+                <label class="form-check-label ms-1" for="methodAI">AI (Gemini)</label>
+            </div>
+        </div>
     </div>
 
     <!-- Progress Bar -->
@@ -276,10 +291,13 @@
             return;
         }
 
+        const method = document.querySelector('input[name="extraction_method"]:checked').value;
+
         const formData = new FormData();
         for (const file of files) {
-            formData.append('files', file); // Note: server expects 'files'
+            formData.append('files', file);
         }
+        formData.append('extraction_method', method);
 
         // Show progress section
         progressSection.style.display = 'block';
@@ -328,7 +346,6 @@
                         clearInterval(timer);
                         progressBar.classList.remove('progress-bar-animated');
 
-                        // Show success and download link
                         resultSection.style.display = 'block';
                         resultSection.innerHTML = `
                             <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--success); margin-bottom: 1rem;"></i>
@@ -366,7 +383,6 @@
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
 
-        // Insert alert at top of card
         const card = document.querySelector('.content-card');
         card.insertBefore(alertDiv, card.firstChild);
 

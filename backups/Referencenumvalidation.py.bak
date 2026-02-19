@@ -10,11 +10,6 @@ from docx.oxml.text.paragraph import CT_P
 from docx.oxml.table import CT_Tbl
 from docx.text.paragraph import Paragraph
 from docx.table import Table
-from docx.shared import RGBColor
-from utils import track_changes
-import logging
-
-TRACK_CHANGES_ENABLED = True
 
 app = Flask(__name__)
 app.secret_key = "secret_key_for_session_encryption"
@@ -382,73 +377,72 @@ class ReferenceProcessor:
                     post_text = original_text[end:]
                     
                     # Calculate replacement text
+                    # Regex Group 2 contains the numbers: [1-3] -> group 2="1-3"
                     nums = get_numbers(match.group(2))
                     new_nums = [mapping.get(n, n) for n in nums]
+                    # Format: 1-3
                     converted_text = format_numbers(new_nums)
                     
-                    # Highlight if renumbered
-                    is_renumbered = (nums != new_nums)
-                    highlight_color = "008000" if is_renumbered else None
-
-                    # TRACK CHANGES LOGIC
-                    if TRACK_CHANGES_ENABLED:
-                        # 1. Delete original run
-                        track_changes.delete_tracked_run(para, run)
+                    # 1. Update Current Run -> Pre Text
+                    run.text = pre_text
+                    
+                    # 2. Insert Match Run
+                    new_run = para.add_run(converted_text)
+                    new_run.style = "cite_bib"
+                    new_run.font.superscript = True
+                    
+                    # Move new_run to be after current run
+                    run._element.addnext(new_run._element)
+                    
+                    # 3. Insert Post Run (if exists)
+                    if post_text:
+                        post_run = para.add_run(post_text)
+                        # Copy original style/font props if possible? 
+                        # Ideally yes, but complex. Inheriting 'style' is good enough often.
+                        if run.style:
+                            post_run.style = run.style
                         
-                        # We need to insert revisions AFTER the deleted run
-                        # The run is now wrapped in <w:del> which is previous sibling of what run WAS?
-                        # Wait, delete_tracked_run replaces run with del, and puts run inside.
-                        # So 'run' element is no longer a direct child of 'para'.
-                        # The 'del' element is the one in the paragraph.
-                        # We need to find that 'del' element.
+                        # Move post_run to be after new_run
+                        new_run._element.addnext(post_run._element)
                         
-                        run_del = run._element.getparent() # Should be w:del
-                        if run_del.tag != track_changes.qn('w:del'):
-                             # Something went wrong or already wrapped?
-                             # Fallback: assume run is still anchor
-                             anchor = run._element
-                        else:
-                             anchor = run_del
-
-                        # 2. Insert PRE text (if any)
-                        if pre_text:
-                            ins_pre = track_changes.add_tracked_text(para, pre_text)
-                            # Move from end to after anchor
-                            anchor.addnext(ins_pre)
-                            anchor = ins_pre
-                            
-                        # 3. Insert MATCH text (Styled)
-                        ins_match = track_changes.add_tracked_text(para, converted_text, style="cite_bib", color=highlight_color)
-                        anchor.addnext(ins_match)
-                        anchor = ins_match
+                        # We don't advance i yet, or we assume post_run might have MORE citations?
+                        # If post_run has citations, we need to process it.
+                        # But we just inserted it at i+2 roughly.
+                        # The runs list might not update automatically for 'para.runs[i]' indexing if cached?
+                        # python-docx re-reads xml usually.
+                        # Let's verify 'para.runs' reflects changes. 
+                        # If it does, next iter will be new_run (styled) -> skip? 
+                        # Then post_run -> process.
                         
-                        # 4. Insert POST text (if any)
-                        if post_text:
-                            ins_post = track_changes.add_tracked_text(para, post_text)
-                            anchor.addnext(ins_post)
-                            # anchor = ins_post # Not strictly needed unless more parts
+                    # We modified the document structure.
+                    # We should probably restart check on 'post_run' if we suspect multiple citations?
+                    # Simply incrementing i might land us on new_run or post_run.
+                    # Since we split current match, we should continue loop.
+                    # But index strategy is tricky if list changes.
+                    # Safer: Break and restart paragraph scan? Or just recursive?
+                    # Given simple needs: let's assuming one per run or use recursive replacement on string FIRST?
+                    # No, string replacement loses style boundaries.
+                    # Let's just break for this run and continue to next (which might be the post_run we just added).
+                    # Actually, if we use list(para.runs) iterator, it won't see new ones.
+                    # We are using while index.
+                    
+                    # Logic: 
+                    # i = current (now pre)
+                    # i+1 = new_run (styled)
+                    # i+2 = post_run
+                    # We want to continue checking from i+2.
+                    i += 1 # Skip new_run
+                    if post_text:
+                         # We want to check post_run next.
+                         # i is now new_run index. i+1 is post_run.
+                         # loop continues, i becomes i+1.
+                         pass
                     else:
-                        # Original Logic
-                        run.text = pre_text
-                        new_run = para.add_run(converted_text)
-                        new_run.style = "cite_bib"
-                        new_run.font.superscript = True
-                        if is_renumbered:
-                            new_run.font.color.rgb = RGBColor(0, 128, 0)
-                        run._element.addnext(new_run._element)
-                        
-                        if post_text:
-                            post_run = para.add_run(post_text)
-                            if run.style:
-                                post_run.style = run.style
-                            new_run._element.addnext(post_run._element)
-
-                    # Advance loop logic
-                    # Since we modified structure, simple index increment matches logical flow
-                    # processed current run (deleted/split).
+                         # No post run. i is new_run.
+                         pass
+                    
                     i += 1
                     continue
-
                 
                 elif is_citation_run(run):
                     # Existing formatted citation logic (likely superscripts without brackets)
@@ -465,26 +459,10 @@ class ReferenceProcessor:
                     nums = get_numbers(txt)
                     if nums:
                          new_nums = [mapping.get(n, n) for n in nums]
-                         new_text = format_numbers(new_nums)
-                         
-                         is_renumbered = (nums != new_nums)
-                         highlight_color = "008000" if is_renumbered else None
-                         
-                         if TRACK_CHANGES_ENABLED:
-                             # Must replace the whole run
-                             track_changes.delete_tracked_run(para, run)
-                             
-                             run_del = run._element.getparent()
-                             anchor = run_del if run_del.tag == track_changes.qn('w:del') else run._element
-                             
-                             ins_new = track_changes.add_tracked_text(para, new_text, style="cite_bib", color=highlight_color)
-                             anchor.addnext(ins_new)
-                         else:
-                             run.text = new_text
-                             run.style = "cite_bib"
-                             run.font.superscript = True
-                             if is_renumbered:
-                                 run.font.color.rgb = RGBColor(0, 128, 0)
+                         run.text = format_numbers(new_nums)
+                         # Ensure style is enforced
+                         run.style = "cite_bib"
+                         run.font.superscript = True
                 
                 i += 1
 

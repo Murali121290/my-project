@@ -36,27 +36,6 @@ import uuid
 import concurrent.futures
 import threading
 import html
-from docx.shared import Pt
-import difflib
-
-import os
-
-# Import utils
-try:
-    from utils import track_changes
-    TRACK_CHANGES_ENABLED = True
-except ImportError:
-    TRACK_CHANGES_ENABLED = False
-    logging.warning("Output 'utils.track_changes' not found. Track changes disabled.")
-from docx.shared import Pt
-
-# Import utils
-try:
-    from utils import track_changes
-    TRACK_CHANGES_ENABLED = True
-except ImportError:
-    TRACK_CHANGES_ENABLED = False
-    logging.warning("Output 'utils.track_changes' not found. Track changes disabled.")
 
 # -------------------------
 # CONFIG
@@ -88,12 +67,6 @@ REF_CACHE = {
     "journal_abbrev": {}
 }
 CACHE_LOCK = threading.Lock()
-
-# --- GOOGLE GEMINI CONFIG ---
-# Load API Key from environment or hardcode if necessary
-# We will check this dynamically inside the function to support late env setting
-
-# convert_reference_with_gemini has been moved to gemini_ref_converter.py
 
 def load_ref_cache():
     global REF_CACHE
@@ -138,7 +111,7 @@ def get_requests_session() -> requests.Session:
     retries = Retry(total=5, backoff_factor=1.0,
                     status_forcelist=(429, 500, 502, 503, 504),
                     allowed_methods=frozenset(['GET', 'POST', 'HEAD']))
-    adapter = HTTPAdapter(max_retries=retries, pool_connections=50, pool_maxsize=50)
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=25, pool_maxsize=25)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     session.headers.update({'User-Agent': 'refboth/1.0 (+https://example.org)'})
@@ -467,39 +440,6 @@ def search_google_books(query: str, author: Optional[str] = None, api_key: Optio
         pass
     return None
 
-def expand_abbreviated_page_range(pages: str) -> str:
-    """
-    Expand abbreviated PubMed page ranges to full format.
-    PubMed uses MedlinePgn which abbreviates ranges by showing only differing digits.
-    E.g., "863-8" should be "863-868", "2259-66" should be "2259-2266"
-    """
-    if not pages or '-' not in pages:
-        return pages
-    
-    try:
-        parts = pages.split('-')
-        if len(parts) != 2:
-            return pages
-        
-        first_page = parts[0].strip()
-        last_page_abbrev = parts[1].strip()
-        
-        # If last page is longer than or equal to first page, it's likely already full
-        if len(last_page_abbrev) >= len(first_page):
-            return pages
-        
-        # Expand abbreviated last page
-        # Take the necessary prefix from first page and append the abbreviated last page
-        # E.g., first="863", abbrev="8" -> take "86" from first + "8" = "868"
-        prefix_len = len(first_page) - len(last_page_abbrev)
-        if prefix_len > 0:
-            expanded_last_page = first_page[:prefix_len] + last_page_abbrev
-            return f"{first_page}-{expanded_last_page}"
-    except Exception:
-        pass
-    
-    return pages
-
 def pubmed_parse_article_from_xml(root: ET.Element) -> Optional[Dict[str, Any]]:
     pa = root.find('.//PubmedArticle')
     if pa is None:
@@ -524,13 +464,6 @@ def pubmed_parse_article_from_xml(root: ET.Element) -> Optional[Dict[str, Any]]:
     volume = volume_el.text.strip() if volume_el is not None and volume_el.text else ''
     issue = issue_el.text.strip() if issue_el is not None and issue_el.text else ''
     pages = pages_el.text.strip() if pages_el is not None and pages_el.text else ''
-    
-    # EXPAND abbreviated PubMed page ranges
-    pages = expand_abbreviated_page_range(pages)
-    
-    # DEBUG: Log PubMed page extraction
-    if pages:
-        logger.debug(f"PubMed - Extracted pages: '{pages}' (Length: {len(pages)})")
 
     year = None
     pubdate_year = pa.find('.//Journal/JournalIssue/PubDate/Year')
@@ -582,60 +515,11 @@ def pubmed_parse_article_from_xml(root: ET.Element) -> Optional[Dict[str, Any]]:
 # -------------------------
 # Parsing heuristics
 # -------------------------
-def parse_authors_to_list(author_str: str) -> List[Dict[str, str]]:
-    """Parse an author string into a list of {'family': ..., 'given': ...} dicts.
-    Handles APA format: Surname, I. I., & Surname, I. I.
-    Also handles AMA format: Surname II, Surname II
-    And organizational authors: American Nurses Association
-    """
-    if not author_str: return []
-    author_str = author_str.strip().rstrip('.')
-    
-    # Organizational authors (no commas separating surname/initials)
-    if any(k in author_str.lower() for k in ('association', 'institute', 'organization', 'society', 'academy', 'university', 'nurses', 'center', 'committee')):
-        return [{'family': author_str.strip()}]
-    
-    res = []
-    
-    # APA format: "Surname, I. I., & Surname, I. I."
-    # Step 1: Split by " & " or ", &" to get individual author groups
-    author_groups = re.split(r'\s*&\s*', author_str)
-    
-    for group in author_groups:
-        group = group.strip().rstrip(',')
-        if not group:
-            continue
-        
-        # Try to match "Surname, I. I." pattern (APA)
-        # E.g. "Ayers, S." or "Barrett, L. F." or "Arseneault, L., Cannon, M., Fisher, H. L."
-        # This group may contain multiple comma-separated authors
-        
-        # Check if this looks like multiple authors separated by commas
-        # Pattern: each author is "Surname, Initials" 
-        # We look for: word(s), single-letter-dots pattern
-        apa_authors = re.findall(
-            r'([A-Z][a-z]+(?:[\-\s]+[A-Z][a-z]+)*)\s*,\s*([A-Z]\.?(?:\s*[A-Z]\.?)*)',
-            group
-        )
-        
-        if apa_authors:
-            for surname, initials in apa_authors:
-                res.append({'family': surname.strip(), 'given': initials.strip()})
-        else:
-            # AMA format or single name: "Smith JB" or just "Smith"
-            # Try to match "Surname Initials" where initials are uppercase letters
-            m = re.match(r'^(.+?)\s+([A-Z]{1,4})$', group.strip())
-            if m:
-                res.append({'family': m.group(1).strip(), 'given': m.group(2).strip()})
-            elif group.strip():
-                # Just treat the whole thing as a family name
-                res.append({'family': group.strip()})
-    
-    return res
-
-def parse_ama_reference_raw(raw: str) -> Dict[str, Any]:
+def parse_ama_reference_raw(raw: str) -> Dict[str, Optional[str]]:
     s = normalize_whitespace(raw)
+    # Remove leading numbering (e.g. "1. ", "2. ") which might be present
     s = re.sub(r'^\d+\.\s*', '', s)
+
     parts = [p.strip() for p in re.split(r'\.\s+', s) if p.strip()]
     authors = parts[0] if len(parts) > 0 else ''
     title = parts[1] if len(parts) > 1 else ''
@@ -643,17 +527,12 @@ def parse_ama_reference_raw(raw: str) -> Dict[str, Any]:
     year_match = re.search(r'\b(19|20)\d{2}\b', raw)
     year = year_match.group(0) if year_match else None
     journal = journal.rstrip('. ')
-    return {
-        'authors': authors, 
-        'author': parse_authors_to_list(authors),
-        'title': [title], 
-        'container-title': [journal], 
-        'year': year,
-        'type': 'journal-article'
-    }
+    return {'authors': authors, 'title': title, 'journal': journal, 'year': year}
 
-def parse_apa_reference_raw(raw: str) -> Dict[str, Any]:
+def parse_apa_reference_raw(raw: str) -> Dict[str, Optional[str]]:
     s = normalize_whitespace(raw)
+
+    # Improved APA pattern capturing Authors. (Year). Title. Journal, ...
     m = re.match(
         r'^(?P<authors>.+?)\s*\((?P<year>\d{4})\)\.\s*'
         r'(?P<title>.+?)\.\s*'
@@ -661,25 +540,21 @@ def parse_apa_reference_raw(raw: str) -> Dict[str, Any]:
         s
     )
     if m:
-        auths = m.group('authors').strip()
         return {
-            'authors': auths,
-            'author': parse_authors_to_list(auths),
+            'authors': m.group('authors').strip(),
             'year': m.group('year').strip(),
-            'title': [m.group('title').strip()],
-            'container-title': [m.group('journal').strip()],
-            'type': 'journal-article'
+            'title': m.group('title').strip(),
+            'journal': m.group('journal').strip()
         }
+
+    # Fallback parsing
     parts = [p.strip() for p in s.split('.') if p.strip()]
     year_match = re.search(r'\b(19|20)\d{2}\b', s)
-    auths = parts[0] if len(parts) > 0 else ''
     return {
-        'authors': auths,
-        'author': parse_authors_to_list(auths),
-        'title': [parts[1] if len(parts) > 1 else ''],
-        'container-title': [parts[2] if len(parts) > 2 else ''],
-        'year': year_match.group(0) if year_match else None,
-        'type': 'journal-article'
+        'authors': parts[0] if len(parts) > 0 else '',
+        'title': parts[1] if len(parts) > 1 else '',
+        'journal': parts[2] if len(parts) > 2 else '',
+        'year': year_match.group(0) if year_match else None
     }
 
 # -------------------------
@@ -735,10 +610,6 @@ def pick_best_between_pubmed_crossref(title: str,
         return best[1], 'pubmed', best_score
 
 def pubmed_to_crossref_like(pubmed_item: Dict[str, Any]) -> Dict[str, Any]:
-    page_val = pubmed_item.get('page', '')
-    # DEBUG: Log page data transformation
-    if page_val:
-        logger.debug(f"PubMed->CrossRef - Pages: '{page_val}' (Length: {len(page_val)})")
     cr_like = {
         'author': pubmed_item.get('author', []),
         'title': pubmed_item.get('title', []),
@@ -746,7 +617,7 @@ def pubmed_to_crossref_like(pubmed_item: Dict[str, Any]) -> Dict[str, Any]:
         'short-container-title': [pubmed_item.get('iso_abbrev')] if pubmed_item.get('iso_abbrev') else [],
         'volume': pubmed_item.get('volume', ''),
         'issue': pubmed_item.get('issue', ''),
-        'page': page_val,
+        'page': pubmed_item.get('page', ''),
         'DOI': pubmed_item.get('DOI', '') or None,
         'created': pubmed_item.get('created', {})
     }
@@ -825,20 +696,8 @@ def format_authors_ama(authors: List[Dict[str, str]]) -> str:
 
 def generate_apa_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]]]:
     ctype = item.get('type', 'journal-article')
-    # Year extraction priority: published-print > published-online > issued > year > created
-    # 'created' is the CrossRef record creation date, NOT publication date (caused 1996→2003 errors)
-    date_parts = (
-        item.get('published-print', {}).get('date-parts') or
-        item.get('published-online', {}).get('date-parts') or
-        item.get('issued', {}).get('date-parts') or
-        [[None]]
-    )
+    date_parts = item.get('created', {}).get('date-parts') or item.get('published-print', {}).get('date-parts') or [[None]]
     year = str(date_parts[0][0]) if date_parts[0][0] else (item.get('year') or 'n.d.')
-    # Last resort: use 'created' only if nothing else worked and year is still 'n.d.'
-    if year == 'n.d.' and item.get('created', {}).get('date-parts'):
-        cd = item['created']['date-parts']
-        if cd and cd[0] and cd[0][0]:
-            year = str(cd[0][0])
     
     # Clean title
     def clean_text(t):
@@ -852,9 +711,6 @@ def generate_apa_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]
     volume = item.get('volume', '')
     issue = item.get('issue', '')
     pages = item.get('page', '')
-    # DEBUG: Log page data for troubleshooting
-    if pages:
-        logger.debug(f"APA Citation - Pages from API: '{pages}' (Length: {len(pages)})")
     doi = item.get('DOI', '')
     url = item.get('URL', '')
 
@@ -1028,10 +884,8 @@ def generate_apa_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]
             segments.append(("(", None))
             segments.append((issue, 'bib_issue')) # No Italic
             segments.append((")", None))
-        # NOTE: Full page range is preserved (not truncated) - APA style uses complete page numbers
         if pages:
             segments.append((", ", None))
-            # Preserve full page range (e.g., 123-456) with en-dash conversion
             segments.append((pages.replace('-', '–'), 'bib_fpage')) # En-dash
         segments.append((".", None))
 
@@ -1297,30 +1151,10 @@ def abbreviate_journal_name_basic(name: str) -> str:
         name_clean = name_clean.replace('&amp;', '&')
         key_clean = key_clean.replace('&amp;', '&')
 
-        # Only match if:
-        # 1. Exact match (already handled above)
-        # 2. The key is contained as complete words in the name
-        # This prevents "cancer" from matching "journal of the national cancer institute"
-        
-        # For multi-word keys, allow substring matching
-        if ' ' in key_clean:
-            if key_clean in name_clean or name_clean in key_clean:
-                with CACHE_LOCK:
-                    REF_CACHE['journal_abbrev'][name_norm] = abbr
-                return abbr
-        else:
-            # For single-word keys, require word boundary match
-            # Use regex to ensure it's a complete word
-            import re as re_module
-            pattern = r'\b' + re_module.escape(key_clean) + r'\b'
-            if re_module.search(pattern, name_clean):
-                # But only if it's not a partial match of a longer journal name
-                # E.g., "cancer" should not match "journal of cancer research"
-                # unless the name IS "cancer"
-                if name_clean == key_clean or len(name_clean.split()) == 1:
-                    with CACHE_LOCK:
-                        REF_CACHE['journal_abbrev'][name_norm] = abbr
-                    return abbr
+        if key_clean in name_clean or name_clean in key_clean:
+            with CACHE_LOCK:
+                REF_CACHE['journal_abbrev'][name_norm] = abbr
+            return abbr
     
     # Store original as fallback if no match found (or should we?)
     # Usually cache success only. But if we want to avoid re-scanning mapping...
@@ -1328,19 +1162,8 @@ def abbreviate_journal_name_basic(name: str) -> str:
 
 def generate_ama_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]]]:
     ctype = item.get('type', 'journal-article')
-    # Year extraction priority: published-print > published-online > issued > year > created
-    # 'created' is the CrossRef record creation date, NOT publication date
-    date_parts = (
-        item.get('published-print', {}).get('date-parts') or
-        item.get('published-online', {}).get('date-parts') or
-        item.get('issued', {}).get('date-parts') or
-        [[None]]
-    )
+    date_parts = item.get('created', {}).get('date-parts') or item.get('published-print', {}).get('date-parts') or [[None]]
     year = str(date_parts[0][0]) if date_parts[0][0] else (item.get('year') or 'n.d')
-    if year == 'n.d' and item.get('created', {}).get('date-parts'):
-        cd = item['created']['date-parts']
-        if cd and cd[0] and cd[0][0]:
-            year = str(cd[0][0])
 
     # helper to clean text
     def clean_text(t):
@@ -1365,9 +1188,6 @@ def generate_ama_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]
     volume = item.get('volume', '')
     issue = item.get('issue', '')
     pages = item.get('page', '')
-    # DEBUG: Log page data for troubleshooting
-    if pages:
-        logger.debug(f"AMA Citation - Pages from API: '{pages}' (Length: {len(pages)})")
     doi = item.get('DOI', '')
     url = item.get('URL', '')
 
@@ -1443,7 +1263,7 @@ def generate_ama_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]
         segments.append((year, 'bib_year'))
         if pages:
             segments.append((":", None))
-            segments.append((pages, 'bib_fpage')) # Keep hyphen for AMA
+            segments.append((pages.replace('-', '–'), 'bib_fpage')) # En-dash
         segments.append((".", None))
         
     elif ctype == 'thesis':
@@ -1482,11 +1302,9 @@ def generate_ama_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[str]
             segments.append(("(", None))
             segments.append((issue, 'bib_issue'))
             segments.append((")", None))
-        # NOTE: Full page range is preserved (not truncated) - AMA style uses complete page numbers with hyphens
         if pages:
             segments.append((":", None))
-            # Preserve full page range (e.g., 123-456) with hyphen (AMA style)
-            segments.append((pages, 'bib_fpage')) # Keep hyphen for AMA
+            segments.append((pages.replace('-', '–'), 'bib_fpage')) # En-dash
             
         # DOI preference over URL for journals
         if doi:
@@ -1509,18 +1327,8 @@ def generate_chicago_citation(item: Dict[str, Any]) -> List[Tuple[str, Optional[
     Format: Author. Title. Container. Publisher, Year.
     """
     ctype = item.get('type', 'journal-article')
-    # Year extraction priority: published-print > published-online > issued > year > created
-    date_parts = (
-        item.get('published-print', {}).get('date-parts') or
-        item.get('published-online', {}).get('date-parts') or
-        item.get('issued', {}).get('date-parts') or
-        [[None]]
-    )
+    date_parts = item.get('created', {}).get('date-parts') or item.get('published-print', {}).get('date-parts') or [[None]]
     year = str(date_parts[0][0]) if date_parts[0][0] else (item.get('year') or 'n.d.')
-    if year == 'n.d.' and item.get('created', {}).get('date-parts'):
-        cd = item['created']['date-parts']
-        if cd and cd[0] and cd[0][0]:
-            year = str(cd[0][0])
     
     # helper to clean text
     def clean_text(t):
@@ -1782,24 +1590,12 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
     re_url = re.compile(r'https?://\S+')
     
     def parse_authors_title_rest(text):
-        """Splitter that respects ?, !, and . as delimiters."""
-        # Capture delimiters
-        parts = re.split(r'([.?!])\s+', text)
-        chunks = []
-        if len(parts) > 1:
-            for i in range(0, len(parts)-1, 2):
-                c = parts[i].strip()
-                d = parts[i+1]
-                if c: chunks.append(c + d)
-            if len(parts) % 2 == 1 and parts[-1].strip():
-                chunks.append(parts[-1].strip())
-        else:
-            chunks = [text]
-
-        if len(chunks) >= 3:
-            return chunks[0], chunks[1], " ".join(chunks[2:])
-        elif len(chunks) == 2:
-            return chunks[0], chunks[1], ""
+        """Naive splitter: Authors. Title. Rest"""
+        parts = [p.strip() for p in re.split(r'\.\s+', text) if p.strip()]
+        if len(parts) >= 3:
+            return parts[0], parts[1], ". ".join(parts[2:])
+        elif len(parts) == 2:
+            return parts[0], parts[1], ""
         else:
             return text, "", ""
 
@@ -1867,7 +1663,7 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
         return s
 
     # 1. SPECIAL MANUAL HANDLING
-    if manual_type in ('book', 'edited_book', 'thesis', 'web', 'other'):
+    if manual_type in ('book', 'edited_book', 'thesis', 'web'):
         
         # --- PRE-PROCESS: Extract URL/DOI if Web ---
         url_val = ""
@@ -2052,14 +1848,8 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
              # APA Format: Authors (Year). Title. In... (Eds), Book Title (pp. x-y). Pub.
              # or: Authors (Year). Title. Pub.
              
-             # Find the year-in-parens pattern, not just first '(' (to avoid abbreviations like (NACNS))
-             m_year_paren = re.search(r'\(\s*(?:\d{4}|n\.d\.)\s*(?:,\s*[^)]+)?\)', txt_clean)
-             if m_year_paren and m_year_paren.start() > 5:
-                 a_end = m_year_paren.start()
-                 a = txt_clean[:a_end].strip()
-                 rem = txt_clean[a_end:].strip()
-             elif txt_clean.find('(') > 5:
-                 a_end = txt_clean.find('(')
+             a_end = txt_clean.find('(')
+             if a_end > 5:
                  a = txt_clean[:a_end].strip()
                  rem = txt_clean[a_end:].strip()
              else:
@@ -2107,7 +1897,7 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
              # Extract title from remainder?
              if rem:
                  # remove (Year). or (Year, Month Day). or (n.d.).
-                 rem_no_y = re.sub(r'^\(\s*(?:\d{4}|n\.d\.|n\. d\.)\s*(?:,.*?)?\)\s*\.?\s*', '', rem, flags=re.IGNORECASE)
+                 rem_no_y = re.sub(r'^\((?:\d{4}|n\.d\.|n\. d\.)(?:,.*?)?\)\.\s*', '', rem, flags=re.IGNORECASE)
              elif m_date and t:
                  # If rem was empty, it means parse_authors_title_rest put everything in `t`.
                  # We must remove the date string from `t` to avoid duplication.
@@ -2130,7 +1920,7 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
              
              # Re-thinking structure to handle both cases
              if rem:
-                 rem_no_y = re.sub(r'^\(\s*(?:\d{4}|n\.d\.|n\. d\.)\s*(?:,.*?)?\)\s*\.?\s*', '', rem, flags=re.IGNORECASE)
+                 rem_no_y = re.sub(r'^\((?:\d{4}|n\.d\.|n\. d\.)(?:,.*?)?\)\.\s*', '', rem, flags=re.IGNORECASE)
              elif m_date and t:
                   # Attempt to remove found date from t
                   rem_no_y = t.replace(m_date.group(0), "").strip()
@@ -2149,132 +1939,58 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
                  
                  # Check for Edited Book Logic: "Title. In Editors (Eds.), Book Title (pp. 1-2). Publisher."
                  # Pattern: "In ... (Eds.?),"
-                 # Require "In" at sentence boundary: after ". " or at start of string
-                 # This prevents splitting titles like "Consultation in Clinical Nurse Specialist Practice"
-                 # Check for Edited Book Logic (Eds.) OR Chapter in Book (no editors)
-                 m_eds_papa = re.search(r'(?:(?<=\.\s)|^)In\s+(.+?)\s+\(Eds?\.?\),', rem_no_y, re.IGNORECASE)
-                 m_just_in = None
-                 if not m_eds_papa:
-                     # Check for "In " that is NOT "In press"
-                     m_tmp = re.search(r'(?:(?<=\.\s)|^)In\s+', rem_no_y, re.IGNORECASE)
-                     if m_tmp:
-                         # Filter out "In press" etc.
-                         look_ahead = rem_no_y[m_tmp.end():].strip().lower()
-                         if not any(look_ahead.startswith(bad) for bad in ['press', 'prep', '(press', '(prep']):
-                             m_just_in = m_tmp
-
-                 if m_eds_papa or m_just_in:
-                      match_obj = m_eds_papa or m_just_in
+                 m_eds_papa = re.search(r'\bIn\s+(.+?)\s+\(Eds?\.?\),', rem_no_y, re.IGNORECASE)
+                 
+                 if m_eds_papa:
                       # Chapter Title is before "In"
-                      start_in = match_obj.start()
+                      start_in = m_eds_papa.start()
                       chap_tit = rem_no_y[:start_in].strip()
                       # Ensure it ends with dot
                       if not chap_tit.endswith('.'): chap_tit += '.'
                       
                       segments.append((chap_tit, 'bib_chaptertitle'))
                       segments.append((" ", None))
+                      
+                      # Editor Part
                       segments.append(("In ", None))
+                      ed_blob = m_eds_papa.group(1).strip()
+                      # For APA editors, usually "A. Editor & B. Editor" -> leave as is or basic style
+                      # Applying generic ed-surname might be messy if initials are first. 
+                      # Let's apply bib_ed-surname to the whole block or try to parse?
+                      # "S. Coates, J. Rosenthal, & D. Schechter" -> Initials Surname
+                      # We will just style the whole editor group as 'bib_ed-surname' for now or split by commas
+                      # User asked for granular: bib_ed-fname bib_ed-surname if possible.
+                      # "S. Coates" -> Fname Surname
                       
-                      if m_eds_papa:
-                           ed_blob = m_eds_papa.group(1).strip()
-                           # Split editors logic
-                           has_amp = '&' in ed_blob
-                           if has_amp:
-                               amp_parts = re.split(r',?\s*&\s*', ed_blob)
-                           else:
-                               amp_parts = [ed_blob]
-                           
-                           ed_parts = []
-                           for part in amp_parts:
-                               part = part.strip()
-                               if not part: continue
-                               sub_parts = re.split(r',\s+(?=[A-Z][\.\-])', part)
-                               ed_parts.extend(sub_parts)
-                           
-                           # FIX: Merge separated Surname/Initials (e.g. "Cross", "W." -> "Cross, W.")
-                           # Helps when editors are listed as "Surname, I." instead of "I. Surname"
-                           merged_parts = []
-                           buf = None
-                           for p in ed_parts:
-                               p = p.strip()
-                               if not p: continue
-                               if buf:
-                                   # If p is Initial-like (W. or A.) and buf has no dots (Cross)
-                                   # Regex for initial: Start with cap, ends with dot, short length
-                                   if len(p) <= 4 and re.match(r'^[A-Z](?:[\.\-][A-Z]?)?\.?$', p) and not re.search(r'[\.\-]', buf):
-                                       buf = f"{buf}, {p}"
-                                   else:
-                                       merged_parts.append(buf)
-                                       buf = p
-                               else:
-                                   buf = p
-                           if buf: merged_parts.append(buf)
-                           ed_parts = merged_parts
-                           
-                           for i, ep in enumerate(ed_parts):
-                               ep = ep.strip()
-                               if not ep: continue
-                               if i > 0: segments.append((", ", None))
-                               if i == len(ed_parts)-1 and has_amp and len(ed_parts) > 1:
-                                   segments.append(("& ", None))
-                               
-                               # Fix "Surname Initials" (Lyon BL) -> B. L. Lyon
-                               m_rev_no_comma = re.match(r'^([A-Z][a-z]+)\s+([A-Z]{1,3})$', ep)
-                               if m_rev_no_comma:
-                                   sur = m_rev_no_comma.group(1)
-                                   inits_raw = m_rev_no_comma.group(2)
-                                   # Convert BL -> B. L.
-                                   new_inits = ". ".join(list(inits_raw)) + "."
-                                   segments.append((new_inits, 'bib_ed-fname'))
-                                   segments.append((" ", None))
-                                   segments.append((sur, 'bib_ed-surname'))
-                                   continue
-
-                               # Try parse "S. Coates" or "A. B. Surname"
-                               m_name = re.match(r'^([A-Z][\.\-](?:\s*[A-Z][\.\-])*\.?)\s+(.+)$', ep)
-                               if m_name:
-                                   segments.append((m_name.group(1), 'bib_ed-fname'))
-                                   segments.append((" ", None))
-                                   segments.append((m_name.group(2), 'bib_ed-surname'))
-                               else:
-                                   segments.append((ep, 'bib_ed-surname'))
-                           
-                           segments.append((" (Eds.), ", None))
-                           rem_book = rem_no_y[m_eds_papa.end():].strip()
-                      else:
-                           # No editors
-                           rem_book = rem_no_y[m_just_in.end():].strip()
+                      ed_parts = re.split(r',|&', ed_blob)
+                      for i, ep in enumerate(ed_parts):
+                          ep = ep.strip()
+                          if not ep: continue
+                          if i > 0: segments.append((", ", None))
+                          if i == len(ed_parts)-1 and '&' in ed_blob: segments.append(("& ", None)) # naive amp restore
+                          
+                          # Try parse "S. Coates"
+                          m_name = re.match(r'^([A-Z]\.?\s*[A-Z]?\.?)\s+(.+)$', ep)
+                          if m_name:
+                              segments.append((m_name.group(1), 'bib_ed-fname'))
+                              segments.append((" ", None))
+                              segments.append((m_name.group(2), 'bib_ed-surname'))
+                          else:
+                              segments.append((ep, 'bib_ed-surname'))
                       
-                      # Extract Pages: (pp. 75-97) or combined edition+pages (3 ed., pp. 75-97)
-                      # First try combined edition+pages pattern
-                      m_ed_pp = re.search(r'\(([^)]*ed\.),\s*pp\.?\s*(\d+[-–]\d+)\)', rem_book)
+                      # (Eds.),
+                      segments.append((" (Eds.), ", None))
+                      
+                      # Remain: Book Title (pp. ranges). Publisher.
+                      rem_book = rem_no_y[m_eds_papa.end():].strip()
+                      
+                      # Extract Pages: (pp. 75-97)
+                      # regex for (pp. ...)
                       m_pp = re.search(r'\(pp\.?\s*(\d+[-–]\d+)\)', rem_book)
                       bk_title = rem_book
                       pub_blob = ""
                       
-                      if m_ed_pp:
-                          # Combined: (3 ed., pp. 129-133)
-                          bk_title = rem_book[:m_ed_pp.start()].strip()
-                          edition_inner = m_ed_pp.group(1).strip()
-                          pages_inner = m_ed_pp.group(2)
-                          rem_after_pp = rem_book[m_ed_pp.end():].strip()
-                          if rem_after_pp.startswith('.'): rem_after_pp = rem_after_pp[1:].strip()
-                          pub_blob = rem_after_pp
-                          
-                          segments.append((bk_title, 'bib_book'))
-                          segments.append((" (", None))
-                          segments.append((edition_inner, 'bib_editionno'))
-                          segments.append((", pp. ", None))
-                          # split fpage/lpage
-                          if '-' in pages_inner or '–' in pages_inner:
-                              pgs = re.split(r'[-–]', pages_inner)
-                              segments.append((pgs[0], 'bib_fpage'))
-                              segments.append(("–", None))
-                              segments.append((pgs[1], 'bib_lpage'))
-                          else:
-                              segments.append((pages_inner, 'bib_fpage'))
-                          segments.append(("). ", None))
-                      elif m_pp:
+                      if m_pp:
                           bk_title = rem_book[:m_pp.start()].strip()
                           pages_inner = m_pp.group(1)
                           rem_after_pp = rem_book[m_pp.end():].strip()
@@ -2358,10 +2074,6 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
                      if pub_part:
                          # Remove trailing ... or dots
                          pub_clean = pub_part.strip().rstrip('.')
-                         
-                         # Check for malformed "In (Ed)." (Missing book title)
-                         if re.match(r'^\s*In\s*\(\d', pub_clean, re.IGNORECASE):
-                              segments.append((" [MISSING BOOK TITLE?]", None))
                          
                          # Heuristic: If we decided it's an article above, the rest is Journal info
                          if t_style == 'bib_article': 
@@ -2492,14 +2204,8 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
 
     else: # APA
          # APA Format: Authors (Year). Title. Publisher/URL.
-         # Find the year-in-parens pattern, not just first '(' (to avoid (NACNS) etc.)
-         m_year_paren = re.search(r'\(\s*(?:\d{4}|n\.d\.)\s*(?:,\s*[^)]+)?\)', txt_clean)
-         if m_year_paren and m_year_paren.start() > 5:
-             a_end = m_year_paren.start()
-             a = txt_clean[:a_end].strip()
-             rem = txt_clean[a_end:].strip()
-         elif txt_clean.find('(') > 5:
-             a_end = txt_clean.find('(')
+         a_end = txt_clean.find('(')
+         if a_end > 5:
              a = txt_clean[:a_end].strip()
              rem = txt_clean[a_end:].strip()
          else:
@@ -2519,24 +2225,19 @@ def generate_fallback_citation(parsed: Dict[str, Any], original_raw: str, style_
          
          # Extract title from remainder?
          if rem:
-             # Strip year with optional internal spaces: (2020), (2020 ), etc.
-             rem_no_y = re.sub(r'^\(\s*\d{4}\s*\)\s*\.?\s*', '', rem)
-             # Also strip any remaining year-in-parens that wasn't at the start
-             rem_no_y = re.sub(r'\(\s*\d{4}\s*\)\s*\.?\s*', '', rem_no_y).strip()
+             rem_no_y = re.sub(r'^\(\d{4}\)\.\s*', '', rem)
+             t_parts = rem_no_y.split('.', 1)
+             title_part = t_parts[0]
+             pub_part = t_parts[1] if len(t_parts)>1 else ""
              
-             if rem_no_y:
-                 t_parts = rem_no_y.split('.', 1)
-                 title_part = t_parts[0]
-                 pub_part = t_parts[1] if len(t_parts)>1 else ""
-                 
-                 t_style = 'bib_book' # Default to book style for generic fallback (it's usually a book/report if it failed API)
-                 segments.append((title_part.strip(), t_style)) # Default to title/italic
-                 segments.append((". ", None))
-                 
-                 if pub_part:
-                     pub_clean = pub_part.strip().rstrip('.')
-                     segments.append((pub_clean, 'bib_publisher')) # Default to publisher/source
-                     segments.append((".", None))
+             t_style = 'bib_book' # Default to book style for generic fallback (it's usually a book/report if it failed API)
+             segments.append((title_part.strip(), t_style)) # Default to title/italic
+             segments.append((". ", None))
+             
+             if pub_part:
+                 pub_clean = pub_part.strip().rstrip('.')
+                 segments.append((pub_clean, 'bib_publisher')) # Default to publisher/source
+                 segments.append((".", None))
          elif t: 
              segments.append((t.strip(), 'bib_book'))
              segments.append((". ", None))
@@ -2679,47 +2380,23 @@ def try_add_word_comment(doc, para, comment_text, author="RefFix", initials="RF"
 # -------------------------
 # Utility: write citation into paragraph with styles
 # -------------------------
-def write_citation_with_styles(para, segments: List[Tuple[str, Optional[str]]], preserve_original_styles: bool = False, styles=None, doc=None):
+def write_citation_with_styles(para, segments: List[Tuple[str, Optional[str]]], preserve_original_styles: bool = False, styles=None):
     if preserve_original_styles:
         return
+    try:
+        # Robustly clear paragraph content using lxml
+        para._element.clear_content()
+    except Exception:
+        # Fallback
+        try:
+            para.text = ''
+        except Exception:
+            pass
 
-    # NEW: Global Post-Processing Cleanup (Segments)
-    # Fix double punctuation ("..") and boundary issues (e.g. "Title?." -> "Title?")
-    cleaned_segments = []
-    for txt, sty in segments:
-        if not txt: continue
-        
-        # 1. Internal cleanup: ".. -> ."
-        txt = txt.replace('..', '.')
-        
-        # 2. Cross-segment boundary cleanup
-        if cleaned_segments:
-            prev_txt = cleaned_segments[-1][0]
-            # Check if previous segment ended with punctuation
-            if prev_txt and prev_txt.strip():
-                last_char = prev_txt.rstrip()[-1]
-                # If duplicative punctuation found across boundary
-                if last_char in ('.', '?', '!') and txt.strip().startswith('.'):
-                     # Remove the leading dot from current segment
-                     # e.g. ". " -> " "
-                     txt = re.sub(r'^\s*\.', '', txt, count=1)
-        
-        if txt:
-            cleaned_segments.append((txt, sty))
-    segments = cleaned_segments
-
-    # 1. Prepare New Content
-    new_full_text = ""
-    style_map = [] # List of style names matching new_full_text indices
-    
-    # Pre-calculate mapping
     for text, style_suffix in segments:
-        if not text: continue
-        
-        # Determine Style Name
-        sname = None
+        run = para.add_run(text)
         if style_suffix:
-            style_map_dict = {
+            style_map = {
                 'surname': 'bib_surname',
                 'fname': 'bib_fname',
                 'year': 'bib_year',
@@ -2742,6 +2419,8 @@ def write_citation_with_styles(para, segments: List[Tuple[str, Optional[str]]], 
                 'institution': 'bib_institution',
                 'organization': 'bib_organization',
                 'bib_number': 'bib_number',
+                
+                # Direct mappings for new user requested styles
                 'bib_alt-year': 'bib_alt-year',
                 'bib_article': 'bib_article',
                 'bib_base': 'bib_base',
@@ -2797,255 +2476,25 @@ def write_citation_with_styles(para, segments: List[Tuple[str, Optional[str]]], 
                 'bib_volcount': 'bib_volcount',
                 'bib_volume': 'bib_volume'
             }
-            sname = style_suffix if style_suffix.startswith('bib_') else style_map_dict.get(style_suffix)
-        
-        # DEBUG: Log style mapping
-        # print(f"DEBUG: Segment: '{text}' -> Style: {sname}")
-        
-        new_full_text += text
-        style_map.extend([sname] * len(text))
-        
-    # print(f"DEBUG: Full Style Map Length: {len(style_map)}")
-
-    # 2. Get Original Content
-    original_text = para.text
-    
-    # 3. Diff and Reconstruct (if Track Changes enabled)
-    if TRACK_CHANGES_ENABLED:
-        try:
-            # Clear Paragraph
-            para._element.clear_content() # We're rebuilding it
+            # Use style_suffix directly if it starts with bib_, else map it
+            sname = style_suffix if style_suffix.startswith('bib_') else style_map.get(style_suffix)
             
-            # Diff
-            matcher = difflib.SequenceMatcher(None, original_text, new_full_text)
-            
-            for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
-                
-                if opcode == 'equal':
-                    # EQUAL: Text matches.
-                    # We rebuild it as NORMAL runs (not tracked).
-                    # But we apply the NEW styles from style_map.
-                    
-                    segment_text = new_full_text[j1:j2]
-                    segment_styles = style_map[j1:j2]
-                    
-                    # Ensure style existence if needed
-                    # We skip the complex checking here for brevity, assuming styles exist or pass str
-                    
-                    # Chunk by style
-                    chunk_start = 0
-                    for k in range(len(segment_text) + 1):
-                         # Break if end or style changes
-                        is_end = (k == len(segment_text))
-                        style_changed = (k > 0 and k < len(segment_text) and segment_styles[k] != segment_styles[k-1])
-                        
-                        if is_end or style_changed:
-                            chunk = segment_text[chunk_start:k]
-                            if chunk:
-                                style = segment_styles[chunk_start]
-                                # Add Run
-                                run = para.add_run(chunk)
-                                if style:
-                                    try:
-                                        if styles and style not in styles:
-                                             try:
-                                                 styles.add_style(style, WD_STYLE_TYPE.CHARACTER)
-                                             except: pass
-                                        
-                                        # Force style application
-                                        if styles and style in styles:
-                                            run.style = styles[style]
-                                        else:
-                                            run.style = style
-                                    except: 
-                                        pass
-                            
-                            chunk_start = k
-                            
-                elif opcode == 'delete':
-                    # DELETE: In original, not in new.
-                    # Add Tracked Deletion
-                    deleted_chunk = original_text[i1:i2]
-                    track_changes.add_tracked_deletion(para, deleted_chunk, doc=doc)
-                    
-                elif opcode == 'insert':
-                    # INSERT: In new, not in original.
-                    # Add Tracked Insertion (with styles)
-                    
-                    segment_text = new_full_text[j1:j2]
-                    segment_styles = style_map[j1:j2]
-                    
-                    chunk_start = 0
-                    for k in range(len(segment_text) + 1):
-                         # Break if end or style changes
-                        is_end = (k == len(segment_text))
-                        style_changed = (k > 0 and k < len(segment_text) and segment_styles[k] != segment_styles[k-1])
-                        
-                        if is_end or style_changed:
-                            chunk = segment_text[chunk_start:k]
-                            if chunk:
-                                style = segment_styles[chunk_start]
-                                
-                                try:
-                                    track_changes.add_tracked_text(para, chunk, style=style, doc=doc)
-                                except Exception as e:
-                                    # Fallback
-                                    # logging.warning(f"Tracked insert failed: {e}")
-                                    para.add_run(chunk)
-                            
-                            chunk_start = k
-                            
-                elif opcode == 'replace':
-                    # REPLACE: Delete + Insert
-                    
-                    # Delete
-                    deleted_chunk = original_text[i1:i2]
-                    track_changes.add_tracked_deletion(para, deleted_chunk, doc=doc)
-                    
-                    # Insert
-                    segment_text = new_full_text[j1:j2]
-                    segment_styles = style_map[j1:j2]
-                    
-                    chunk_start = 0
-                    for k in range(len(segment_text) + 1):
-                         # Break if end or style changes
-                        is_end = (k == len(segment_text))
-                        style_changed = (k > 0 and k < len(segment_text) and segment_styles[k] != segment_styles[k-1])
-                        
-                        if is_end or style_changed:
-                            chunk = segment_text[chunk_start:k]
-                            if chunk:
-                                style = segment_styles[chunk_start]
-                                
-                                try:
-                                    track_changes.add_tracked_text(para, chunk, style=style, doc=doc)
-                                except Exception as e:
-                                    # Fallback
-                                    # logging.warning(f"Tracked replace/insert failed: {e}")
-                                    para.add_run(chunk)
-                            
-                            chunk_start = k
-                            
-                            chunk_start = k
-
-        except Exception as e:
-            logging.error(f"Granular Track Changes Failed: {e}. Falling back to overwrite.")
-            # Fallback: Wipe and Insert All (Old method but without track changes structure valid? No we cleared content)
-            # If we cleared content and failed mid-way, we might have partial text.
-            # Ideally try to just dump new_full_text? 
-            # Or assume non-granular fallback
-            pass
-            
-    else:
-        # Standard Overwrite (No Track Changes)
-        try:
-            para._element.clear_content()
-        except:
-             para.text = ''
-        
-        # Build runs from segments (existing logic)
-        for text, style_suffix in segments:
-            run = para.add_run(text)
-            
-            if style_suffix:
-                style_map_dict = {
-                    'surname': 'bib_surname',
-                    'fname': 'bib_fname',
-                    'year': 'bib_year',
-                    'month': 'bib_month',
-                    'day': 'bib_day',
-                    'season': 'bib_season',
-                    'article': 'bib_article',
-                    'title': 'bib_title',
-                    'book': 'bib_book',
-                    'chapter': 'bib_chaptertitle',
-                    'journal': 'bib_journal',
-                    'volume': 'bib_volume',
-                    'issue': 'bib_issue',
-                    'fpage': 'bib_fpage',
-                    'lpage': 'bib_lpage',
-                    'etal': 'bib_etal',
-                    'doi': 'bib_doi',
-                    'url': 'bib_url',
-                    'publisher': 'bib_publisher',
-                    'institution': 'bib_institution',
-                    'organization': 'bib_organization',
-                    'bib_number': 'bib_number',
-                    'bib_alt-year': 'bib_alt-year',
-                    'bib_article': 'bib_article',
-                    'bib_base': 'bib_base',
-                    'bib_book': 'bib_book',
-                    'bib_chapterno': 'bib_chapterno',
-                    'bib_chaptertitle': 'bib_chaptertitle',
-                    'bib_comment': 'bib_comment',
-                    'bib_confacronym': 'bib_confacronym',
-                    'bib_confdate': 'bib_confdate',
-                    'bib_conference': 'bib_conference',
-                    'bib_conflocation': 'bib_conflocation',
-                    'bib_confpaper': 'bib_confpaper',
-                    'bib_confproceedings': 'bib_confproceedings',
-                    'bib_day': 'bib_day',
-                    'bib_deg': 'bib_deg',
-                    'bib_doi': 'bib_doi',
-                    'bib_ed-etal': 'bib_ed-etal',
-                    'bib_ed-fname': 'bib_ed-fname',
-                    'bib_editionno': 'bib_editionno',
-                    'bib_ed-organization': 'bib_ed-organization',
-                    'bib_ed-suffix': 'bib_ed-suffix',
-                    'bib_ed-surname': 'bib_ed-surname',
-                    'bib_etal': 'bib_etal',
-                    'bib_extlink': 'bib_extlink',
-                    'bib_fname': 'bib_fname',
-                    'bib_fpage': 'bib_fpage',
-                    'bib_institution': 'bib_institution',
-                    'bib_isbn': 'bib_isbn',
-                    'bib_issue': 'bib_issue',
-                    'bib_journal': 'bib_journal',
-                    'bib_location': 'bib_location',
-                    'bib_lpage': 'bib_lpage',
-                    'bib_medline': 'bib_medline',
-                    'bib_month': 'bib_month',
-                    'bib_number': 'bib_number',
-                    'bib_organization': 'bib_organization',
-                    'bib_pagecount': 'bib_pagecount',
-                    'bib_papernumber': 'bib_papernumber',
-                    'bib_patent': 'bib_patent',
-                    'bib_publisher': 'bib_publisher',
-                    'bib_reportnum': 'bib_reportnum',
-                    'bib_school': 'bib_school',
-                    'bib_season': 'bib_season',
-                    'bib_series': 'bib_series',
-                    'bib_seriesno': 'bib_seriesno',
-                    'bib_suffix': 'bib_suffix',
-                    'bib_suppl': 'bib_suppl',
-                    'bib_surname': 'bib_surname',
-                    'bib_title': 'bib_title',
-                    'bib_trans': 'bib_trans',
-                    'bib_unpubl': 'bib_unpubl',
-                    'bib_url': 'bib_url',
-                    'bib_volcount': 'bib_volcount',
-                    'bib_volume': 'bib_volume'
-                }
-                
-                sname = style_suffix if style_suffix.startswith('bib_') else style_map_dict.get(style_suffix)
-                
-                if sname:
-                    try:
-                        if styles is not None:
+            if sname:
+                try:
+                    if styles is not None:
+                        try:
+                            if sname not in styles:
+                                styles.add_style(sname, WD_STYLE_TYPE.CHARACTER)
+                            run.style = styles[sname]
+                        except Exception:
                             try:
-                                if sname not in styles:
-                                    styles.add_style(sname, WD_STYLE_TYPE.CHARACTER)
-                                run.style = styles[sname]
+                                run.style = sname
                             except Exception:
-                                try:
-                                    run.style = sname
-                                except Exception:
-                                    pass
-                        else:
-                            run.style = sname
-                    except Exception:
-                        pass
-
+                                pass
+                    else:
+                        run.style = sname
+                except Exception:
+                    pass
 
 # -------------------------
 # The hybrid-find function (main logic for each reference)
@@ -3121,43 +2570,8 @@ def pubmed_get_by_doi(doi: str) -> Optional[Dict[str, Any]]:
         return pubmed_parse_article_from_xml(root)
     return None
 
-def preprocess_reference_text(text: str) -> str:
-    """Cleans up common OCR/formatting issues in references."""
-    s = text
-    # Fix spaced parens: ( 2020 ) -> (2020)
-    s = re.sub(r'\(\s+(\d{4})\s+\)', r'(\1)', s)
-    # Fix double dots: .. -> .
-    s = re.sub(r'\.\.+', '.', s)
-    return s.strip()
-
-def detect_reference_style(raw_text: str) -> str:
-    """Detects if a reference is likely AMA, APA, or CMS."""
-    s = normalize_whitespace(raw_text)
-    
-    # APA: Look for (Year), (n.d.), or (in press) pattern
-    # Handles "Author (Year)." and "Org (Abbrev) (Year)."
-    # Updated to handle spaces inside parens like (2020 )
-    if re.search(r'\(\s*(?:\d{4}[a-z]?|n\.d\.|in press)\s*\)', s, re.IGNORECASE):
-        return 'APA'
-        
-    # AMA: Year;Vol (Journal) or Publisher; Year (Book)
-    # Handles cases where numbering is stripped. 
-    # Look for "2020;" or "; 2020" or "1. Author" (if numbering exists)
-    # Also "Year:Pages" (2011:25-30) and "In: ... eds"
-    if re.search(r'\b\d{4};', s) or re.search(r'[:;]\s*\d{4}\b', s) or \
-       re.search(r'\b\d{4}:\d+', s) or re.search(r'^\d+\.\s+[A-Z]', s) or \
-       re.search(r'\bIn:\s+.*eds?\.?', s, re.IGNORECASE):
-        return 'AMA'
-        
-    # CMS: Quotes or "no. X"
-    if re.search(r'\",\s+', s) or re.search(r'\bno\.\s+\d+', s):
-        return 'CMS'
-        
-    return 'Unknown'
-
 def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Optional[Dict[str, Any]], str, float]:
     raw_ref = normalize_whitespace(raw_ref)
-    detected_style = detect_reference_style(raw_ref)
     
     # Input Type Detection
     def detect_manual_type(t: str) -> Optional[str]:
@@ -3201,21 +2615,17 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
         if re.search(r'\b[A-Za-z\s]+:\s*[A-Za-z\s&]+(?:[;.]\s*\d{4}.*)?$', t): 
             return 'book'
             
-        # If it has a year and period-separated structure, could be a journal - defer to API
-        if re.search(r'\b(19|20)\d{2}\b', t) and '.' in t:
-            return None
-            
-        return 'other'
+        return None
 
     manual_type = detect_manual_type(raw_ref)
     
     if manual_type:
          if manual_type in ('book', 'edited_book'):
-             # Try Google Books (logic remains)
+             # Try Google Books
              if style_name == 'REF-N': p_tmp = parse_ama_reference_raw(raw_ref)
              else: p_tmp = parse_apa_reference_raw(raw_ref)
              
-             t_query = (p_tmp.get('title')[0] if isinstance(p_tmp.get('title'), list) and p_tmp.get('title') else p_tmp.get('title')) or raw_ref
+             t_query = p_tmp.get('title') or raw_ref
              a_query = None
              if p_tmp.get('authors'):
                  a_parts = p_tmp['authors'].split(',')
@@ -3226,39 +2636,11 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
                  found_title = gb_res['title'][0]
                  sim = similarity(t_query, found_title)
                  if sim > 0.7:
-                     # If Google Books didn't return a publisher, try extracting from raw text
-                     if not gb_res.get('publisher'):
-                         # For APA: publisher is typically the last segment after the last period
-                         # e.g. "... (Year). Title. Publisher."
-                         raw_parts = raw_ref.rsplit('.', 2)
-                         if len(raw_parts) >= 2:
-                             possible_pub = raw_parts[-2].strip()
-                             # Only use if it looks like a publisher (not a title or year)
-                             if possible_pub and not re.match(r'^\(\d{4}\)$', possible_pub) and len(possible_pub) > 2:
-                                 gb_res['publisher'] = possible_pub
-                     # Remove Google Books' infoLink URL as it's not useful for citations
-                     gb_url = gb_res.get('URL', '')
-                     if gb_url and 'books.google' in gb_url:
-                         gb_res['URL'] = ''
                      return gb_res, 'google_books', sim
              
-             # If Google Books fails, return manual_skip BUT with parsed metadata
-             if style_name == 'REF-N': p_tmp = parse_ama_reference_raw(raw_ref)
-             else: p_tmp = parse_apa_reference_raw(raw_ref)
-             p_tmp['manual_type'] = manual_type
-             p_tmp['type'] = manual_type
-             p_tmp['detected_style'] = detected_style
-             return p_tmp, 'manual_skip', 1.0
+             return {'type': manual_type, 'manual_type': manual_type}, 'manual_skip', 1.0
              
-
-             
-         # For other manual types (web, thesis, other), also return parsed metadata
-         if style_name == 'REF-N': p_tmp = parse_ama_reference_raw(raw_ref)
-         else: p_tmp = parse_apa_reference_raw(raw_ref)
-         p_tmp['manual_type'] = manual_type
-         p_tmp['type'] = manual_type
-         p_tmp['detected_style'] = detected_style
-         return p_tmp, 'manual_skip', 1.0
+         return {'type': manual_type, 'manual_type': manual_type}, 'manual_skip', 1.0
 
     # API Validation Path
     is_book_input = False
@@ -3285,10 +2667,8 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
     else:
         parsed = parse_apa_reference_raw(raw_ref)
 
-    title_raw = parsed.get('title')
-    title = (title_raw[0] if isinstance(title_raw, list) and title_raw else title_raw) or raw_ref
-    journal_raw = parsed.get('container-title')
-    journal = (journal_raw[0] if isinstance(journal_raw, list) and journal_raw else journal_raw) or None
+    title = parsed.get('title') or raw_ref
+    journal = parsed.get('journal') or None
     year = parsed.get('year') or None
     authors_str = parsed.get('authors') or ''
 
@@ -3382,11 +2762,13 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
     
     return final_best, final_source, final_score
 
-
 # -------------------------
 # DOCX processing
 # -------------------------
-def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, target_style: str = "Auto") -> Dict[str, Path]:
+# -------------------------
+# DOCX processing
+# -------------------------
+def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None) -> Dict[str, Path]:
     if output_dir is None:
         output_dir = input_docx.parent
     
@@ -3489,16 +2871,12 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                 in_ref_section = False
                 continue
 
-        # cleanup leading DOI urls (DOIs that appear at the BEGINNING of a reference, e.g. from copy-paste errors)
-        # Only match if the DOI appears within the first 60 characters (truly leading DOI)
-        m_head_doi = re.match(r'(?i)^(https?://doi\.org/10\.\S+)\s*', raw)
+        # cleanup leading DOI urls
+        m_head_doi = re.search(r'(?i)^(.*?)(https?://doi\.org/10\.\S+)', raw[:150])
         if m_head_doi:
              raw_clean = raw[m_head_doi.end():].strip().lstrip('.,;)')
         else:
-             raw_clean = raw
-             
-        # Apply robust preprocessing (fix spaced parens, double dots, etc.)
-        raw_clean = preprocess_reference_text(raw_clean)
+             raw_clean = re.sub(r'(?i)^https?://doi\.org/10\.[a-z0-9\-./]*(?=[a-z]|\s)', '', raw)
         
         # PRESERVE NUMBERING Logic
         current_numbering_prefix = ""
@@ -3509,9 +2887,6 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
         else:
             raw_for_search = raw_clean
             
-        # Do NOT force style here; we need detected style for correct parsing.
-        # We will apply target_style during generation.
-            
         tasks.append({
             'para': para,
             'raw': raw,
@@ -3520,34 +2895,10 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
             'raw_for_search': raw_for_search,
             'prefix': current_numbering_prefix
         })
-    # ============================================================
-    # STEP 1: Detect citation format for each reference (AMA/APA/CMS)
-    # ============================================================
-    for t in tasks:
-        t['detected_format'] = detect_reference_style(t['raw_for_search'])
-    
-    format_counts = {}
-    for t in tasks:
-        fmt = t['detected_format']
-        format_counts[fmt] = format_counts.get(fmt, 0) + 1
-    print(f"Format detection: {format_counts}")
-    
-    # NEW: Log unknown references for debugging
-    unknowns = [t['raw_clean'] for t in tasks if t['detected_format'] == 'Unknown']
-    if unknowns:
-        print("\n=== Unknown References Debug ===")
-        for u in unknowns:
-            print(f"UNKNOWN DETECTED: {u}")
-        print("=============================\n")
-    
-    # ============================================================
-    # STEP 2 & 3: Type classification + Journal API validation
-    # Non-journal types (book, web, thesis, other) get granular styles only
-    # Journal types get validated with PubMed/CrossRef
-    # ============================================================
+
+    # Execute Futures
     print(f"Submitting {len(tasks)} references for parallel validation...")
-    # Increased workers for better IO concurrency
-    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         for t in tasks:
             t['future'] = executor.submit(find_best_metadata_for_reference, t['raw_for_search'], t['style'])
             
@@ -3575,35 +2926,14 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                     logger.error(f"Task failed for ref '{raw[:30]}...': {e}")
                     raise e
                 
-                # --- STEP 2: GRANULAR TYPE CLASSIFICATION ---
-                # (Already done in find_best_metadata_for_reference)
-                
-                if source == 'manual_skip':
-                    source = 'manual_fallback'
-                    log_lines.append(f"Detected type: {item.get('manual_type')}, Style: {item.get('detected_style', 'Unknown')}. Bypassing API validation, applying granular styles only.\n")
-
-                # --- STEP 4: FINAL FORMAT VALIDATION ---
-                # Check for missing elements based on reference type
+                # Validation Logic Checklist
+                # Check for missing elements in Books, edited books, etc.
                 validation_errors = []
                 if item:
                     itype = item.get('type')
                     # normalize type
                     if itype in ('book', 'edited_book'):
-                         # For manual_fallback, the parsed metadata may not include publisher,
-                         # but the raw text often does. Check raw text for publisher indicators.
-                         has_publisher = bool(item.get('publisher'))
-                         if not has_publisher and source == 'manual_fallback':
-                             # Check raw text for common publisher names/patterns
-                             publisher_indicators = [
-                                 'press', 'publisher', 'wiley', 'sons', 'inc.', 'co.', 
-                                 'routledge', 'sage', 'springer', 'elsevier', 'pearson',
-                                 'basic books', 'guilford', 'appleton', 'grune', 'stratton',
-                                 'oxford university', 'cambridge university', 'publishing',
-                                 'saunders', 'mosby', 'lippincott', 'associates'
-                             ]
-                             raw_lower = raw.lower()
-                             has_publisher = any(ind in raw_lower for ind in publisher_indicators)
-                         if not has_publisher and not item.get('URL') and not item.get('DOI'):
+                         if not item.get('publisher') and not item.get('URL') and not item.get('DOI'):
                              validation_errors.append("Publisher missing")
                          if not item.get('year'):
                              validation_errors.append("Year missing")
@@ -3615,17 +2945,16 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                     elif itype == 'thesis':
                          if not item.get('publisher'): # Institution
                              validation_errors.append("Institution missing")
-                    elif itype in ('journal-article', 'article-journal'):
-                        # Journal format validation
-                        if not item.get('volume') and not item.get('DOI'):
-                            validation_errors.append("Volume missing")
-                        if not item.get('page') and not item.get('DOI'):
-                            validation_errors.append("Pages missing")
-                        if not item.get('DOI') and not item.get('URL'):
-                            validation_errors.append("DOI/URL missing")
+                    elif itype == 'journal-article' or itype == 'article-journal':
+                        # Journal needs Vol or DOI or Month/Day if year is recent?
+                        pass
 
                 if validation_errors:
                     comment_text_to_add = f"Missing elements: {', '.join(validation_errors)}"
+                
+                if source == 'manual_skip':
+                    source = 'manual_fallback'
+                    log_lines.append(f"Detected manual type: {item.get('manual_type')}. bypassing API validation.\n")
                 
                 # Explicit handling for filtered Book/Web inputs:
                 if source in ('filtered_book_mismatch', 'filtered_web_mismatch'):
@@ -3681,7 +3010,7 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                         source = 'fallback'
                         score = 0.0
                         
-                        if 'title' not in item: item['title'] = fallback_parsed.get('title', [''])
+                        if 'title' not in item: item['title'] = [fallback_parsed.get('title','')]
                         if 'URL' not in item: item['URL'] = ''
                         if 'DOI' not in item: item['DOI'] = ''
 
@@ -3693,20 +3022,12 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                          orig_parsed = parse_apa_reference_raw(raw)
                     
                     orig_auth_str = (orig_parsed.get('authors') or '').lower()
-                    _ot = orig_parsed.get('title', '')
-                    orig_title = (_ot[0] if isinstance(_ot, list) and _ot else (_ot or '')).lower()
+                    orig_title = (orig_parsed.get('title') or '').lower()
                     
                     cand_title = (item.get('title') or [''])[0]
                     cand_authors = item.get('author', [])
                     
                     real_sim = similarity(orig_title, cand_title)
-                    
-                    # BYPASS SIMILARITY CHECK FOR GEMINI
-                    # Gemini might rewrite titles (e.g. expanding abbrevs), leading to mismatches.
-                    # We trust Gemini's intent if source is 'gemini_ai'.
-                    if source == 'gemini_ai':
-                         real_sim = 1.0 
-                         author_match = True
                     
                     author_match = False
                     if not cand_authors:
@@ -3778,10 +3099,8 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                         fallback_parsed = parse_ama_reference_raw(raw)
                     else:
                         fallback_parsed = parse_apa_reference_raw(raw)
-                    _ft = fallback_parsed.get('title', [''])
-                    _ft_str = _ft[0] if isinstance(_ft, list) and _ft else (_ft or '')
-                    if _ft_str:
-                        cr_item['title'] = [_ft_str]
+                    if fallback_parsed.get('title'):
+                        cr_item['title'] = [fallback_parsed['title']]
                         log_lines.append("Filled missing title from original parsing.\n")
                     else:
                         # cannot fill title -> leave original (annotate)
@@ -3796,40 +3115,22 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                 # generate citation segments
                 if source in ('fallback', 'manual_fallback'):
                      # Use raw_for_search to prevent numbering issues
-                     # For non-journal types (book, web, thesis, edited_book, other),
-                     # generate_fallback_citation handles them correctly using raw text
                      segments = generate_fallback_citation(item, raw_for_search, style)
+                elif style == 'REF-U':
+                    segments = generate_apa_citation(cr_item)
+                elif style == 'REF':
+                    segments = generate_chicago_citation(cr_item)
                 else:
-                    # API-validated references (journals) — use structured generators
-                    # Determine Output Style
-                    start_style = style
-                    output_style = start_style
-                    
-                    if target_style == 'AMA':
-                        output_style = 'REF-N'
-                    elif target_style == 'APA':
-                        output_style = 'REF-U'
-
-                    if output_style == 'REF-N':
-                        segments = generate_ama_citation(cr_item)
-                    elif output_style == 'REF-U':
-                        segments = generate_apa_citation(cr_item)
-                    elif output_style == 'REF':
-                        segments = generate_chicago_citation(cr_item)
-                    else:
-                        segments = generate_ama_citation(cr_item)
+                    segments = generate_ama_citation(cr_item)
                 
                 # --- RE-ATTACH NUMBERING ---
                 # --- RE-ATTACH NUMBERING ---
                 if current_numbering_prefix:
-                    # Only number (and period) should have bib_number style, not the tab
+                    # Force format "1.\t" with bib_number style as requested
                     m_digits = re.search(r'\d+', current_numbering_prefix)
                     if m_digits:
-                        number_part = f"{m_digits.group(0)}."
-                        # Insert number with bib_number style
-                        segments.insert(0, (number_part, 'bib_number'))
-                        # Insert tab without style (after the number)
-                        segments.insert(1, ("\t", None))
+                        new_prefix = f"{m_digits.group(0)}.\t"
+                        segments.insert(0, (new_prefix, 'bib_number'))
                     else:
                         # Fallback if no digits found
                         segments.insert(0, (current_numbering_prefix, 'bib_number'))
@@ -3848,22 +3149,33 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                     if m:
                         final_url = m.group(0).rstrip('.,;)')
 
-
                 validation_msg = ""
                 if final_url:
-                    # OPTIMIZATION: Skip rigorous URL validation to speed up processing
-                    # validation_msg is only for logging.
-                    # is_valid = validate_url(final_url, timeout=3) 
-                    # For now, just assume valid if syntax is okay
-                    is_valid = True 
+                    # Validate URL? This is also slow!
+                    # Should we parallelize this too? 
+                    # For now keep it linear or fast check.
+                    # validate_url has 5s timeout.
+                    # We should probably skip it or parallelize it.
+                    # Given the user complained about slowness, let's skip rigorous URL validation or do it in the parallel block?
+                    # The parallel block returns metadata.
+                    # validation_msg is only for logging, it doesn't affect the document usually (except generic warning).
+                    # Actually, we can move validate_url inside find_best_metadata_for_reference?
+                    # No, find_best_metadata_for_reference returns (metadata, source, score).
+                    # Let's keep it here but with short timeout, OR just trust it.
+                    # The user didn't explicitly ask for URL validation, but the code has it.
+                    # I'll update validate_url to be very fast (HEAD only) or just assume it's slow.
+                    # BUT wait, the original code called `validate_url(final_url)`.
+                    # I will keep it for now but maybe later I can move it.
+                    
+                    is_valid = validate_url(final_url, timeout=3) # Reduced timeout
                     if not is_valid:
                         validation_msg = f" [WARNING: URL validation failed for {final_url}]"
                     else:
-                        validation_msg = " [URL Syntax Valid]"
+                        validation_msg = " [URL Valid]"
 
                 # Write back
                 preserve_styles = (source == 'style_parsing')
-                write_citation_with_styles(para, segments, preserve_original_styles=preserve_styles, styles=doc.styles, doc=doc)
+                write_citation_with_styles(para, segments, preserve_original_styles=preserve_styles, styles=doc.styles)
                 
                 # Add Comment if flagged (AFTER writing, so anchors attach to new runs)
                 if comment_text_to_add:

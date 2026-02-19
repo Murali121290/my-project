@@ -80,7 +80,7 @@
                 class="logo" style="display:flex; align-items:center; gap:8px;">
                 <img src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4carlisle Logo" class="logo-image"
                     style="height:36px;">
-                <strong style="font-size:1.05rem; color:#111;">S4C Tools</strong>
+                <strong style="font-size:1.05rem; color:#111;">S4C-Pre-Prod-Hub</strong>
             </a>
 
             <nav class="nav-main">
@@ -101,14 +101,14 @@
                     <i class="fas fa-magic"></i> Mss Reviews
                 </a>
 
-                <a href="{{ url_for('validate_file') }}"
-                    class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
-                    <i class="fas fa-check-circle"></i> Reference Validate
-                </a>
-
                 <a href="{{ url_for('macro_processing') }}"
                     class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
                     <i class="fas fa-cogs"></i> Pre-editing
+                </a>
+
+                <a href="{{ url_for('validate_file') }}"
+                    class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
+                    <i class="fas fa-check-circle"></i> Reference Validate
                 </a>
 
                 <a href="{{ url_for('technical') }}"
@@ -171,6 +171,15 @@
                     <i class="fas fa-magic"></i> Mss Reviews
                 </a>
                 {% endif %}
+
+                <!-- Pre-editing (roles: COPYEDIT, PM, ADMIN) -->
+                {% if current_role in ['COPYEDIT','ADMIN'] %}
+                <a href="{{ url_for('macro_processing') }}"
+                    class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
+                    <i class="fas fa-cogs"></i> Pre-editing
+                </a>
+                {% endif %}
+
                 {% if current_role in ['COPYEDIT','ADMIN'] %}
                 <!-- Validation is available to all logged-in users -->
                 <a href="{{ url_for('validate_file') }}"
@@ -178,13 +187,7 @@
                     <i class="fas fa-check-circle"></i> Reference Validate
                 </a>
                 {% endif %}
-                <!-- Pre-editing (roles: COPYEDIT, PM, ADMIN) -->
-                {% if current_role in ['COPYEDIT', 'ADMIN'] %}
-                <a href="{{ url_for('macro_processing') }}"
-                    class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
-                    <i class="fas fa-cogs"></i> Pre-editing
-                </a>
-                {% endif %}
+
 
                 <!-- Technical Editing (roles: COPYEDIT, PM, ADMIN) -->
                 {% if current_role in ['COPYEDIT', 'ADMIN'] %}
