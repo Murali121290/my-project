@@ -343,9 +343,9 @@ def convert_reference(
         logger.error(f"Unsupported conversion: {source_style} → {target_style}")
         return None
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
-        logger.error("GOOGLE_API_KEY not found in environment")
+        logger.error("API Key not found in environment (checked GEMINI_API_KEY and GOOGLE_API_KEY)")
         return None
 
     # ── API call (new google.genai SDK) ───────────────────────────
