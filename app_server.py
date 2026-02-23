@@ -53,7 +53,29 @@ from docx.table import Table
 import difflib
 from highlighter.core_highlighter_docx import process_docx
 from ReferencesStructing import process_docx_file, parse_ama_reference_raw, parse_apa_reference_raw, generate_fallback_citation, detect_reference_style
-from ReferenceAPAValidation import validate_document_multi_style, insert_comments_in_document, generate_report as generate_apa_report, apply_citation_formatting
+# APA validation now lives in validation_core (CitationProcessor)
+from validation_core import CitationProcessor, ValidationReport
+
+# Compatibility shims — keep these names alive in case any code references them
+def validate_document_multi_style(file_path, style=None):
+    """Shim: run CitationProcessor and return ValidationReport."""
+    p = CitationProcessor(file_path)
+    return p.run()
+
+def generate_apa_report(report_or_results, filename=""):
+    """Shim: accept either a ValidationReport or the old dict."""
+    if isinstance(report_or_results, ValidationReport):
+        return f"Document: {filename}\n\n{report_or_results.summary()}"
+    return str(report_or_results)
+
+def apply_citation_formatting(file_path, results):
+    """Shim: no-op — CitationProcessor applies formatting in-place."""
+    return 0
+
+def insert_comments_in_document(file_path, results, *args, **kwargs):
+    """Shim: no-op — CitationProcessor inserts comments in-place."""
+    from docx import Document
+    return Document(file_path), 0
 import tempfile
 from io import BytesIO
 from extractor import extract_from_file, write_permission_log
@@ -2357,8 +2379,9 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     update_progress({"status": f"AI Converting {filename}..."})
                     log_buffer.append("\n--- GEMINI CONVERSION ---")
                     try:
-                        from ReferenceConversion import process_conversion_with_gemini
-                        conv_res = process_conversion_with_gemini(Path(current_filepath), Path(file_output_dir), target_style=target_style)
+                        from ReferenceConversion import process_conversion
+                        # source_style="Auto" auto-detects per reference; target_style is the desired output format
+                        conv_res = process_conversion(Path(current_filepath), Path(file_output_dir), source_style="Auto", target_style=target_style if target_style in ("AMA", "APA") else "APA")
                         
                         if conv_res.get('log_file') and conv_res.get('log_file').exists():
                             with open(conv_res.get('log_file'), 'r', encoding='utf-8') as lf:
@@ -2406,29 +2429,30 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     update_progress({"status": f"Name & Year Check {filename}..."})
                     log_buffer.append("\n--- NAME & YEAR VALIDATION ---")
                     try:
-                        apa_results = validate_document_multi_style(current_filepath)
-                        formatted_count = apply_citation_formatting(current_filepath, apa_results)
+                        from validation_core import CitationProcessor
                         
-                        annotated_doc, comment_count = insert_comments_in_document(
-                             current_filepath, 
-                             apa_results, 
-                             apa_results['citation_locations'], 
-                             apa_results['reference_details']
-                        )
+                        temp_ny_path = os.path.join(file_output_dir, f"temp_ny_{uuid.uuid4().hex}.docx")
+                        
+                        processor = CitationProcessor(current_filepath)
+                        report = processor.process(temp_ny_path)
+                        
+                        comment_count = len(report.issues)
+                        formatted_count = report.stats.get('matched', 0) + report.stats.get('format_fixed', 0)
                         
                         log_buffer.append(f"Comments inserted: {comment_count}")
                         log_buffer.append(f"Formatting applied: {formatted_count}")
                         
-                        report_text = generate_apa_report(apa_results, filename)
+                        report_text = f"Document: {filename}\n\n{report.summary()}"
                         apa_log_content = str(report_text)
                         
                         if comment_count > 0 or formatted_count > 0:
-                            temp_ny_path = os.path.join(file_output_dir, f"temp_ny_{uuid.uuid4().hex}.docx")
-                            annotated_doc.save(temp_ny_path)
                             current_filepath = temp_ny_path
+                        else:
+                            if os.path.exists(temp_ny_path):
+                                os.remove(temp_ny_path)
                             
                         if not run_validation:
-                             before['total_references'] = apa_results.get('total_references', 0)
+                             before['total_references'] = report.total_refs
                     except Exception as e:
                         log_errors([f"Name/Year error {filename}: {e}"])
                         log_buffer.append(f"Error during Name/Year check: {e}")

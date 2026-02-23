@@ -111,8 +111,8 @@ class APACitationParser(CitationParser):
                  # Check for common format errors first
                  warnings = []
                  
-                 # Missing comma: (Smith 2020) - but ensures it looks like Name Year
-                 if re.search(r'^[A-Z][a-z]+\s+\d{4}$', segment):
+                 # Missing comma: (Smith 2020) or (Smith et al. 2020) - but ensures it looks like Name Year
+                 if re.search(r'^[A-Z][a-z]+(?:\s+et\s+al\.?)?\s+\d{4}[a-z]?$', segment):
                      warnings.append("Format Error: Missing comma between author and year (APA requires comma)")
                  
                  # Wrong conjunction: (Smith and Jones, 2020)
@@ -121,6 +121,12 @@ class APACitationParser(CitationParser):
                      
                  # Now extract years (including n.d. and in press)
                  years = self.year_pattern.findall(segment)
+
+                 # Handle the "Author et al. YEAR" pattern (no comma before year):
+                 # findall on the year_pattern may miss years not preceded by comma if
+                 # year_pattern is strict. Use a broad fallback to find any 4-digit year.
+                 if not years:
+                     years = re.findall(r'\b((?:19|20)\d{2}[a-z]?)\b', segment)
                  
                  # Also check for n.d. (with optional suffix like n.d.-a) or in press
                  nd_match = re.search(r'\bn\.?d\.?(?:-[a-z])?\b', segment, re.IGNORECASE)
@@ -208,9 +214,12 @@ class APACitationParser(CitationParser):
                                  'warnings': warnings,
                                  'raw': f"({segment})" # Approx raw
                              })
-                             # Track this author-year pair to skip in narrative parsing
-                             # Normalize: strip trailing periods/punctuation for consistent matching
+                             # Track this author-year pair to skip in narrative parsing.
+                             # Canonicalise 'et al.' → 'et al' (no dot) so that both
+                             # 'Cain et al' (stripped) and 'Cain et al.' (with dot) map
+                             # to the same deduplication key.
                              author_normalized = re.sub(r'[.,;: ]+$', '', author_part).strip()
+                             author_normalized = re.sub(r'\bet\s+al\.?$', 'et al', author_normalized, flags=re.IGNORECASE).strip()
                              parenthetical_pairs.add((author_normalized.lower(), year))
                      # MISSING YEAR DETECTION DISABLED PER USER REQUEST
                      # else: pass
@@ -221,8 +230,34 @@ class APACitationParser(CitationParser):
         # Allow dots (et al.), quotes (possessives) in name.
         # Allow extra content in parens (p. numbers, multiple years).
         # ADDED HYPHEN SUPPORT
-        narrative_pattern = re.compile(r"\b([A-Z][A-Za-z\s&.'\"`’–-]{0,100}?)\s*\(([^)]+)\)")
-        
+        narrative_pattern = re.compile(r"\b([A-Z][A-Za-z\s&.'`'\u2013-]{0,100}?)\s*\(([^)]+)\)")
+
+        # Words that commonly appear at the end of book/article titles but are NOT author surnames.
+        # These prevent false-positives like "Practice (1942)" from "...in Practice (Rogers, 1942)".
+        _TITLE_WORDS = {
+            'practice', 'meaning', 'approach', 'approaches', 'psychotherapy', 'psychotherapies',
+            'therapy', 'therapies', 'change', 'research', 'psychology', 'psychiatry', 'medicine',
+            'health', 'care', 'treatment', 'treatments', 'handbook', 'guide', 'introduction',
+            'theory', 'theories', 'perspective', 'perspectives', 'review', 'analysis', 'overview',
+            'management', 'assessment', 'intervention', 'interventions', 'behavior', 'behaviour',
+            'cognition', 'consciousness', 'experience', 'understanding', 'framework', 'model',
+            'method', 'methods', 'technique', 'techniques', 'science', 'biology', 'neuroscience',
+            'nursing', 'education', 'training', 'supervision', 'consultation', 'policy',
+            'society', 'community', 'culture', 'environment', 'development', 'growth',
+            'transformation', 'healing', 'recovery', 'resilience', 'disorders', 'disorder',
+            'disease', 'syndrome', 'condition', 'counseling', 'counselling', 'principles',
+            'summary', 'focus', 'integration', 'prevention', 'promotion', 'awareness',
+            'relationship', 'relationships', 'process', 'processes', 'outcomes', 'outcome',
+            'skills', 'competence', 'competency', 'wellbeing', 'wellness', 'distress',
+            'psychopathology', 'diagnosis', 'treatment', 'phenomenology', 'existentialism',
+            'humanism', 'postmodernism', 'constructionism', 'inquiry', 'holism',
+        }
+        # Also reject single words that look like English noun/gerund suffixes, not surnames
+        _TITLE_SUFFIX_RE = re.compile(
+            r'\w*(ing|tion|tions|ance|ances|ence|ences|ies|ogy|ment|ments|ness|ures|ics|sis|phy|omy|ary|ery)$',
+            re.IGNORECASE
+        )
+
         for match in narrative_pattern.finditer(cite_text_clean):
             author_raw = match.group(1).strip()
             parens_content = match.group(2)
@@ -264,21 +299,26 @@ class APACitationParser(CitationParser):
             # Split by spaces and find the last sequence of capitalized words
             words = author.split()
             if len(words) > 1:
-                # Find the rightmost capitalized word that's not a stopword
-                # Work backwards to find where the actual author name starts
-                stopwords = {'of', 'the', 'and', 'for', 'a', 'an', 'in', 'on', 'at', 'to', 'from', 'with', 'by', 'as', 'et', 'al', 'al.'}
+                # Find where the actual author name starts — walk backwards
+                # to skip lowercase non-stopword intro words, but PRESERVE
+                # 'et al.' at the END of the author sequence.
+                stopwords = {'of', 'the', 'and', 'for', 'a', 'an', 'in', 'on', 'at', 'to', 'from', 'with', 'by', 'as'}
+                # 'et' and 'al' are NOT stopwords here — they are part of 'et al.'
                 cap_start_idx = None
-                
+
                 for i in range(len(words) - 1, -1, -1):
                     word = words[i]
+                    # 'et' / 'al' / 'al.' are part of 'et al.' suffix — treat as transparent
+                    if word.lower().rstrip('.') in ('et', 'al'):
+                        continue
                     # If this is a capitalized word that's not a stopword, this could be the start
                     if word and word[0].isupper() and word.lower() not in stopwords:
                         cap_start_idx = i
-                    # If we hit a lowercase word that's not a stopword, stop searching
+                    # If we hit a lowercase word that's not a stopword or et-al part, stop
                     elif word and word[0].islower() and word.lower() not in stopwords:
                         break
-                
-                # Trim to only the capitalized sequence
+
+                # Trim to only the capitalized sequence (preserving trailing et al.)
                 if cap_start_idx is not None and cap_start_idx > 0:
                     author = ' '.join(words[cap_start_idx:])
             
@@ -303,6 +343,25 @@ class APACitationParser(CitationParser):
                 continue
             
             if author.lower() in ['see', 'date', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']:
+                continue
+
+            # --- BOOK-TITLE WORD FILTER ---
+            # Reject a sole-word "author" that is a common English noun appearing at the
+            # end of an italicised book or article title (e.g. "Practice", "Meaning",
+            # "Approach", "Change", "Psychotherapies", "Research and Practice").
+            _author_words = author.split()
+            # For multi-word candidates, reject if EVERY meaningful word is a title word
+            meaningful_non_title = [
+                w for w in _author_words
+                if w.lower() not in {'and', 'or', 'of', 'the', 'in', 'for', 'a', 'an'}
+                and w.lower() not in _TITLE_WORDS
+                and not _TITLE_SUFFIX_RE.fullmatch(w)
+            ]
+            if not meaningful_non_title:
+                continue  # Every word is a title word — this is a book title, not an author
+
+            # Additionally, reject single-word "authors" that end in common English noun suffixes
+            if len(_author_words) == 1 and _TITLE_SUFFIX_RE.fullmatch(author):
                 continue
 
             # Word Count Limit & Title Case Heuristic
@@ -343,11 +402,13 @@ class APACitationParser(CitationParser):
             # Create results for EACH year found (Multi-year narrative: Shapiro (2001, 2012))
             # Skip if already extracted from parenthetical citations
             for year in years:
-                # Check if this pair was already extracted from parenthetical citations
-                # Normalize: strip trailing periods/punctuation for consistent matching
+                # Check if this pair was already extracted from parenthetical citations.
+                # Normalise 'et al.' → 'et al' (no dot) so it matches the parenthetical key.
                 author_normalized = re.sub(r'[.,;: ]+$', '', author).strip()
+                author_normalized = re.sub(r'\bet\s+al\.?$', 'et al', author_normalized, flags=re.IGNORECASE).strip()
                 if (author_normalized.lower(), year) in parenthetical_pairs:
                     continue  # Skip - already have this citation from parenthetical
+
                 
                 results.append({
                     'author': author,

@@ -110,17 +110,10 @@ def format_numbers(nums):
 def is_citation_run(run):
     """
     Determine if a run is part of a citation.
-    Checks for 'cite_bib' style OR superscript with number-like content.
+    Strictly checks for 'cite_bib' styles.
     """
-    if run.style and run.style.name == "cite_bib":
+    if run.style and run.style.name in ["cite_bib"]:
         return True
-    if run.font.superscript:
-        text = run.text.strip()
-        if not text:
-            return False
-        # Must look like numbers/ranges/separators
-        if re.match(r'^[\d,\-–—\s]+$', text):
-            return True
     return False
 
 
@@ -149,12 +142,6 @@ class ReferenceProcessor:
                             found_id = nums[0]
                             bib_run = run
                             break
-                            
-                # Fallback: Check start of text if no styled run
-                if found_id is None:
-                    match = re.match(r'^(\d+)', para.text.strip())
-                    if match:
-                        found_id = int(match.group(1))
                 
                 if found_id is not None:
                     refs_found.add(found_id)
@@ -177,9 +164,6 @@ class ReferenceProcessor:
         appearance_order = []
         seen = set()
         
-        # Regex for fallback pattern ^1-3^
-        citation_pattern = re.compile(r'\^([\d,\-–—\s]+)\^')
-
         for para in iter_document_paragraphs(self.doc):
             # 1. Process runs
             current_group = []
@@ -198,16 +182,6 @@ class ReferenceProcessor:
                                 seen.add(n)
                                 appearance_order.append(n)
                         current_group = []
-                    
-                    # Check fallback pattern in non-citation run
-                    matches = citation_pattern.findall(run.text)
-                    for m in matches:
-                        nums = get_numbers(m)
-                        all_cited_ids.extend(nums)
-                        for n in nums:
-                            if n not in seen:
-                                seen.add(n)
-                                appearance_order.append(n)
             
             # Flush trailing group
             if current_group:
@@ -358,109 +332,12 @@ class ReferenceProcessor:
             mapping[old_id] = new_id
             new_id += 1
             
-        # 1. Update Citations in Text
-        # Matches: ^1-3^ OR [1-3] OR (1-3)
-        # Note: Be careful with (1) as it can be a list. We verify contents are numeric.
-        citation_pattern = re.compile(r'(\^|\[|\()([\d,\-–—\s]+)(\^|\]|\))')
-        
         for para in iter_document_paragraphs(self.doc):
-            # Iterate runs safely with index since we might modify list
             i = 0
             while i < len(para.runs):
                 run = para.runs[i]
-                original_text = run.text
                 
-                # Check for Citation Pattern matches
-                match = citation_pattern.search(original_text)
-                
-                if match:
-                    # We found a match! We must split the run to style JUST the citation.
-                    start, end = match.span()
-                    
-                    pre_text = original_text[:start]
-                    match_text = original_text[start:end]
-                    post_text = original_text[end:]
-                    
-                    # Calculate replacement text
-                    nums = get_numbers(match.group(2))
-                    new_nums = [mapping.get(n, n) for n in nums]
-                    converted_text = format_numbers(new_nums)
-                    
-                    # Highlight if renumbered
-                    is_renumbered = (nums != new_nums)
-                    highlight_color = "008000" if is_renumbered else None
-
-                    # TRACK CHANGES LOGIC
-                    if TRACK_CHANGES_ENABLED:
-                        # 1. Delete original run
-                        track_changes.delete_tracked_run(para, run)
-                        
-                        # We need to insert revisions AFTER the deleted run
-                        # The run is now wrapped in <w:del> which is previous sibling of what run WAS?
-                        # Wait, delete_tracked_run replaces run with del, and puts run inside.
-                        # So 'run' element is no longer a direct child of 'para'.
-                        # The 'del' element is the one in the paragraph.
-                        # We need to find that 'del' element.
-                        
-                        run_del = run._element.getparent() # Should be w:del
-                        if run_del.tag != track_changes.qn('w:del'):
-                             # Something went wrong or already wrapped?
-                             # Fallback: assume run is still anchor
-                             anchor = run._element
-                        else:
-                             anchor = run_del
-
-                        # 2. Insert PRE text (if any)
-                        if pre_text:
-                            ins_pre = track_changes.add_tracked_text(para, pre_text)
-                            # Move from end to after anchor
-                            anchor.addnext(ins_pre)
-                            anchor = ins_pre
-                            
-                        # 3. Insert MATCH text (Styled)
-                        ins_match = track_changes.add_tracked_text(para, converted_text, style="cite_bib", color=highlight_color)
-                        anchor.addnext(ins_match)
-                        anchor = ins_match
-                        
-                        # 4. Insert POST text (if any)
-                        if post_text:
-                            ins_post = track_changes.add_tracked_text(para, post_text)
-                            anchor.addnext(ins_post)
-                            # anchor = ins_post # Not strictly needed unless more parts
-                    else:
-                        # Original Logic
-                        run.text = pre_text
-                        new_run = para.add_run(converted_text)
-                        new_run.style = "cite_bib"
-                        new_run.font.superscript = True
-                        if is_renumbered:
-                            new_run.font.color.rgb = RGBColor(0, 128, 0)
-                        run._element.addnext(new_run._element)
-                        
-                        if post_text:
-                            post_run = para.add_run(post_text)
-                            if run.style:
-                                post_run.style = run.style
-                            new_run._element.addnext(post_run._element)
-
-                    # Advance loop logic
-                    # Since we modified structure, simple index increment matches logical flow
-                    # processed current run (deleted/split).
-                    i += 1
-                    continue
-
-                
-                elif is_citation_run(run):
-                    # Existing formatted citation logic (likely superscripts without brackets)
-                    # If it's already styled/superscript, we just update numbers.
-                    current_group = [run]
-                    # check next runs? (Group logic from original code was complex)
-                    # For simplicty, let's just update this single run if it stands alone.
-                    # The original code grouped multiple runs.
-                    # We can keep that logic if we assume they are contiguous.
-                    # But mixing with the splitting logic above is hard.
-                    
-                    # If valid citation run, just update text.
+                if is_citation_run(run):
                     txt = run.text
                     nums = get_numbers(txt)
                     if nums:
@@ -470,6 +347,8 @@ class ReferenceProcessor:
                          is_renumbered = (nums != new_nums)
                          highlight_color = "008000" if is_renumbered else None
                          
+                         style_name = run.style.name if run.style else "cite_bib"
+                         
                          if TRACK_CHANGES_ENABLED:
                              # Must replace the whole run
                              track_changes.delete_tracked_run(para, run)
@@ -477,14 +356,14 @@ class ReferenceProcessor:
                              run_del = run._element.getparent()
                              anchor = run_del if run_del.tag == track_changes.qn('w:del') else run._element
                              
-                             ins_new = track_changes.add_tracked_text(para, new_text, style="cite_bib", color=highlight_color)
+                             ins_new = track_changes.add_tracked_text(para, new_text, style=style_name, color=highlight_color)
                              anchor.addnext(ins_new)
                          else:
                              run.text = new_text
-                             run.style = "cite_bib"
-                             run.font.superscript = True
                              if is_renumbered:
                                  run.font.color.rgb = RGBColor(0, 128, 0)
+                
+                i += 1
                 
                 i += 1
 
@@ -534,7 +413,21 @@ class ReferenceProcessor:
         for obj in cited_refs:
             # Update ID text
             if obj['run']:
-                obj['run'].text = str(obj['new_id'])
+                old_text = obj['run'].text
+                new_text = str(obj['new_id'])
+                
+                if old_text != new_text:
+                    if TRACK_CHANGES_ENABLED:
+                        style_name = obj['run'].style.name if obj['run'].style else None
+                        
+                        track_changes.delete_tracked_run(obj['para'], obj['run'])
+                        run_del = obj['run']._element.getparent()
+                        anchor = run_del if run_del.tag == track_changes.qn('w:del') else obj['run']._element
+                        
+                        ins_new = track_changes.add_tracked_text(obj['para'], new_text, style=style_name)
+                        anchor.addnext(ins_new)
+                    else:
+                        obj['run'].text = new_text
             
             body.insert(insert_idx, obj['para']._element)
             insert_idx += 1

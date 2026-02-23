@@ -16,3 +16,5 @@ Backup/
 .idea/
 .vscode/
 *.dotm
+.env
+backups/

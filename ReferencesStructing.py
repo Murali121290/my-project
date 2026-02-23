@@ -47,16 +47,7 @@ try:
     TRACK_CHANGES_ENABLED = True
 except ImportError:
     TRACK_CHANGES_ENABLED = False
-    logging.warning("Output 'utils.track_changes' not found. Track changes disabled.")
-from docx.shared import Pt
-
-# Import utils
-try:
-    from utils import track_changes
-    TRACK_CHANGES_ENABLED = True
-except ImportError:
-    TRACK_CHANGES_ENABLED = False
-    logging.warning("Output 'utils.track_changes' not found. Track changes disabled.")
+    logging.warning("track_changes module not found. Track changes disabled.")
 
 # -------------------------
 # CONFIG
@@ -369,13 +360,8 @@ def pubmed_search_ids(title: str, journal: Optional[str] = None, year: Optional[
             results.update(ids)
         except RequestException:
             logger.debug("PubMed esearch failed (title only) for: %s", title)
-            
-    final_ids = list(results)
-    with CACHE_LOCK:
-        REF_CACHE['pubmed_search'][cache_key] = final_ids
-    return final_ids
 
-    # Strategy 4: Truncated title if long
+    # Strategy 4: Truncated title if long (previously dead code — now active)
     title_words = title.split()
     if len(results) < max_results and len(title_words) > 15:
         short_title = truncate_title(title, 10)
@@ -391,9 +377,14 @@ def pubmed_search_ids(title: str, journal: Optional[str] = None, year: Optional[
         except RequestException:
             logger.debug("PubMed esearch failed (truncated title) for: %s", short_title)
 
-    # Strategy 5: keyword fallback
+    # Strategy 5: keyword fallback (previously dead code — now active)
     if len(results) < max_results:
-        significant_words = [w for w in title.split() if len(w) > 4 and w.lower() not in ('that','with','from','have','this','their','which','viral','virus')]
+        significant_words = [
+            w for w in title.split()
+            if len(w) > 4 and w.lower() not in (
+                'that', 'with', 'from', 'have', 'this', 'their', 'which', 'viral', 'virus'
+            )
+        ]
         if significant_words:
             key_phrase = ' '.join(significant_words[:6])
             q = f'{key_phrase}[ti]'
@@ -408,7 +399,11 @@ def pubmed_search_ids(title: str, journal: Optional[str] = None, year: Optional[
             except RequestException:
                 logger.debug("PubMed keyword fallback search failed for: %s", key_phrase)
 
-    return list(results)[:max_results * 2]
+    # Cache and return — limit to max_results (not max_results*2 which was a bug)
+    final_ids = list(results)[:max_results]
+    with CACHE_LOCK:
+        REF_CACHE['pubmed_search'][cache_key] = final_ids
+    return final_ids
 
 def pubmed_fetch_xml(pubmed_id: str) -> Optional[ET.Element]:
     if pubmed_id in REF_CACHE['pubmed_fetch']:
@@ -2560,113 +2555,130 @@ def parse_authors_string(author_str: str) -> List[Dict[str, str]]:
 # -------------------------
 # Word comment insertion (best-effort)
 # -------------------------
-
-def add_comment_to_runs(doc, runs, text, author="RefFix", initials="RF"):
-    """
-    Adds a comment securely wrapping the provided list of runs.
-    """
-    if not runs:
-        return False
-        
 from docx.opc.part import Part
 from docx.opc.packuri import PackURI
+from lxml import etree as _lxml_etree
+
+# Namespace map for lxml — keeps prefix as `w:` in serialised XML
+_W_NS  = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+_W14_NS= "http://schemas.microsoft.com/office/word/2010/wordml"
+_NSMAP = {
+    "w"  : _W_NS,
+    "mc" : _MC_NS,
+    "w14": _W14_NS,
+}
+_COMMENTS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
+_COMMENTS_CT  = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
+
+def _fresh_comments_tree():
+    """Return a minimal lxml comments root with correct w: namespace prefix."""
+    root = _lxml_etree.Element(f"{{{_W_NS}}}comments", nsmap=_NSMAP)
+    root.set(f"{{{_MC_NS}}}Ignorable", "w14 wp14")
+    return root
+
+def _comments_part_for(doc):
+    """Resolve (or create) the comments part, returning the Part object."""
+    doc_part = doc.part
+    for rel in doc_part.rels.values():
+        if rel.reltype == _COMMENTS_REL:
+            return rel.target_part
+
+    # Not yet linked — look in package
+    for p in doc_part.package.parts:
+        if p.partname == "/word/comments.xml":
+            doc_part.relate_to(p, _COMMENTS_REL)
+            return p
+
+    # Create from scratch
+    blob = _lxml_etree.tostring(
+        _fresh_comments_tree(),
+        xml_declaration=True,
+        encoding="UTF-8",
+        standalone=True,
+    )
+    part = Part(PackURI("/word/comments.xml"), _COMMENTS_CT, blob, doc_part.package)
+    doc_part.package.add_part(part)
+    doc_part.relate_to(part, _COMMENTS_REL)
+    return part
+
 
 def add_comment_to_runs(doc, runs, text, author="RefFix", initials="RF"):
     """
-    Adds a comment securely wrapping the provided list of runs.
+    Append a Word comment that wraps *runs* with correct w: namespace prefixes.
+    Uses lxml throughout so the blob is never re-serialised through stdlib ET,
+    which would replace the w: prefix with ns0: and corrupt the OOXML schema.
     """
     if not runs:
         return False
-        
+
     try:
-        doc_part = doc.part
-        
-        # 1. Resolve Comments Part via Relationship (Source of Truth)
-        comments_part = None
-        COMMENTS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments'
-        
-        for rel in doc_part.rels.values():
-            if rel.reltype == COMMENTS_REL:
-                comments_part = rel.target_part
-                break
-        
-        # 2. If no relationship, check package or create new
-        if comments_part is None:
-             # Check if part exists in package but not linked
-             # (This loop matches by partname string)
-             for p in doc_part.package.parts:
-                 if p.partname == '/word/comments.xml':
-                     comments_part = p
-                     break
-             
-             if comments_part is None:
-                 # Create new Part
-                 partname = PackURI('/word/comments.xml')
-                 content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml'
-                 comments_xml = '<?xml version="1.0" encoding="UTF-8"?><w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"></w:comments>'
-                 
-                 comments_part = Part(partname, content_type, comments_xml.encode('utf-8'), doc_part.package)
-                 doc_part.package.add_part(comments_part)
-            
-             # Create relationship from Document to Comments
-             doc_part.relate_to(comments_part, COMMENTS_REL)
+        # ── 1. Get / create comments part ──────────────────────────────
+        cp = _comments_part_for(doc)
 
-        
-        # parse existing comments xml
+        # ── 2. Parse existing blob with lxml ───────────────────────────
         try:
-            comments_tree = ET.fromstring(comments_part._blob.decode('utf-8'))
-        except ET.ParseError:
-            # If blob is empty or invalid, initialize a new comments tree
-            ns_w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-            comments_tree = ET.Element(f'{{{ns_w}}}comments')
+            comments_tree = _lxml_etree.fromstring(cp._blob)
+        except Exception:
+            comments_tree = _fresh_comments_tree()
 
-        # compute new id
-        existing_ids = [int(c.attrib.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}id')) for c in comments_tree.findall('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}comment') if c.attrib.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}id')]
+        # ── 3. Compute next comment id ─────────────────────────────────
+        existing_ids = [
+            int(c.get(f"{{{_W_NS}}}id"))
+            for c in comments_tree.findall(f"{{{_W_NS}}}comment")
+            if c.get(f"{{{_W_NS}}}id")
+        ]
         next_id = max(existing_ids) + 1 if existing_ids else 0
 
-        # create comment element
-        ns_w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-        comment_el = ET.Element(f'{{{ns_w}}}comment', attrib={f'{{{ns_w}}}id': str(next_id), f'{{{ns_w}}}author': author, f'{{{ns_w}}}initials': initials})
-        p_el = ET.SubElement(comment_el, f'{{{ns_w}}}p')
-        r_el = ET.SubElement(p_el, f'{{{ns_w}}}r')
-        t_el = ET.SubElement(r_el, f'{{{ns_w}}}t')
+        # ── 4. Build comment element (proper w: tags via lxml) ──────────
+        comment_el = _lxml_etree.SubElement(comments_tree, f"{{{_W_NS}}}comment")
+        comment_el.set(f"{{{_W_NS}}}id",       str(next_id))
+        comment_el.set(f"{{{_W_NS}}}author",   author)
+        comment_el.set(f"{{{_W_NS}}}initials", initials)
+
+        p_el = _lxml_etree.SubElement(comment_el, f"{{{_W_NS}}}p")
+        r_el = _lxml_etree.SubElement(p_el,       f"{{{_W_NS}}}r")
+        t_el = _lxml_etree.SubElement(r_el,        f"{{{_W_NS}}}t")
         t_el.text = text
-        comments_tree.append(comment_el)
 
-        # Write blob back
-        new_blob = ET.tostring(comments_tree, encoding='utf-8', xml_declaration=True)
-        comments_part._blob = new_blob
+        # ── 5. Serialise back with lxml — keeps w: prefix ──────────────
+        new_blob = _lxml_etree.tostring(
+            comments_tree,
+            xml_declaration=True,
+            encoding="UTF-8",
+            standalone=True,
+        )
+        cp._blob = new_blob
 
-        # 3. Insert Markers into Paragraph Check
-        # Instead of finding runs, we can insert directly into the p element children
-        p_element = runs[0]._element.getparent() # This is the w:p element
-        
-        start = OxmlElement('w:commentRangeStart')
-        start.set(qn('w:id'), str(next_id))
-        
-        end = OxmlElement('w:commentRangeEnd')
-        end.set(qn('w:id'), str(next_id))
-        
-        ref = OxmlElement('w:commentReference')
-        ref.set(qn('w:id'), str(next_id))
-        ref_r = OxmlElement('w:r')
+        # ── 6. Insert range markers into the paragraph ─────────────────
+        p_element = runs[0]._element.getparent()  # w:p
+
+        start = OxmlElement("w:commentRangeStart")
+        start.set(qn("w:id"), str(next_id))
+
+        end = OxmlElement("w:commentRangeEnd")
+        end.set(qn("w:id"), str(next_id))
+
+        ref   = OxmlElement("w:commentReference")
+        ref.set(qn("w:id"), str(next_id))
+        ref_r = OxmlElement("w:r")
         ref_r.append(ref)
-        
-        # Safe Insertion Strategy:
-        # Check for w:pPr (paragraph properties) - MUST come first
-        pPr = p_element.find(qn('w:pPr'))
+
+        pPr = p_element.find(qn("w:pPr"))
         if pPr is not None:
             pPr.addnext(start)
         else:
             p_element.insert(0, start)
-            
+
         p_element.append(end)
         p_element.append(ref_r)
-        
+
         return True
+
     except Exception as e:
         logger.debug("Comment insertion failed: %s", repr(e))
         return False
+
 
 def try_add_word_comment(doc, para, comment_text, author="RefFix", initials="RF"):
     """
@@ -3236,10 +3248,22 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
                              # Only use if it looks like a publisher (not a title or year)
                              if possible_pub and not re.match(r'^\(\d{4}\)$', possible_pub) and len(possible_pub) > 2:
                                  gb_res['publisher'] = possible_pub
-                     # Remove Google Books' infoLink URL as it's not useful for citations
+
+                     # Replace books.google.com URL with a useful isbn.org link if possible,
+                     # otherwise keep it as a bib_url fallback (better than blanking it).
                      gb_url = gb_res.get('URL', '')
                      if gb_url and 'books.google' in gb_url:
-                         gb_res['URL'] = ''
+                         # Try to extract the Google Books volume ID as a DOI-less identifier
+                         # and prefer the raw ISBN from infoLink if available
+                         m_isbn = re.search(r'isbn=(\d[\dX]+)', gb_url, re.IGNORECASE)
+                         m_id   = re.search(r'[?&]id=([^&]+)', gb_url)
+                         if m_isbn:
+                             isbn_val = m_isbn.group(1)
+                             gb_res['URL'] = f"https://www.isbn.org/{isbn_val}"
+                         elif m_id:
+                             # No ISBN, but keep a clean Open Library link as fallback
+                             gb_res['URL'] = f"https://openlibrary.org/search?q={requests.utils.quote(found_title)}"
+                         # else: keep original URL so citation has some link
                      return gb_res, 'google_books', sim
              
              # If Google Books fails, return manual_skip BUT with parsed metadata
@@ -3525,20 +3549,24 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
     # ============================================================
     for t in tasks:
         t['detected_format'] = detect_reference_style(t['raw_for_search'])
-    
+
     format_counts = {}
     for t in tasks:
         fmt = t['detected_format']
         format_counts[fmt] = format_counts.get(fmt, 0) + 1
     print(f"Format detection: {format_counts}")
-    
-    # NEW: Log unknown references for debugging
-    unknowns = [t['raw_clean'] for t in tasks if t['detected_format'] == 'Unknown']
+
+    # Majority-vote: fill 'Unknown' refs with the document's dominant style
+    # so ambiguous references use the correct parser (AMA vs APA).
+    known_counts = {k: v for k, v in format_counts.items() if k != 'Unknown'}
+    dominant_style = max(known_counts, key=known_counts.get) if known_counts else 'AMA'
+    unknowns = [t for t in tasks if t['detected_format'] == 'Unknown']
     if unknowns:
-        print("\n=== Unknown References Debug ===")
-        for u in unknowns:
-            print(f"UNKNOWN DETECTED: {u}")
-        print("=============================\n")
+        print(f"\n=== Unknown References: {len(unknowns)} refs will inherit dominant style '{dominant_style}' ===")
+        for t in unknowns:
+            print(f"  UNKNOWN: {t['raw_clean'][:80]}")
+            t['detected_format'] = dominant_style  # inherit majority-vote style
+        print("=" * 60 + "\n")
     
     # ============================================================
     # STEP 2 & 3: Type classification + Journal API validation
@@ -3546,8 +3574,11 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
     # Journal types get validated with PubMed/CrossRef
     # ============================================================
     print(f"Submitting {len(tasks)} references for parallel validation...")
-    # Increased workers for better IO concurrency
-    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+    # PubMed rate-limit: 3 req/s (no API key) / 10 req/s (with key).
+    # 30 workers causes cascading 429s even with retries.
+    # 8 workers gives good IO concurrency while staying within limits.
+    _n_workers = min(8, max(1, len(tasks)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_n_workers) as executor:
         for t in tasks:
             t['future'] = executor.submit(find_best_metadata_for_reference, t['raw_for_search'], t['style'])
             
@@ -3657,26 +3688,30 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                         final_choice_use_api = (score >= 0.75)
 
                 if not item or not final_choice_use_api or score < SIMILARITY_MIN:
+                    # Use style-parsed data from current para if available.
+                    # Note: only safe to call parse_reference_from_styles if no writes
+                    # have occurred to para yet in this iteration (which is the case here).
                     parsed_style_data = parse_reference_from_styles(para)
                     if parsed_style_data and parsed_style_data.get('title') and parsed_style_data['title'][0]:
                         if item and score >= 0.60:
-                             pass 
+                            pass
                         else:
                             item = parsed_style_data
                             source = 'style_parsing'
                             score = 1.0
                             log_lines.append("Using style-based parsing as fallback.\n")
                     else:
-                        # FALLBACK
+                        # FALLBACK — use raw_for_search (already stripped of numbering prefix)
+                        # Using plain `raw` would embed the number in the parsed title.
                         comment_text_to_add = "No confident API match found. Applied standard formatting; please verify manually."
                         if source == 'skip_validation':
-                             comment_text_to_add = "Validation skipped for Book/Web source. Applied standard formatting."
-                        
-                        if style == 'REF-N': 
-                             fallback_parsed = parse_ama_reference_raw(raw)
+                            comment_text_to_add = "Validation skipped for Book/Web source. Applied standard formatting."
+
+                        if style == 'REF-N':
+                            fallback_parsed = parse_ama_reference_raw(raw_for_search)
                         else:
-                             fallback_parsed = parse_apa_reference_raw(raw)
-                             
+                            fallback_parsed = parse_apa_reference_raw(raw_for_search)
+
                         item = fallback_parsed
                         source = 'fallback'
                         score = 0.0
@@ -3700,26 +3735,25 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                     cand_authors = item.get('author', [])
                     
                     real_sim = similarity(orig_title, cand_title)
-                    
+
                     # BYPASS SIMILARITY CHECK FOR GEMINI
                     # Gemini might rewrite titles (e.g. expanding abbrevs), leading to mismatches.
                     # We trust Gemini's intent if source is 'gemini_ai'.
                     if source == 'gemini_ai':
-                         real_sim = 1.0 
-                         author_match = True
-                    
-                    author_match = False
-                    if not cand_authors:
-                        pass
+                        real_sim = 1.0
+                        author_match = True  # skip author check — Gemini result is trusted
                     else:
-                        first_family = cand_authors[0].get('family', '').lower()
-                        if first_family and first_family in orig_auth_str:
-                             author_match = True
-                        if not author_match:
-                             for a in cand_authors[:3]: # check first 3
-                                  if a.get('family', '').lower() in orig_auth_str:
-                                       author_match = True
-                                       break
+                        # Normal API path: check author match independently
+                        author_match = False
+                        if cand_authors:
+                            first_family = cand_authors[0].get('family', '').lower()
+                            if first_family and first_family in orig_auth_str:
+                                author_match = True
+                            if not author_match:
+                                for a in cand_authors[:3]:  # check first 3 authors
+                                    if a.get('family', '').lower() in orig_auth_str:
+                                        author_match = True
+                                        break
                     
                     # Logic:
                     # - If Title Sim < 0.5 -> Reject (Too different)
