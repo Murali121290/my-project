@@ -12,3 +12,4 @@ psycopg2-binary
 pdfplumber
 python-dotenv
 google-genai>=0.3.0
+prometheus-flask-exporter

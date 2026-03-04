@@ -168,61 +168,95 @@
         <input type="file" id="fileInput" name="files" class="file-input" accept=".doc,.docx" multiple>
     </div>
 
-    <div style="margin-top: 15px;">
-        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+    <!-- Processing Pipeline Options -->
+    <div style="margin-top:20px;background:#f8f9fc;border:1px solid #e0e4f0;border-radius:12px;padding:18px;">
+        <div
+            style="font-size:13px;font-weight:700;color:#4361ee;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:14px;">
+            Processing Pipeline — select one or more steps (run in order)
+        </div>
+
+        <label
+            style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;"
+            id="lbl-numval">
             <input type="checkbox" id="runValidationRequest" name="run_validation" checked
-                style="transform: scale(1.2); margin-right: 8px;">
-            Run Number Validation (Vancouver, AMA)
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 1 — Number Validation <span
+                        style="font-size:12px;color:#888;font-weight:400;">(AMA / Vancouver)</span></div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Checks in-text citation numbers match the
+                    numbered reference list. Highlights mismatches.</div>
+            </div>
         </label>
-    </div>
 
-    <div style="margin-top: 10px;">
-        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+        <label
+            style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;"
+            id="lbl-nameyear">
             <input type="checkbox" id="runNameYearValidationRequest" name="run_name_year_validation"
-                style="transform: scale(1.2); margin-right: 8px;">
-            Run Name and Year Validation (APA/Chicago)
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 2 — Name &amp; Year Validation <span
+                        style="font-size:12px;color:#888;font-weight:400;">(APA / Chicago)</span></div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Validates author names, years, et al., suffixes
+                    (a/b/c), org abbreviations. Inserts Word comments for issues.</div>
+            </div>
         </label>
-    </div>
 
-    <div style="margin-top: 10px;">
-        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
-            <input type="checkbox" id="reportOnlyRequest" name="report_only"
-                style="transform: scale(1.2); margin-right: 8px;">
-            Generate Report Only
-        </label>
-    </div>
-    <div style="margin-top: 10px;">
-        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
-            <input type="checkbox" id="runStructuringRequest" name="run_structuring"
-                style="transform: scale(1.2); margin-right: 8px;">
-            Run Reference Structuring (before validation)
-        </label>
-    </div>
-
-    <div style="margin-top: 10px;">
-        <label style="font-size: 14px; font-weight: 500; color: #333; cursor: pointer;">
+        <label
+            style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;"
+            id="lbl-gemini">
             <input type="checkbox" id="runGeminiRequest" name="run_gemini"
-                style="transform: scale(1.2); margin-right: 8px;">
-            Run Gemini AI Conversion (Enhanced)
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 3 — Structuring &amp; Conversion <span
+                        style="font-size:12px;color:#888;font-weight:400;">(AI-powered)</span></div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Restructures and converts references between APA
+                    &harr; AMA formats using AI.</div>
+            </div>
         </label>
-    </div>
 
-    <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee;">
-        <label style="font-size: 14px; font-weight: 600; color: #333; display: block; margin-bottom: 5px;">
-            Target Style (for Conversion):
-        </label>
-        <select id="targetStyleSelect" class="form-select" style="padding: 8px; border-radius: 8px; border: 1px solid #ccc; width: 100%; max-width: 300px;">
-            <option value="Auto" selected>Auto-detect (Keep Original)</option>
-            <option value="AMA">Convert to AMA (Vancouver)</option>
-            <option value="APA">Convert to APA</option>
-        </select>
+        <!-- Target Style — only visible when Step 3 is checked -->
+        <div id="targetStyleRow"
+            style="display:none;margin:4px 0 12px 36px;padding:10px 14px;background:#eef2ff;border-radius:8px;">
+            <label style="font-size:13px;font-weight:600;color:#4361ee;display:block;margin-bottom:6px;">Target Style
+                (for Step 3):</label>
+            <select id="targetStyleSelect" class="form-select"
+                style="padding:8px;border-radius:8px;border:1px solid #b0bbff;width:100%;max-width:300px;font-size:13px;">
+                <option value="Auto" selected>Auto-detect (Structuring only)</option>
+                <option value="AMA">Convert APA &rarr; AMA</option>
+                <option value="APA">Convert AMA &rarr; APA</option>
+            </select>
+        </div>
+
+        <!-- Report Only -->
+        <div style="padding-top:12px;border-top:1px dashed #d0d7e8;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                <input type="checkbox" id="reportOnlyRequest" name="report_only"
+                    style="transform:scale(1.25);accent-color:#f4a261;flex-shrink:0;"
+                    onchange="updatePipelineSummary()">
+                <div>
+                    <div style="font-size:13px;font-weight:600;color:#555;">Report Only (no annotated .docx output)
+                    </div>
+                    <div style="font-size:12px;color:#888;">Only produce the log/report — do not save an annotated Word
+                        document.</div>
+                </div>
+            </label>
+        </div>
+
+        <!-- Live Summary -->
+        <div id="pipelineSummary"
+            style="display:none;margin-top:14px;padding:10px 14px;background:#fff;border:1px solid #c8d0ee;border-radius:8px;font-size:13px;color:#333;">
+            <strong style="color:#4361ee;">Will run:</strong> <span id="pipelineSteps"></span>
+        </div>
     </div>
 
     <div id="fileList" class="file-list"></div>
 
     <div style="margin-top:20px;text-align:center;">
         <button id="startUpload" class="btn-upload" style="display:none;">
-            <i class="fas fa-paper-plane"></i> Start Validation
+            <i class="fas fa-paper-plane"></i> Start Processing
         </button>
         <button class="btn-clear" id="clearAll" style="display:none;">Clear All</button>
     </div>
@@ -237,7 +271,42 @@
 
 {% block extra_js %}
 <script>
+    // Pipeline summary updater (global so onchange= inline handlers can call it)
+    function updatePipelineSummary() {
+        const steps = [];
+        const numVal = document.getElementById('runValidationRequest');
+        const nyVal = document.getElementById('runNameYearValidationRequest');
+        const gemini = document.getElementById('runGeminiRequest');
+        const repOnly = document.getElementById('reportOnlyRequest');
+        const tsRow = document.getElementById('targetStyleRow');
+        const summary = document.getElementById('pipelineSummary');
+        const stepsEl = document.getElementById('pipelineSteps');
+
+        // Highlight selected labels
+        [['lbl-numval', numVal], ['lbl-nameyear', nyVal], ['lbl-gemini', gemini]].forEach(([id, cb]) => {
+            const lbl = document.getElementById(id);
+            if (lbl) lbl.style.border = (cb && cb.checked) ? '2px solid #4361ee' : '2px solid transparent';
+            if (lbl) lbl.style.background = (cb && cb.checked) ? '#eff3ff' : '';
+        });
+
+        if (numVal && numVal.checked) steps.push('① Number Validation');
+        if (nyVal && nyVal.checked) steps.push('② Name & Year Validation (APA)');
+        if (gemini && gemini.checked) steps.push('③ Structuring & Conversion');
+
+        // Show Target Style only when Step 3 is selected
+        if (tsRow) tsRow.style.display = (gemini && gemini.checked) ? 'block' : 'none';
+
+        if (steps.length === 0) {
+            if (summary) summary.style.display = 'none';
+        } else {
+            if (stepsEl) stepsEl.innerHTML = steps.join(' &rarr; ') + (repOnly && repOnly.checked ? ' &nbsp;[Report Only]' : '');
+            if (summary) summary.style.display = 'block';
+        }
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
+        updatePipelineSummary(); // initialise on load
+
         const dropZone = document.getElementById("dropZone");
         const fileInput = document.getElementById("fileInput");
         const fileList = document.getElementById("fileList");
@@ -331,10 +400,6 @@
                 formData.append("run_name_year_validation", "true");
             }
 
-            const runStructuring = document.getElementById("runStructuringRequest").checked;
-            if (runStructuring) {
-                formData.append("run_structuring", "true");
-            }
 
             const runGemini = document.getElementById("runGeminiRequest") ? document.getElementById("runGeminiRequest").checked : false;
             if (runGemini) {

@@ -291,12 +291,10 @@ RULES:
 CONVERSION_MAP = {
     (CitationStyle.AMA, CitationStyle.APA): ("AMA 11th Edition", "APA 7th Edition"),
     (CitationStyle.APA, CitationStyle.AMA): ("APA 7th Edition", "AMA 11th Edition"),
-    (CitationStyle.APA, CitationStyle.APA): ("APA 7th Edition", "APA 7th Edition (Strict Formatting Validation)"),
-    (CitationStyle.AMA, CitationStyle.AMA): ("AMA 11th Edition", "AMA 11th Edition (Strict Formatting Validation)"),
 }
 
 
-def _build_prompt(raw_text: str, source_style: CitationStyle, target_style: CitationStyle, cr_item: Optional[Dict[str, Any]] = None) -> str:
+def _build_prompt(raw_text: str, source_style: CitationStyle, target_style: CitationStyle) -> str:
     source_label, target_label = CONVERSION_MAP[(source_style, target_style)]
     rules_map = APA_RULES if target_style == CitationStyle.APA else AMA_RULES
     rules_block = "\n".join([
@@ -304,21 +302,11 @@ def _build_prompt(raw_text: str, source_style: CitationStyle, target_style: Cita
         for ref_type, rules in rules_map.items()
     ])
 
-    cr_block = ""
-    if cr_item:
-        cr_block = f"""
-## VERIFIED DATABASE MATCH (CrossRef/PubMed)
-The following metadata was securely matched for this reference in scientific databases. 
-You MUST prioritize this database content for updating missing elements, ensuring exact journal names (abbreviation/capitalization), and correcting DOIs.
-CRITICAL AUTHOR RULE: DO NOT replace the original author list from the input reference with the database authors if the database authors are generic (e.g. "NA", "&NA", "Anonymous"), heavily abbreviated, or missing. Always prioritize keeping the specific authors provided in the input string; only use the database authors to correct minor spelling mistakes!
-{json.dumps(cr_item, indent=2)}
-"""
-
     return f"""You are a professional bibliographic reference conversion expert specializing in {source_label} to {target_label} conversion.
 
 ## YOUR TASK
 1. Detect the reference type (journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report).
-2. Extract ALL available metadata into the bib_ fields. If database match metadata is provided below, incorporate it completely to fix/complete the reference (add DOIs, fix capitals, expand abstracts).
+2. Extract ALL available metadata into the bib_ fields.
 3. Reformat the reference strictly according to {target_label} rules for the detected type.
 4. Note any missing data, assumptions made, or issues in "conversion_notes".
 
@@ -340,7 +328,7 @@ CRITICAL AUTHOR RULE: DO NOT replace the original author list from the input ref
 
 ## {target_label} FORMATTING RULES BY REFERENCE TYPE
 {rules_block}
-{cr_block}
+
 ## INPUT REFERENCE ({source_label})
 {raw_text}
 
@@ -403,7 +391,6 @@ def convert_reference(
     source_style: CitationStyle,
     target_style: CitationStyle,
     model_name: str = "gemini-2.0-flash",
-    cr_item: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Convert a bibliographic reference between AMA 11th and APA 7th edition.
@@ -424,6 +411,10 @@ def convert_reference(
     # ── Input validation ──────────────────────────────────────────
     if not raw_text or not raw_text.strip():
         logger.error("raw_text is empty")
+        return None
+
+    if source_style == target_style:
+        logger.error("source_style and target_style must be different")
         return None
 
     if (source_style, target_style) not in CONVERSION_MAP:
@@ -447,7 +438,7 @@ def convert_reference(
             top_k=1,
         )
 
-        prompt = _build_prompt(raw_text, source_style, target_style, cr_item)
+        prompt = _build_prompt(raw_text, source_style, target_style)
 
         response = client.models.generate_content(
             model=model_name,

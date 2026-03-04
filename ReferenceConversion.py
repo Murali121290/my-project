@@ -386,49 +386,168 @@ def _clear_paragraph_text(para) -> None:
     for r in p_elem.findall(qn("w:r")):
         p_elem.remove(r)
 
+def _ensure_style(doc, styles, style_name):
+    if style_name and styles is not None:
+        try:
+            from docx.enum.style import WD_STYLE_TYPE
+            if style_name not in styles:
+                styles.add_style(style_name, WD_STYLE_TYPE.CHARACTER)
+            return styles[style_name]
+        except Exception:
+            return style_name
+    return style_name
 
-def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None) -> None:
+def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None, original_text: str = None, is_conversion: bool = False) -> None:
     """
     Clear the paragraph and write segments as individual Word character-style runs.
-
-    segments: list of (text, style_name_or_None)
-                  style_name should be a bib_* character style name.
+    Utilizes Track Changes if available.
     """
+    if original_text is None:
+        original_text = para.text
+    
     _clear_paragraph_text(para)
     styles = doc.styles if doc is not None else None
 
+    # --- Extract Prefix (Numbering like "1. ", "2.\t") ---
+    import re
+    match = re.match(r'^(\d+\.[\t\s]*)', original_text)
+    prefix_text = ""
+    if match:
+        prefix_text = match.group(1)
+        original_text = original_text[len(prefix_text):]
+    
+    # --- Add Retained Prefix ---
+    if prefix_text:
+        run = para.add_run(prefix_text)
+        style_val = _ensure_style(doc, styles, "bib_number")
+        try:
+            run.style = style_val
+        except Exception:
+            pass
+
+    # Track Changes Support
+    try:
+        from utils.track_changes import add_tracked_deletion, add_tracked_text
+        use_track_changes = True
+    except ImportError:
+        use_track_changes = False
+
+    if not use_track_changes:
+        for text, style_name in segments:
+            if not text:
+                continue
+            run = para.add_run(text)
+            if style_name:
+                style_val = _ensure_style(doc, styles, style_name)
+                try:
+                    run.style = style_val
+                except Exception:
+                    pass
+        return
+
+    import difflib
+    
+    # 1. Build arrays
+    new_full_text = ""
+    style_map = []
     for text, style_name in segments:
-        if not text:
-            continue
-        run = para.add_run(text)
-        if style_name:
-            try:
-                if styles is not None:
-                    # Create the character style on-the-fly if it doesn't exist yet
-                    try:
-                        from docx.enum.style import WD_STYLE_TYPE
-                        if style_name not in styles:
-                            styles.add_style(style_name, WD_STYLE_TYPE.CHARACTER)
-                        run.style = styles[style_name]
-                    except Exception:
+        if not text: continue
+        new_full_text += text
+        style_map.extend([style_name] * len(text))
+        
+    # 2. Diff matching
+    matcher = difflib.SequenceMatcher(None, original_text, new_full_text)
+    
+    for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+        if opcode == 'equal':
+            segment_text = new_full_text[j1:j2]
+            segment_styles = style_map[j1:j2]
+            chunk_start = 0
+            for k in range(len(segment_text) + 1):
+                is_end = (k == len(segment_text))
+                style_changed = (k > 0 and k < len(segment_text) and segment_styles[k] != segment_styles[k-1])
+                if is_end or style_changed:
+                    chunk = segment_text[chunk_start:k]
+                    if chunk:
+                        style = segment_styles[chunk_start]
+                        run = para.add_run(chunk)
+                        if style:
+                            style_val = _ensure_style(doc, styles, style)
+                            try:
+                                run.style = style_val
+                            except Exception:
+                                pass
+                    chunk_start = k
+                    
+        elif opcode == 'delete':
+            deleted_chunk = original_text[i1:i2]
+            add_tracked_deletion(para, deleted_chunk, doc=doc, author="S4C Reference Converter")
+            
+        elif opcode in ('insert', 'replace'):
+            if opcode == 'replace':
+                deleted_chunk = original_text[i1:i2]
+                add_tracked_deletion(para, deleted_chunk, doc=doc, author="S4C Reference Converter")
+                
+            segment_text = new_full_text[j1:j2]
+            segment_styles = style_map[j1:j2]
+            chunk_start = 0
+            for k in range(len(segment_text) + 1):
+                is_end = (k == len(segment_text))
+                style_changed = (k > 0 and k < len(segment_text) and segment_styles[k] != segment_styles[k-1])
+                if is_end or style_changed:
+                    chunk = segment_text[chunk_start:k]
+                    if chunk:
+                        style = segment_styles[chunk_start]
+                        if style:
+                            _ensure_style(doc, styles, style)
                         try:
-                            run.style = style_name
+                            add_tracked_text(para, chunk, style=style, author="S4C Reference Converter", doc=doc)
                         except Exception:
-                            pass
-                else:
-                    run.style = style_name
-            except Exception:
-                pass  # Best-effort: leave unstyled if style application fails
+                            para.add_run(chunk)
+                    chunk_start = k
 
 
-def _set_paragraph_text(para, text: str) -> None:
+def _set_paragraph_text(para, text: str, doc=None, original_text: str = None, is_conversion: bool = False) -> None:
     """
     Fallback: set plain text on a paragraph as a single unstyled run.
-    Prefer _write_styled_runs() for production use.
     """
+    if original_text is None:
+        original_text = para.text
+        
     _clear_paragraph_text(para)
-    run = para.add_run(text)
-    return run
+    styles = doc.styles if doc is not None else None
+
+    import re
+    match = re.match(r'^(\d+\.[\t\s]*)', original_text)
+    prefix_text = ""
+    if match:
+        prefix_text = match.group(1)
+        original_text = original_text[len(prefix_text):]
+
+    if prefix_text:
+        run = para.add_run(prefix_text)
+        style_val = _ensure_style(doc, styles, "bib_number")
+        try:
+            run.style = style_val
+        except Exception:
+            pass
+    
+    try:
+        from utils.track_changes import add_tracked_deletion, add_tracked_text
+        import difflib
+        
+        matcher = difflib.SequenceMatcher(None, original_text, text)
+        for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+            if opcode == 'equal':
+                para.add_run(text[j1:j2])
+            elif opcode == 'delete':
+                add_tracked_deletion(para, original_text[i1:i2], author="S4C Reference Converter", doc=doc)
+            elif opcode in ('insert', 'replace'):
+                if opcode == 'replace':
+                    add_tracked_deletion(para, original_text[i1:i2], author="S4C Reference Converter", doc=doc)
+                add_tracked_text(para, text[j1:j2], author="S4C Reference Converter", doc=doc)
+    except ImportError:
+        para.add_run(text)
 
 
 # ─────────────────────────────────────────────
@@ -443,6 +562,13 @@ def _split_pipe(value: Optional[str]) -> List[str]:
     return [v.strip() for v in value.split("|") if v.strip()]
 
 
+def _format_initials_ama(initial: str) -> str:
+    if not initial: return ""
+    if any(len(p) > 1 and any(c.islower() for c in p) for p in initial.split()):
+        return "".join(p[0].upper() for p in initial.split() if p)
+    else:
+        return "".join(c.upper() for c in initial if c.isalpha())
+
 def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
     """
     Build AMA 11th-edition styled segments from bib_ metadata.
@@ -455,12 +581,28 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
     surnames = _split_pipe(meta.get("bib_surname"))
     fnames   = _split_pipe(meta.get("bib_fname"))
     n_auth   = len(surnames)
+    
+    ed_surnames = _split_pipe(meta.get("bib_ed_surname") or meta.get("bib_ed-surname"))
+    ed_fnames   = _split_pipe(meta.get("bib_ed_fname")  or meta.get("bib_ed-fname"))
 
     if n_auth == 0:
-        # Organisational / no author
-        org = meta.get("bib_organization") or meta.get("bib_institution") or ""
-        if org:
-            segs.append((org, "bib_organization"))
+        if ed_surnames and ref_type != "book_chapter":
+            for i, es in enumerate(ed_surnames):
+                if i > 0:
+                    segs.append((", ", None))
+                segs.append((es, "bib_ed-surname"))
+                ei = ed_fnames[i] if i < len(ed_fnames) else ""
+                ei_str = _format_initials_ama(ei)
+                if ei_str:
+                    segs.append((" ", None))
+                    segs.append((ei_str, "bib_ed-fname"))
+            ed_label = "ed." if len(ed_surnames) == 1 else "eds."
+            segs.append((f", {ed_label}", None))
+        else:
+            # Organisational / no author
+            org = meta.get("bib_organization") or meta.get("bib_institution") or ""
+            if org:
+                segs.append((org, "bib_organization"))
     else:
         # AMA: ≤6 list all; >6 → first 6 + et al  (strict rule: >6 → first 3, but Gemini already handles this)
         subset = surnames if n_auth <= 6 else surnames[:6]
@@ -469,8 +611,7 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
                 segs.append((", ", None))
             segs.append((surname, "bib_surname"))
             initial = fnames[i] if i < len(fnames) else ""
-            # AMA initials: "John A" → "JA" (no dots)
-            initials_str = "".join(p[0].upper() for p in initial.split() if p)
+            initials_str = _format_initials_ama(initial)
             if initials_str:
                 segs.append((" ", None))
                 segs.append((initials_str, "bib_fname"))
@@ -493,8 +634,6 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
 
     # ── In: editors (book chapter) ────────────────────────────────
     if ref_type == "book_chapter":
-        ed_surnames = _split_pipe(meta.get("bib_ed_surname") or meta.get("bib_ed-surname"))
-        ed_fnames   = _split_pipe(meta.get("bib_ed_fname")  or meta.get("bib_ed-fname"))
         segs.append(("In: ", None))
         if ed_surnames:
             for i, es in enumerate(ed_surnames):
@@ -502,7 +641,7 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
                     segs.append((", ", None))
                 segs.append((es, "bib_ed-surname"))
                 ei = ed_fnames[i] if i < len(ed_fnames) else ""
-                ei_str = "".join(p[0].upper() for p in ei.split() if p)
+                ei_str = _format_initials_ama(ei)
                 if ei_str:
                     segs.append((" ", None))
                     segs.append((ei_str, "bib_ed-fname"))
@@ -837,9 +976,9 @@ def process_conversion(
     if not input_docx.exists():
         raise FileNotFoundError(f"Input file not found: {input_docx}")
 
-    target_style = target_style.upper().strip()
-    if target_style not in ("AMA", "APA"):
-        raise ValueError(f"target_style must be 'AMA' or 'APA', got: {target_style}")
+    target_style = target_style.strip().upper() if target_style.upper() != "AUTO" else "AUTO"
+    if target_style not in ("AMA", "APA", "AUTO"):
+        raise ValueError(f"target_style must be 'AMA', 'APA', or 'AUTO', got: {target_style}")
 
     if output_dir is None:
         output_dir = input_docx.parent
@@ -874,15 +1013,19 @@ def process_conversion(
     error_count     = 0
     in_ref_section  = False
 
-    # ── Process paragraphs ────────────────────────────────────────
-    for para in doc.paragraphs:
+    # ── Phase 1: Collect paragraphs ────────────────────────────────
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from ReferencesStructing import find_best_metadata_for_reference, detect_reference_style
+    
+    tasks = []
+    
+    for idx, para in enumerate(doc.paragraphs):
         raw_text = para.text.strip()
         if not raw_text:
             continue
 
         raw_lower = raw_text.lower()
 
-        # Section boundary detection
         if "<ref-open>" in raw_lower:
             in_ref_section = True
             logger.info("Entering reference section.")
@@ -894,43 +1037,109 @@ def process_conversion(
         if not in_ref_section:
             continue
 
-        # Skip very short lines (headers, labels, etc.)
         if len(raw_text) < 15:
             continue
 
         total_count += 1
-        logger.info(f"[{total_count}] Processing: {raw_text[:80]}...")
+        tasks.append({
+            'doc_index': idx,
+            'para_obj': para,
+            'raw_text': raw_text,
+            'count': total_count
+        })
 
-        # ── Auto-detect source style ──────────────────────────────
+    # ── Phase 2: Parallel Conversion ────────────────────────────────
+    def process_task(task: dict):
+        raw_text = task['raw_text']
+        count = task['count']
+        logger.info(f"[{count}] Conversion API Call: {raw_text[:80]}...")
+
         if source_style.upper() == "AUTO":
             detected_source = detect_source_style(raw_text)
         else:
             detected_source = CitationStyle.AMA if source_style.upper() == "AMA" else CitationStyle.APA
 
-        # Skip if source == target (nothing to convert)
-        if detected_source == target_enum:
-            logger.info(f"  Skipping: already in {target_style}")
-            continue
+        task['detected_source'] = detected_source
 
-        # ── Call Gemini ───────────────────────────────────────────
+        # Set target_enum to enforce formatting rules, even if they stay in the same style
+        if target_style.upper() == "AUTO":
+             target_enum = detected_source
+             logger.info(f"  [{count}] Auto format detected. Performing Strict Formatting Validation for: {target_enum.value}")
+        else:
+             target_enum = CitationStyle.APA if target_style.upper() == "APA" else CitationStyle.AMA
+             
+        if detected_source == target_enum:
+             logger.info(f"  [{count}] [Formatting Validation] Already in {target_enum.value} - validating and applying missing/granular styles.")
+
+        cr_item = None
+        try:
+            temp_cr, source_db, score = find_best_metadata_for_reference(raw_text, detected_source.value)
+            
+            is_journal = False
+            if temp_cr:
+                if 'pubmed' in source_db.lower():
+                    is_journal = True
+                elif 'crossref' in source_db.lower() and temp_cr.get('type', '').lower() in ('journal-article', 'journal'):
+                    is_journal = True
+                elif 'crossref' in source_db.lower() and not temp_cr.get('type') and temp_cr.get('container-title'):
+                    is_journal = True
+
+            if is_journal and score >= 0.70:
+                cr_item = temp_cr
+                logger.info(f"  [{count}] [DB Match] Verified Journal match via {source_db} (Score: {score:.2f})")
+            elif temp_cr and score >= 0.75:
+                cr_item = temp_cr
+                logger.info(f"  [{count}] [DB Match] Verified General match via {source_db} (Score: {score:.2f})")
+            elif temp_cr:
+                logger.info(f"  [{count}] [DB Match] Ignored {source_db} match (Score: {score:.2f}, Journal: {is_journal}) - Not high enough score")
+                cr_item = None
+        except Exception as e:
+            logger.warning(f"  [{count}] Failed to query CrossRef/PubMed: {e}")
+
         result = convert_reference(
             raw_text=raw_text,
             source_style=detected_source,
             target_style=target_enum,
             model_name=model_name,
+            cr_item=cr_item
         )
+        task['target_enum'] = target_enum
+        task['result'] = result
+        task['cr_item'] = cr_item
+        task['skip'] = False
+        return task
 
+    if tasks:
+        logger.info(f"Starting parallel conversions for {len(tasks)} references...")
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(process_task, t) for t in tasks]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Error in parallel conversion task: {e}")
+
+    # ── Phase 3: Apply changes to Document ─────────────────────────
+    for task in sorted(tasks, key=lambda x: x['doc_index']):
+        count = task['count']
+        raw_text = task['raw_text']
+        para = task['para_obj']
+        result = task['result']
+        detected_source = task['detected_source']
+        
+        if task.get('skip'):
+            logger.info(f"  [{count}] Skipping reference: kept original formatting.")
+            continue
+            
         if not result:
             error_count += 1
             entry = ConversionLogEntry(
                 original=raw_text, converted="[FAILED]",
-                ref_type="unknown",
-                source_style=detected_source.value,
-                target_style=target_style,
-                error="Gemini returned no result"
+                ref_type="unknown", source_style=detected_source.value,
+                target_style=target_style, error="Gemini returned no result"
             )
             log_entries.append(entry)
-            logger.warning(f"  Gemini failed for reference {total_count}")
+            logger.warning(f"  Gemini failed for reference {count}")
             continue
 
         metadata   = result.get("metadata", {})
@@ -938,67 +1147,67 @@ def process_conversion(
         gemini_out = result.get("formatted_output", "").strip()
         notes      = result.get("conversion_notes")
 
-        # ── Choose formatted text ─────────────────────────────────
+        resolved_target = task['target_enum'].value
+
+        cr_it = task.get('cr_item')
+        if cr_it:
+            if cr_it.get("DOI") and not metadata.get("bib_doi"):
+                metadata["bib_doi"] = str(cr_it["DOI"]).replace("https://doi.org/", "").replace("doi:", "").strip()
+            if cr_it.get("URL") and not metadata.get("bib_url"):
+                metadata["bib_url"] = str(cr_it["URL"]).strip()
+
         if prefer_gemini_output and gemini_out:
             final_text = gemini_out
+            if metadata.get("bib_doi") and "doi:" not in final_text.lower() and "doi.org" not in final_text.lower():
+                if resolved_target == "AMA":
+                    final_text = final_text.rstrip(".") + f". doi:{metadata['bib_doi']}"
+                else:
+                    final_text = final_text.rstrip(".") + f". https://doi.org/{metadata['bib_doi']}"
         else:
-            # Rebuild from metadata as fallback
-            if target_style == "APA":
-                final_text = format_apa_from_metadata(metadata)
-            else:
+            if resolved_target == "AMA":
                 final_text = format_ama_from_metadata(metadata)
+            else:
+                final_text = format_apa_from_metadata(metadata)
 
         if not final_text.strip():
             error_count += 1
             entry = ConversionLogEntry(
                 original=raw_text, converted="[EMPTY OUTPUT]",
-                ref_type=ref_type,
-                source_style=detected_source.value,
-                target_style=target_style,
-                error="Both Gemini output and metadata fallback produced empty string"
+                ref_type=ref_type, source_style=detected_source.value,
+                target_style=target_style, error="Both Gemini output and metadata fallback produced empty string"
             )
             log_entries.append(entry)
             continue
-
-        # ── Update paragraph in-place with granular bib_ styles ─────
+            
         try:
-            if target_style == "AMA":
+            if resolved_target == "AMA":
                 segs = build_segments_ama(metadata)
             else:
                 segs = build_segments_apa(metadata)
 
             if segs:
-                _write_styled_runs(para, segs, doc=doc)
+                _write_styled_runs(para, segs, doc=doc, is_conversion=(detected_source != target_enum))
             else:
-                # Fallback to plain text if metadata produced no segments
-                _set_paragraph_text(para, final_text)
+                _set_paragraph_text(para, final_text, doc=doc)
         except Exception as _seg_err:
             logger.warning(f"  Segment build failed ({_seg_err}); falling back to plain text.")
-            _set_paragraph_text(para, final_text)
+            _set_paragraph_text(para, final_text, doc=doc)
+            
         converted_count += 1
 
         entry = ConversionLogEntry(
-            original=raw_text,
-            converted=final_text,
-            ref_type=ref_type,
-            source_style=detected_source.value,
-            target_style=target_style,
-            notes=notes
+            original=raw_text, converted=final_text,
+            ref_type=ref_type, source_style=detected_source.value,
+            target_style=target_style, notes=notes
         )
         log_entries.append(entry)
 
-        # Collect metadata for JSON dump
         json_records.append({
-            "index":        total_count,
-            "ref_type":     ref_type,
-            "source_style": detected_source.value,
-            "target_style": target_style,
-            "original":     raw_text,
-            "converted":    final_text,
-            "notes":        notes,
-            "metadata":     metadata,
+            "index": count, "ref_type": ref_type,
+            "source_style": detected_source.value, "target_style": target_style,
+            "original": raw_text, "converted": final_text,
+            "notes": notes, "metadata": metadata,
         })
-
         logger.info(f"  ✓ [{ref_type}] → {final_text[:80]}...")
 
     # ── Save document ─────────────────────────────────────────────
