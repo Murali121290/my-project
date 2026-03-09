@@ -29,7 +29,7 @@ if not logger.handlers:
 def _setup_regex_patterns() -> Dict[str, re.Pattern]:
     patterns = {}
     patterns['single'] = re.compile(
-        r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)\.?\s*'
+        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)\.?\s*'
         r'([0-9]+(?:[.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
         re.IGNORECASE
     )
@@ -48,7 +48,7 @@ def _setup_regex_patterns() -> Dict[str, re.Pattern]:
         re.IGNORECASE
     )
     patterns['unnumbered'] = re.compile(
-        r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)\.?(?:\s+|$)',
+        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)\.?(?:\s+|$)',
         re.IGNORECASE
     )
     return patterns
@@ -94,6 +94,7 @@ CREDIT_KEYWORDS_REGEX = re.compile(
         image\s+from|
         from\s+[A-Z][a-z]+.*\[\d{4}\]|
         from\s+[A-Z][a-z]+.*\(\d{4}\)|
+        \(\s*from\s+[A-Z][a-z]+|
         \bet\s+al\b.*?\b(?:18|19|20)\d{2}\b|
         \b(?:eds?|editors?)\b\.?.*?\b(?:18|19|20)\d{2}\b|
         \b\d+(?:st|nd|rd|th)\s+ed\.?|
@@ -107,7 +108,7 @@ CREDIT_KEYWORDS_REGEX = re.compile(
 )
 
 CAPTION_START_REGEX = re.compile(
-    r'^\s*(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)',
+    r'^\s*(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)',
     re.IGNORECASE
 )
 
@@ -129,7 +130,7 @@ PERMISSION_RISK_REGEX = re.compile(
 )
 
 STANDALONE_CREDIT_REGEX = re.compile(
-    r'^[\*_]?\s*(sources?|information\s+from|data\s+from)\s*[:;\s]',
+    r'^[\*_]?\s*(sources?|information\s+from|data\s+from|adapted\s+(?:with\s+permission\s+)?from|modified\s+(?:with\s+permission\s+)?from|reproduced\s+(?:with\s+permission\s+)?from|reprinted\s+(?:with\s+permission\s+)?from)\b[\s:;]*',
     re.IGNORECASE
 )
 
@@ -153,7 +154,7 @@ _LASTROW_CREDIT_RE = re.compile(
 # ======================================================
 
 _LEGEND_ENTRY_RE = re.compile(
-    r'^(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration|FIGURE|TABLE|FIG)\.?\s*'
+    r'^(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?|FIGURE|TABLE|FIG)\.?\s*'
     r'([0-9]+(?:[.\-][0-9]+)*)([A-Za-z]?)\s*[:\-\u2013\u2014]?\s*',
     re.IGNORECASE,
 )
@@ -404,16 +405,19 @@ def _extract_paren_credit(text: str) -> Optional[tuple]:
 
 
 def _extract_inline_credit(text: str) -> Optional[tuple]:
+    matches = []
+    
     pattern = re.compile(
         r'(?<=[.!?])\s+((?:re(?:printed|drawn|produced|created)|adapted|modified|used|from|courtesy)\b.*)',
         re.IGNORECASE | re.DOTALL
     )
     m = pattern.search(text)
     if m and CREDIT_KEYWORDS_REGEX.search(m.group(1)):
-        return m.group(1).strip(), m.start(1)
+        matches.append((m.group(1).strip(), m.start(1)))
+        
     src = re.search(r'(sources?\s*:.*)', text, re.IGNORECASE)
     if src:
-        return src.group(1).strip(), src.start(1)
+        matches.append((src.group(1).strip(), src.start(1)))
 
     # Pattern 4: Academic citation starting with author name(s) and year
     author_pattern = re.compile(
@@ -422,14 +426,18 @@ def _extract_inline_credit(text: str) -> Optional[tuple]:
     )
     m = author_pattern.search(text)
     if m and re.search(r'\(\d{4}\)|\d{4}', m.group(1)):
-        return m.group(1).strip(), m.start(1)
+        matches.append((m.group(1).strip(), m.start(1)))
 
     # Pattern 5: Direct mention of adapted/modified/reproduced anywhere
     direct_pattern = re.search(r'\b((?:adapted|modified|reproduced|reprinted|based)\s+(?:with\s+permission\s+)?(?:from|on|of)\s+.*)', text, re.IGNORECASE)
     if direct_pattern and CREDIT_KEYWORDS_REGEX.search(direct_pattern.group(1)):
-        return direct_pattern.group(1).strip(), direct_pattern.start(1)
+        matches.append((direct_pattern.group(1).strip(), direct_pattern.start(1)))
 
-    return None
+    if not matches:
+        return None
+        
+    best_match = min(matches, key=lambda x: x[1])
+    return best_match
 
 
 def needs_permission(caption, credit):
@@ -1019,7 +1027,7 @@ def extract_from_file(path):
         current_chapter_map[i] = current_chapter
 
     import os
-    source_filename = os.path.basename(path)
+    source_filename = os.path.splitext(os.path.basename(path))[0]
 
     fig_table_results = extract_figures_tables(paragraphs, current_chapter_map, source_filename,
                                                table_follows_indices, table_cell_indices,
