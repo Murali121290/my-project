@@ -17,4 +17,4 @@ Backup/
 .vscode/
 *.dotm
 .env
-backups/
+backups/ref_cache.json
