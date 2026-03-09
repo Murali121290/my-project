@@ -103,9 +103,39 @@ services:
     networks:
       - hub_network
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hub_prometheus
+    restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - hub_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hub_grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - hub_network
+
 volumes:
   postgres_data:
-
+  prometheus_data:
+  grafana_data:
 
 networks:
   hub_network:

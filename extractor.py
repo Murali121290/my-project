@@ -1,24 +1,35 @@
 import re
-from typing import Dict
+import logging
+from typing import Dict, Optional
+from copy import deepcopy
+from typing import Callable, Dict, List, Optional, Tuple
 from docx import Document
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
 
-# Optional PDF support
 try:
     import pdfplumber
 except ImportError:
     pdfplumber = None
 
+# Configure logging
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+
 
 # ======================================================
-# REGEX SETUP (USER-PROVIDED – UNCHANGED LOGIC)
+# REGEX SETUP
 # ======================================================
 
 def _setup_regex_patterns() -> Dict[str, re.Pattern]:
     patterns = {}
     patterns['single'] = re.compile(
-        r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)\.?\s*'
+        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)\.?\s*'
         r'([0-9]+(?:[.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
         re.IGNORECASE
     )
@@ -36,9 +47,8 @@ def _setup_regex_patterns() -> Dict[str, re.Pattern]:
         r'([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
         re.IGNORECASE
     )
-    # Catch-all for unnumbered items or those that didn't match strict numbering
     patterns['unnumbered'] = re.compile(
-        r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)\.?(?:\s+|$)',
+        r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)\.?(?:\s+|$)',
         re.IGNORECASE
     )
     return patterns
@@ -46,63 +56,61 @@ def _setup_regex_patterns() -> Dict[str, re.Pattern]:
 
 CAPTION_PATTERNS = _setup_regex_patterns()
 
+CHAPTER_REGEX = re.compile(r"(?i)^(chapter\s+\d+|\d+\.\s+[A-Z][A-Za-z ].+)")
 
-# ======================================================
-# CHAPTER DETECTION
-# ======================================================
-
-CHAPTER_REGEX = re.compile(
-    r"(?i)^(chapter\s+\d+|\d+\.\s+[A-Z][A-Za-z ].+)"
-)
+BOX_START_TAGS = re.compile(r'\\?<BX(?:-TITLE)?>|^\s*\<BX(?:-TITLE)?\>', re.IGNORECASE)
+BOX_END_TAG = re.compile(r'\\?</BX>|^\s*\</BX\>', re.IGNORECASE)
+BOX_TITLE_TAG = re.compile(r'\\?<BX-TITLE>', re.IGNORECASE)
 
 
 # ======================================================
 # CREDIT DETECTION
 # ======================================================
 
-CREDIT_KEYWORDS = [
-    r"sources?:\s*",
-    r"adapted\s+(?:with\s+permission\s+)?(?:from|of)",
-    r"modified\s+(?:with\s+permission\s+)?(?:from|of)",
-    r"based\s+on",
-    r"reprinted\s+(?:with\s+permission\s+)?(?:from|of)",
-    r"reproduced\s+(?:with\s+permission\s+)?(?:from|of)",
-    r"data\s+from",
-    r"with\s+permission",
-    r"published\s+with\s+permission",
-    r"copyright",
-    r"©",
-    r"courtesy\s+of",
-    r"images?\s+courtesy",
-    r"photo\s+credit",
-    r"illustration\s+by",
-    r"illustrated\s+by",
-    r"shutterstock",
-    r"getty",
-    r"retrieved\s+from",
-    r"accessed\s+from",
-    r"https?://",
-    r"doi\.org/"
-]
-
-CREDIT_REGEX = re.compile(r"(?i)(" + "|".join(CREDIT_KEYWORDS) + ")")
-
-
-EDITORIAL_EXCLUDE_REGEX = re.compile(
-    r"""(?i)^(
-        this\s+is|
-        please\s+advise|
-        we\s+could|
-        it\s+would|
-        part\s+of\s+this
-    )""",
-    re.VERBOSE
+CREDIT_KEYWORDS_REGEX = re.compile(
+    r"""(?ix)(
+        sources?\s*[:;\s]|
+        information\s+from|
+        data\s+from|
+        adapted\s+(?:with\s+permission\s+)?(?:from|of)|
+        modified\s+(?:with\s+permission\s+)?(?:from|of)|
+        based\s+on|
+        reprinted\s+(?:with\s+permission\s+)?(?:from|of)|
+        reproduced\s+(?:with\s+permission\s+)?(?:from|of)|
+        redrawn\s+(?:with\s+permission\s+)?(?:from|of)?|
+        used\s+with\s+permission|
+        with\s+permission|
+        courtesy\s+of|
+        images?\s+courtesy|
+        photo\s+credit|
+        illustration\s+by|
+        illustrated\s+by|
+        shutterstock|
+        getty|
+        retrieved\s+from|
+        accessed\s+from|
+        https?://|
+        doi\.org/|
+        image\s+from|
+        from\s+[A-Z][a-z]+.*\[\d{4}\]|
+        from\s+[A-Z][a-z]+.*\(\d{4}\)|
+        \(\s*from\s+[A-Z][a-z]+|
+        \bet\s+al\b.*?\b(?:18|19|20)\d{2}\b|
+        \b(?:eds?|editors?)\b\.?.*?\b(?:18|19|20)\d{2}\b|
+        \b\d+(?:st|nd|rd|th)\s+ed\.?|
+        \b(?:18|19|20)\d{2}\b.*?\b(?:p\.|pp\.|page|pages|fig|figure|vol\.|volume|press)\b|
+        \b(?:press|university|wiley|elsevier|springer|lippincott|nature|science|journal)\b.*?\b(?:18|19|20)\d{2}\b|
+        \b[A-Z][A-Za-z\-]+,\s*\b(?:18|19|20)\d{2}\b|
+        ^[A-Z][a-z]+,\s+[A-Z][a-z]*(?:\s+[A-Z][a-z]*)*.*\(\d{4}\)|
+        ^[A-Z][a-z]+\s+et\s+al\.?.*\(\d{4}\)|
+        \b[A-Z][A-Za-z\-]+,\s*[A-Z]\..*\(\d{4}\)
+    )"""
 )
 
-
-# ======================================================
-# PERMISSION RISK
-# ======================================================
+CAPTION_START_REGEX = re.compile(
+    r'^\s*(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?)',
+    re.IGNORECASE
+)
 
 PERMISSION_RISK_REGEX = re.compile(
     r"""(?i)(
@@ -112,134 +120,329 @@ PERMISSION_RISK_REGEX = re.compile(
         reproduced\s+(?:with\s+permission\s+)?from|
         reprinted\s+(?:with\s+permission\s+)?from|
         courtesy\s+of|
-        copyright|
-        ©|
+        copyright|©|
         from\s+another\s+book|
-        journal|
-        press|
-        university|
-        https?://|
-        doi\.org/|
-        sources?[\.\s:]*
+        journal|press|university|
+        https?://|doi\.org/|
+        sources?[.\s:;]*
     )""",
     re.VERBOSE
 )
 
-CAPTION_START_REGEX = re.compile(
-    r'^\s*(Figure|Fig\.?|Table|Tab\.?|Box|Image|Img\.?|Photo|Illustration)',
+STANDALONE_CREDIT_REGEX = re.compile(
+    r'^[\*_]?\s*(sources?|information\s+from|data\s+from|adapted\s+(?:with\s+permission\s+)?from|modified\s+(?:with\s+permission\s+)?from|reproduced\s+(?:with\s+permission\s+)?from|reprinted\s+(?:with\s+permission\s+)?from)\b[\s:;]*',
     re.IGNORECASE
 )
+
+# For TABLE captions, a post-table paragraph is only accepted as a credit when
+# it starts with an explicit credit prefix. This prevents table footnote notes
+# like "Note: RDA definitions..." or "based on the adverse effect(s)..." from
+# being misidentified as the table's credit/source line.
+TABLE_CREDIT_PREFIX_REGEX = re.compile(
+    r'^\W*(Source[s]?[:\s]|From\s|Adapted|Modified|Reproduced|Reprinted|Courtesy|Copyright|©)',
+    re.IGNORECASE
+)
+
+# Detects a credit in the last merged row of a table (e.g. "Reprinted from OSHA...")
+_LASTROW_CREDIT_RE = re.compile(
+    r'(?i)(reprinted|adapted|modified|reproduced|source[s]?[:\s]|from\s|courtesy|copyright|©|https?://|doi\.)',
+)
+
+
+# ======================================================
+# LEGEND SECTION PARSER  (formerly legend_module.py)
+# ======================================================
+
+_LEGEND_ENTRY_RE = re.compile(
+    r'^(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Images?|Imgs?\.?|Photos?|Illustrations?|FIGURE|TABLE|FIG)\.?\s*'
+    r'([0-9]+(?:[.\-][0-9]+)*)([A-Za-z]?)\s*[:\-\u2013\u2014]?\s*',
+    re.IGNORECASE,
+)
+
+_SECTION_HEADER_RE = re.compile(
+    r'^\s*(Figure\s+Legends?|FIGURE\s+LEGENDS?|Legends?|LEGENDS?'
+    r'|Figure\s+and\s+Table\s+Legends?|TABLES?)\s*$',
+    re.IGNORECASE,
+)
+
+_LEGEND_CREDIT_INDICATORS_RE = re.compile(
+    r'From\s|Copyright|\u00a9|https?://|doi\.'
+    r'|[Ww]ith\s+permission|[Cc]ourtesy'
+    r'|[Aa]dapted|[Mm]odified|[Rr]eproduced|[Rr]eprinted'
+    r'|[Ii]llustration\s+(?:by|:|\u00a9)'
+    r'|[A-Z][a-z]+.{0,40}\b\d{4}\b',
+)
+
+# Matches a parenthetical block that is truly at the END of the string.
+# Inline parens like "(measured) compiled by Author.2023" are rejected
+# because extra text follows the closing ")".
+_TRAILING_PAREN_RE = re.compile(
+    r'\(([^()]*(?:\([^()]*\)[^()]*)*)\)\s*\.?\s*$'
+)
+
+
+def _legend_normalize_type(raw: str) -> str:
+    r = raw.lower()
+    if 'fig' in r:
+        return 'Figure'
+    if 'tab' in r:
+        return 'Table'
+    if 'box' in r:
+        return 'Box'
+    return 'Figure'
+
+
+def _split_legend_caption_credit(text: str) -> Tuple[str, str]:
+    """
+    Split a legend remainder into (caption, credit).
+    Credit must be a TRAILING parenthetical containing a credit indicator.
+    Inline parens (extra text after ')') are intentionally rejected.
+    """
+    text = text.strip()
+    m = _TRAILING_PAREN_RE.search(text)
+    if m:
+        paren_block = m.group(0).strip()
+        before = text[: m.start()].strip().rstrip('.')
+        if _LEGEND_CREDIT_INDICATORS_RE.search(paren_block):
+            return before, paren_block
+    return text, ''
+
+
+def _has_unmatched_open(text: str) -> bool:
+    """True when text has more '(' than ')' — legend entry continues on next line."""
+    return text.count('(') > text.count(')')
+
+
+def parse_legend_section(paragraphs: List[str]) -> Dict[Tuple[str, str], dict]:
+    """
+    Scan paragraphs for a 'Figure Legends' / 'TABLES' section header,
+    then parse every structured legend entry that follows.
+
+    Multi-paragraph legends (credit wraps to the next line) are auto-merged
+    by tracking unmatched open parentheses.
+
+    Returns dict keyed by (item_type, item_no) -> {'caption': str, 'credit': str}
+    """
+    # 1. Find the legend section header
+    legend_start: Optional[int] = None
+    for i, para in enumerate(paragraphs):
+        if _SECTION_HEADER_RE.match(para.strip()):
+            legend_start = i
+            break
+
+    if legend_start is None:
+        return {}
+
+    logger.debug("Legend section detected at paragraph %d: %r",
+                 legend_start, paragraphs[legend_start][:60])
+
+    # 2. Collect and merge continuation lines
+    merged: List[str] = []
+    for para in paragraphs[legend_start + 1:]:
+        if _LEGEND_ENTRY_RE.match(para):
+            merged.append(para)
+        elif merged and _has_unmatched_open(merged[-1]):
+            # Credit wrapped to next line — append until parens balance
+            merged[-1] = merged[-1].rstrip() + ' ' + para.strip()
+        # else: table data, body text — skip
+
+    logger.debug("Legend section: %d entries after merging", len(merged))
+
+    # 3. Parse each merged legend entry
+    results: Dict[Tuple[str, str], dict] = {}
+    for legend_text in merged:
+        m = _LEGEND_ENTRY_RE.match(legend_text)
+        if not m:
+            continue
+
+        raw_type  = m.group(1)
+        item_no   = m.group(2) + (m.group(3) or '')
+        item_type = _legend_normalize_type(raw_type)
+        remainder = legend_text[m.end():].strip()
+
+        caption, credit = _split_legend_caption_credit(remainder)
+        caption = caption.strip().strip('.')
+
+        results[(item_type, item_no)] = {'caption': caption, 'credit': credit}
+        logger.debug("  Parsed legend: %s %s | credit=%s",
+                     item_type, item_no, 'YES' if credit else 'no')
+
+    return results
+
+
+def merge_with_legend(
+    inline_results: List[dict],
+    legend_map: Dict[Tuple[str, str], dict],
+    source_filename: str,
+    needs_permission_fn: Callable[[str, str], str],
+) -> List[dict]:
+    """
+    Merge inline extraction results with the authoritative legend map.
+
+    - If (item_type, item_no) exists inline: override caption and credit
+      with legend values (legend is always more reliable than lookahead).
+    - If a legend entry has no inline match: add it as a new row
+      (only when it has a non-empty credit string).
+    - Inline results with no matching legend entry are left unchanged.
+    """
+    if not legend_map:
+        return inline_results
+
+    output = deepcopy(inline_results)
+
+    # Index inline results by (item_type, item_no)
+    inline_index: Dict[Tuple[str, str], int] = {}
+    for idx, r in enumerate(output):
+        key = (r['item_type'], r['item_no'])
+        inline_index[key] = idx  # last occurrence wins if duplicates exist
+
+    for (item_type, item_no), leg in legend_map.items():
+        key        = (item_type, item_no)
+        leg_cap    = leg['caption']
+        leg_credit = leg['credit']
+
+        if key in inline_index:
+            row = output[inline_index[key]]
+
+            # Legend caption wins when it's longer / more complete
+            if leg_cap and len(leg_cap) >= len(row.get('caption', '')):
+                row['caption'] = leg_cap
+
+            # Legend credit is always authoritative — inline lookahead often
+            # grabs wrong body text; the legend section is the ground truth
+            if leg_credit:
+                row['credit'] = leg_credit
+                row['needs_permission'] = needs_permission_fn(row['caption'], leg_credit)
+
+        else:
+            # Entry only in legend (never found inline) — add it
+            if leg_credit:
+                output.append({
+                    'chapter':          source_filename,
+                    'item_type':        item_type,
+                    'item_no':          item_no,
+                    'caption':          leg_cap,
+                    'credit':           leg_credit,
+                    'needs_permission': needs_permission_fn(leg_cap, leg_credit),
+                })
+                logger.debug("Added legend-only entry: %s %s", item_type, item_no)
+
+    return output
+
+
+# ======================================================
+# CHAPTER LOOKUP HELPER
+# ======================================================
+
+def get_chapter_at(index: int, chapter_map: dict) -> str:
+    """Return the chapter active at `index`."""
+    if index in chapter_map:
+        return chapter_map[index]
+    chapter = ""
+    for k in sorted(chapter_map.keys()):
+        if k <= index:
+            chapter = chapter_map[k]
+        else:
+            break
+    return chapter
+
+
 # ======================================================
 # CREDIT EXTRACTION
 # ======================================================
 
-def extract_credit_sentence(text):
+def extract_credit_from_text(text: str) -> tuple:
     """
-    Extract full formal credit blocks without truncation.
-    Handles initials, degrees, locations, and multiple credits.
-    Enhanced to capture full source blocks including URLs and DOIs.
+    Returns (caption_without_credit, credit_string).
+    Credit preserves full parenthetical or standalone block.
     """
-    if not CREDIT_REGEX.search(text):
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    if not CREDIT_KEYWORDS_REGEX.search(text):
+        return text, ""
+
+    # Strategy 1: parenthetical credit at end
+    paren = _extract_paren_credit(text)
+    if paren:
+        credit_str, start_idx = paren
+        caption = text[:start_idx].strip().rstrip('.')
+        return caption, credit_str
+
+    # Strategy 2: standalone credit paragraph (Source:, Information from:, Data from:)
+    if STANDALONE_CREDIT_REGEX.match(text):
+        return "", _clean_italic_markers(text)
+
+    # Strategy 3: inline credit after sentence boundary
+    inline = _extract_inline_credit(text)
+    if inline:
+        credit_str, start_idx = inline
+        caption = text[:start_idx].strip().rstrip('.')
+        return caption, credit_str
+
+    return text, ""
+
+
+def _clean_italic_markers(text: str) -> str:
+    return re.sub(r'[\*_]', '', text).strip()
+
+
+def _extract_paren_credit(text: str) -> Optional[tuple]:
+    positions = [i for i, c in enumerate(text) if c == '(']
+    for start in reversed(positions):
+        depth, end = 0, -1
+        for k in range(start, len(text)):
+            if text[k] == '(':
+                depth += 1
+            elif text[k] == ')':
+                depth -= 1
+                if depth == 0:
+                    end = k
+                    break
+        candidate = text[start:end+1] if end != -1 else text[start:]
+        if CREDIT_KEYWORDS_REGEX.search(candidate):
+            return candidate, start
+    return None
+
+
+def _extract_inline_credit(text: str) -> Optional[tuple]:
+    matches = []
+    
+    pattern = re.compile(
+        r'(?<=[.!?])\s+((?:re(?:printed|drawn|produced|created)|adapted|modified|used|from|courtesy)\b.*)',
+        re.IGNORECASE | re.DOTALL
+    )
+    m = pattern.search(text)
+    if m and CREDIT_KEYWORDS_REGEX.search(m.group(1)):
+        matches.append((m.group(1).strip(), m.start(1)))
+        
+    src = re.search(r'(sources?\s*:.*)', text, re.IGNORECASE)
+    if src:
+        matches.append((src.group(1).strip(), src.start(1)))
+
+    # Pattern 4: Academic citation starting with author name(s) and year
+    author_pattern = re.compile(
+        r'\b([A-Z][a-z]+(?:\s+(?:et\s+al\.?|&\s+[A-Z][a-z]+|[A-Z]\.))*\s*(?:\(\d{4}\)|\.?\s*\d{4}\b).*)',
+        re.IGNORECASE
+    )
+    m = author_pattern.search(text)
+    if m and re.search(r'\(\d{4}\)|\d{4}', m.group(1)):
+        matches.append((m.group(1).strip(), m.start(1)))
+
+    # Pattern 5: Direct mention of adapted/modified/reproduced anywhere
+    direct_pattern = re.search(r'\b((?:adapted|modified|reproduced|reprinted|based)\s+(?:with\s+permission\s+)?(?:from|on|of)\s+.*)', text, re.IGNORECASE)
+    if direct_pattern and CREDIT_KEYWORDS_REGEX.search(direct_pattern.group(1)):
+        matches.append((direct_pattern.group(1).strip(), direct_pattern.start(1)))
+
+    if not matches:
         return None
-
-    text = re.sub(r"\s+", " ", text).strip()
-
-    credits = []
-
-    # Special handling for "Sources:" at paragraph start (must be at very start)
-    # Special handling for "Source(s):" at paragraph start
-    if re.match(r'^sources?[\s:]', text, re.IGNORECASE):
-        # Capture entire paragraph for sources block
-        credit_block = text
-        # Stop at obvious breaks (note, please advise, etc)
-        credit_block = re.split(
-            r'(?i)(please advise|either redraw|if using the original)',
-            credit_block
-        )[0]
-        credits.append(credit_block.strip())
-    else:
-        # Only capture other keywords if NOT in a "Note:" or similar section
-        # Skip if this is a note/disclaimer paragraph
-        if not re.match(r'(?i)^note:', text):
-            # Original logic for other credit keywords
-            for match in CREDIT_REGEX.finditer(text):
-                start = match.start()
-                # Capture preceding parenthesis if present
-                if start > 0 and text[start-1] in '([':
-                    start -= 1
-                
-                credit_block = text[start:]
-                
-                # Stop at obvious editorial instructions
-                credit_block = re.split(
-                    r'(?i)(please advise|either redraw|if using the original)',
-                    credit_block
-                )[0]
-                
-                credits.append(credit_block.strip())
-
-    if not credits:
-        return None
-
-    # Post-process credits to clean up common prefixes
-    cleaned_credits = []
-    for c in credits:
-        c = c.strip()
-        # Remove leading parenthesis
-        if c.startswith('('):
-            c = c[1:].strip()
         
-        # Remove "Used" prefix variants (Used, Used:, Used-, etc)
-        c = re.sub(r'^used\b[\s:\-\.]*', '', c, flags=re.IGNORECASE)
-            
-        cleaned_credits.append(c)
-    credits = cleaned_credits
-
-    # De-duplicate: remove exact duplicates and overlapping URL/DOI patterns
-    seen = set()
-    final = []
-    
-    for c in credits:
-        # Skip if exact match already seen
-        if c in seen:
-            continue
-        
-        # Check if this is just a URL/DOI that's already part of a previous longer credit
-        is_substring = False
-        for prev in final:
-            if c in prev and len(c) < len(prev):
-                is_substring = True
-                break
-        
-        if not is_substring:
-            final.append(c)
-            seen.add(c)
-
-    # Join and remove duplicate URLs/DOIs from the final string
-    result = " ".join(final)
-    
-    # Remove consecutive duplicate DOIs and URLs
-    # Match https://doi.org/... and https://doi.org/... patterns and keep only one
-    result = re.sub(r'(https?://doi\.org/[^\s]+)(\s+\1)+', r'\1', result)
-    result = re.sub(r'(https?://[^\s]+)(\s+\1)+', r'\1', result)
-    # Also remove standalone doi.org/... if https version exists
-    result = re.sub(r'(https://doi\.org/[^\s]+)\s+doi\.org/([^\s]+)', r'\1', result)
-    
-    return result.strip()
-
+    best_match = min(matches, key=lambda x: x[1])
+    return best_match
 
 
 def needs_permission(caption, credit):
-    # If credit exists, check if it contains external publication markers
-    if credit:
-        # Check for external sources (URLs, DOIs, publication references)
-        if PERMISSION_RISK_REGEX.search(credit):
-            return "YES"
-        # Any credit line from external source (contains reference info) needs permission
-        if any(marker in credit.lower() for marker in ['sources', 'retrieved', 'accessed', 'doi', 'http']):
-            return "YES"
-        return "NO"
-    if PERMISSION_RISK_REGEX.search(caption):
+    check = credit if credit else caption
+    if PERMISSION_RISK_REGEX.search(check):
         return "YES"
     return "NO"
 
@@ -248,9 +451,193 @@ def needs_permission(caption, credit):
 # TEXT EXTRACTION
 # ======================================================
 
+from docx.text.paragraph import Paragraph
+from docx.table import Table
+
+def _para_text_with_urls(para) -> str:
+    """
+    Return paragraph text with hyperlinks resolved:
+    - If a hyperlink's display text already equals the URL → keep as-is
+    - If display text differs from the URL (e.g. journal name or "click here")
+      → replace the display text with the actual URL so credit lines always
+        contain the real link rather than an anchor label.
+    Falls back to para.text for any paragraph with no hyperlinks.
+    """
+    from docx.oxml.ns import qn as _qn
+    # Fast path: no hyperlinks in this paragraph
+    if not para._element.findall(".//" + _qn("w:hyperlink")):
+        return para.text
+
+    parts = []
+    for child in para._element:
+        tag = child.tag.split("}")[-1]
+        if tag == "r":
+            # Plain run — collect all <w:t> text preserving spaces
+            parts.append("".join(
+                t.text or "" for t in child.findall(_qn("w:t"))
+            ))
+        elif tag == "hyperlink":
+            r_id = child.get(_qn("r:id"))
+            display = "".join(
+                t.text or "" for t in child.findall(".//" + _qn("w:t"))
+            )
+            url = None
+            if r_id and r_id in para.part.rels:
+                url = para.part.rels[r_id].target_ref
+            # Use the actual URL only when display text is a different label
+            if url and display.strip() != url.strip():
+                parts.append(url)
+            else:
+                parts.append(display)
+        # bookmarkStart / bookmarkEnd / proofErr etc. → skip (no text content)
+    return "".join(parts)
+
+
 def extract_text_from_docx(path):
+    """
+    Returns (paragraphs, table_follows_indices).
+
+    paragraphs            : flat list of paragraph strings (same as before).
+    table_follows_indices : set of paragraph indices where the very next
+                            top-level document element is a real <tbl>.
+                            Used by extract_figures_tables() to distinguish
+                            a genuine table caption paragraph from a body
+                            sentence that merely references a table by number
+                            (e.g. "Table 4.1 reflects the range of ...").
+    """
     doc = Document(path)
-    return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    paras = []
+    table_follows_indices = set()
+    body_elts = list(doc.element.body)
+    para_idx = 0
+
+    for elt_i, elt in enumerate(body_elts):
+        next_elt = body_elts[elt_i + 1] if elt_i + 1 < len(body_elts) else None
+        next_is_table = next_elt is not None and next_elt.tag.endswith('tbl')
+
+        if elt.tag.endswith('p'):
+            para = Paragraph(elt, doc)
+            text = _para_text_with_urls(para).strip()
+            if text:
+                if next_is_table:
+                    table_follows_indices.add(para_idx)
+                paras.append(text)
+                para_idx += 1
+
+        elif elt.tag.endswith('tbl'):
+            table = Table(elt, doc)
+            seen_cells = set()
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell in seen_cells:
+                        continue
+                    seen_cells.add(cell)
+                    for p in cell.paragraphs:
+                        text = _para_text_with_urls(p).strip()
+                        if text:
+                            paras.append(text)
+                            para_idx += 1
+
+    # Build a set of all paragraph indices that are INSIDE a table's cell content.
+    # Also build a map: caption_para_idx -> last-row credit string, for tables
+    # where the credit appears as the final merged row of the table itself.
+    table_cell_indices = set()
+    table_lastrow_credits = {}   # {caption_para_idx: credit_string}
+    running_idx = 0
+    prev_caption_idx = None      # para_idx of the most recent table caption
+
+    for elt in body_elts:
+        if elt.tag.endswith('p'):
+            para = Paragraph(elt, doc)
+            text = _para_text_with_urls(para).strip()
+            if text:
+                running_idx += 1
+        elif elt.tag.endswith('tbl'):
+            table = Table(elt, doc)
+            seen_cells2 = set()
+            all_cell_texts = []
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell in seen_cells2:
+                        continue
+                    seen_cells2.add(cell)
+                    for p in cell.paragraphs:
+                        cell_text = _para_text_with_urls(p).strip()
+                        if cell_text:
+                            table_cell_indices.add(running_idx)
+                            all_cell_texts.append((running_idx, cell_text))
+                            running_idx += 1
+
+            # Check if the last row is a single merged cell containing a credit.
+            # A credit last-row: spans the full width (only one unique cell in the row),
+            # contains credit keywords, and is clearly different from data rows.
+            if table.rows and all_cell_texts:
+                last_row = table.rows[-1]
+                last_seen = set()
+                last_unique = []
+                for cell in last_row.cells:
+                    if cell not in last_seen:
+                        last_seen.add(cell)
+                        last_unique.append(cell.text.strip())
+                # Single merged cell in last row = footnote/credit row
+                if len(last_unique) == 1 and last_unique[0]:
+                    candidate = last_unique[0]
+                    # Accept as credit if it starts with a credit keyword or
+                    # contains "reprinted", "adapted", "source", "from", etc.
+                    if _LASTROW_CREDIT_RE.search(candidate):
+                        # Find the para_idx just before this table started
+                        if all_cell_texts:
+                            first_cell_idx = all_cell_texts[0][0]
+                            # The caption paragraph is the one immediately before
+                            # the first cell index (para_idx = first_cell_idx - 1
+                            # only if that para is in table_follows_indices)
+                            cap_idx = first_cell_idx - 1
+                            if cap_idx >= 0:
+                                table_lastrow_credits[cap_idx] = candidate
+
+    # Build set of paragraph indices where the immediately PRECEDING top-level
+    # body element was a <tbl>.  A standalone "Source:" paragraph in this set
+    # is a table footnote, not a box/sidebar credit.
+    table_precedes_indices = set()
+    running_idx2 = 0
+    prev_was_table = False
+    for elt in body_elts:
+        if elt.tag.endswith('p'):
+            para = Paragraph(elt, doc)
+            if para.text.strip():
+                if prev_was_table:
+                    table_precedes_indices.add(running_idx2)
+                running_idx2 += 1
+            prev_was_table = False
+        elif elt.tag.endswith('tbl'):
+            seen_cp = set()
+            for row in Table(elt, doc).rows:
+                for cell in row.cells:
+                    if cell not in seen_cp:
+                        seen_cp.add(cell)
+                        for p in cell.paragraphs:
+                            if p.text.strip():
+                                running_idx2 += 1
+            prev_was_table = True
+
+    # Build set of paragraph indices that are INSIDE a <BX>...</BX> tag block,
+    # or whose text contains a <BX> opening tag.
+    # Used to reject body sentences like "Box 21.1 summarizes..." that are
+    # merely inline references, not real box captions.
+    _BX_OPEN  = re.compile(r'<BX[^/>\s]*>', re.IGNORECASE)
+    _BX_CLOSE = re.compile(r'</BX>', re.IGNORECASE)
+    box_tag_indices = set()   # para indices that contain or follow a <BX> open tag
+    in_bx_block = False
+    for idx, text in enumerate(paras):
+        if _BX_OPEN.search(text):
+            in_bx_block = True
+            box_tag_indices.add(idx)
+        elif _BX_CLOSE.search(text):
+            in_bx_block = False
+        elif in_bx_block:
+            box_tag_indices.add(idx)
+
+    return paras, table_follows_indices, table_cell_indices, table_lastrow_credits, table_precedes_indices, box_tag_indices
 
 
 def extract_text_from_pdf(path):
@@ -265,60 +652,196 @@ def extract_text_from_pdf(path):
 
 
 # ======================================================
-# CAPTION MATCHING (USING YOUR REGEX)
+# CAPTION MATCHING
 # ======================================================
 
 def match_caption(paragraph):
-    # MUST start like a caption, not mid-sentence citation
     if not CAPTION_START_REGEX.match(paragraph):
         return None, None
-
     for ptype, regex in CAPTION_PATTERNS.items():
         m = regex.match(paragraph)
         if m:
             return ptype, m
-
     return None, None
-
 
 
 def normalize_item_type(raw):
     raw = raw.lower()
-    if "fig" in raw:
-        return "Figure"
-    if "tab" in raw:
-        return "Table"
-    if "box" in raw:
-        return "Box"
-    if "image" in raw or "img" in raw or "photo" in raw or "illustration" in raw:
-        return "Figure"
-    if "exhibit" in raw:
-        return "Exhibit"
-    if "appendix" in raw:
-        return "Appendix"
+    if "fig" in raw: return "Figure"
+    if "tab" in raw: return "Table"
+    if "box" in raw: return "Box"
+    if "image" in raw or "img" in raw or "photo" in raw or "illustration" in raw: return "Figure"
+    if "exhibit" in raw: return "Exhibit"
+    if "appendix" in raw: return "Appendix"
     return "Case Study"
 
 
 # ======================================================
-# MAIN EXTRACTION
+# BOX/SIDEBAR EXTRACTION
 # ======================================================
 
-def extract_from_file(path):
-    paragraphs = (
-        extract_text_from_pdf(path)
-        if path.lower().endswith(".pdf")
-        else extract_text_from_docx(path)
-    )
-
+def extract_boxes(paragraphs: list, current_chapter_map: dict, source_filename: str = "",
+                  table_precedes_indices: set = None,
+                  table_follows_indices: set = None) -> list:
+    if table_precedes_indices is None:
+        table_precedes_indices = set()
+    if table_follows_indices is None:
+        table_follows_indices = set()
     results = []
-    current_chapter = ""
+    used_indices = set()
+    logger.info(f"Starting box extraction from file: {source_filename}")
 
     for i, para in enumerate(paragraphs):
+        # ── Path A: tag-based detection ──────────────────────────────
+        if BOX_START_TAGS.search(para):
+            chapter = source_filename
+            box_lines = []
+            j = i
+            while j < len(paragraphs):
+                line = paragraphs[j]
+                if j > i and (BOX_START_TAGS.search(line) or CHAPTER_REGEX.match(line)):
+                    break
+                if BOX_END_TAG.search(line):
+                    j += 1
+                    break
+                clean = BOX_START_TAGS.sub('', line)
+                clean = BOX_END_TAG.sub('', clean)
+                clean = BOX_TITLE_TAG.sub('', clean)
+                clean = clean.strip()
+                if clean:
+                    box_lines.append(clean)
+                j += 1
 
-        if CHAPTER_REGEX.match(para):
-            current_chapter = para
+            if not box_lines:
+                continue
+
+            title = box_lines[0].strip('*_').strip()
+            credit_line = ""
+            for line in box_lines[1:]:
+                _, credit = extract_credit_from_text(line)
+                if credit:
+                    credit_line = _clean_italic_markers(credit)
+                    break
+
+            if title and credit_line:
+                used_indices.add(i)
+                results.append({
+                    "chapter": chapter,
+                    "item_type": "Box",
+                    "item_no": "Unnumbered",
+                    "caption": title,
+                    "credit": credit_line,
+                    "needs_permission": needs_permission(title, credit_line)
+                })
             continue
 
+        # ── Path B: tag-free detection via standalone credit line ─────
+        if not STANDALONE_CREDIT_REGEX.match(para):
+            continue
+        if i in used_indices:
+            continue
+
+        # Skip if this standalone credit paragraph is a table footnote.
+        # Criteria: within TABLE_FOOTNOTE_WINDOW paragraphs ahead there is
+        # another table caption (table_follows_indices entry), meaning this
+        # "Source:" line sits in the footnote block between two tables.
+        # Also skip if the paragraph immediately precedes a table.
+        TABLE_FOOTNOTE_WINDOW = 15
+        is_table_footnote = i in table_precedes_indices  # immediately after a table
+        if not is_table_footnote:
+            for _fw in range(i + 1, min(i + TABLE_FOOTNOTE_WINDOW, len(paragraphs))):
+                if _fw in table_follows_indices:
+                    # There's a table caption just ahead — this Source: is a footnote
+                    is_table_footnote = True
+                    break
+                if match_caption(paragraphs[_fw])[1] or CHAPTER_REGEX.match(paragraphs[_fw]):
+                    # Hit a figure/chapter heading first — not a table footnote
+                    break
+        if is_table_footnote:
+            continue
+
+        # Skip if a figure/table caption appears within the preceding 10 lines
+        is_fig_table_credit = False
+        for k in range(max(0, i - 10), i):
+            if match_caption(paragraphs[k])[1]:
+                is_fig_table_credit = True
+                break
+        if is_fig_table_credit:
+            continue
+
+        chapter = source_filename
+
+        # Look back up to 15 lines for the box title
+        title = ""
+        credit_line = ""
+        for k in range(i - 1, max(i - 15, -1), -1):
+            candidate = paragraphs[k].strip().strip('*_').strip()
+            if not candidate:
+                continue
+            if CHAPTER_REGEX.match(candidate):
+                break
+            if match_caption(candidate)[1]:
+                break
+            if STANDALONE_CREDIT_REGEX.match(candidate):
+                break
+            if len(candidate) > 200:
+                continue
+            title = candidate
+            break
+
+        # Extract credit from current paragraph (Path B)
+        if title:
+            _, credit_line = extract_credit_from_text(para)
+            if credit_line:
+                used_indices.add(i)
+                results.append({
+                    "chapter": chapter,
+                    "item_type": "Box",
+                    "item_no": "Unnumbered",
+                    "caption": title,
+                    "credit": credit_line,
+                    "needs_permission": needs_permission(title, credit_line)
+                })
+
+    logger.info(f"Box extraction complete: {len(results)} boxes found")
+    return results
+
+
+# ======================================================
+# FIGURE/TABLE EXTRACTION
+# ======================================================
+
+def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_filename: str = "",
+                           table_follows_indices: set = None,
+                           table_cell_indices: set = None,
+                           table_lastrow_credits: dict = None,
+                           box_tag_indices: set = None) -> list:
+    """
+    table_follows_indices  : set of para indices where next body element is a <tbl>.
+        Table-type paragraphs only accepted as captions when in this set.
+    table_cell_indices     : set of para indices inside table cell content.
+        Lookahead skips these to avoid grabbing cell data as a credit.
+    table_lastrow_credits  : dict {caption_para_idx: credit_string} for tables
+        where the credit is the final merged row of the table itself.
+    box_tag_indices        : set of para indices inside or at a <BX>...</BX> block.
+        Box-type paragraphs only accepted as captions when in this set,
+        preventing body sentences like "Box 21.1 summarizes..." from being
+        mistaken for box captions.
+    """
+    if table_follows_indices is None:
+        table_follows_indices = set()
+    if table_cell_indices is None:
+        table_cell_indices = set()
+    if table_lastrow_credits is None:
+        table_lastrow_credits = {}
+    if box_tag_indices is None:
+        box_tag_indices = set()
+
+    results = []
+    logger.info(f"Starting extraction from file: {source_filename}")
+    logger.info(f"Total paragraphs to process: {len(paragraphs)}")
+
+    for i, para in enumerate(paragraphs):
         ptype, match = match_caption(para)
         if not match:
             continue
@@ -326,105 +849,215 @@ def extract_from_file(path):
         raw_type = match.group(1)
         item_type = normalize_item_type(raw_type)
 
+        # ── Box caption guard ────────────────────────────────────────────────
+        # A Box-type paragraph is only a real caption when it is inside or
+        # immediately at a <BX>...</BX> tagged block. Body sentences like
+        # "Box 21.1 summarizes what can be done..." are skipped entirely.
+        if item_type == "Box" and box_tag_indices and i not in box_tag_indices:
+            logger.debug(f"Skipping body-text box reference at para {i}: {para[:60]}")
+            continue
+
+        # ── Table caption guard ───────────────────────────────────────────────
+        # Accept a Table paragraph as a real caption when:
+        #   (a) it is immediately followed by a <tbl> element (table_follows_indices), OR
+        #   (b) it has a last-row credit already captured (table_lastrow_credits), OR
+        #   (c) it is a list-style table (no <tbl>) where a credit paragraph
+        #       starting with "Adapted from:" / "Source:" etc. appears within
+        #       the next TABLE_LIST_CREDIT_LOOKAHEAD paragraphs.
+        # Body sentences like "Table 4.1 reflects the range of..." are skipped.
+        TABLE_LIST_CREDIT_LOOKAHEAD = 20
+        if item_type == "Table" and table_follows_indices:
+            is_real_caption = (
+                i in table_follows_indices
+                or i in table_lastrow_credits
+            )
+            if not is_real_caption:
+                # Check for list-style table: scan ahead for an explicit credit prefix
+                for _k in range(i + 1, min(i + TABLE_LIST_CREDIT_LOOKAHEAD, len(paragraphs))):
+                    _p = paragraphs[_k]
+                    if match_caption(_p)[1] or CHAPTER_REGEX.match(_p):
+                        break
+                    if TABLE_CREDIT_PREFIX_REGEX.match(_p):
+                        is_real_caption = True
+                        break
+            if not is_real_caption:
+                logger.debug(f"Skipping body-text table reference at para {i}: {para[:60]}")
+                continue
+
         if ptype == "single":
             item_no = match.group(2) + (match.group(3) or "")
         elif ptype == "range":
             item_no = f"{match.group(2)}{match.group(3) or ''}–{match.group(4)}{match.group(5) or ''}"
         elif ptype == "and":
-            item_no = f"{match.group(2)}{match.group(3) or ''} & {match.group(4)}{match.group(5) or ''}" 
+            item_no = f"{match.group(2)}{match.group(3) or ''} & {match.group(4)}{match.group(5) or ''}"
         else:
-            # Unnumbered
-            item_no = ""
+            item_no = "Unnumbered"
 
-        # Extract chapter number from item number (e.g., "1.1" -> "1", "1.1–1.5" -> "1", "2-3" -> "2")
-        # Prioritize explicitly detected current_chapter over inference from item_no
-        if current_chapter:
-            # Try to extract just the number from the chapter string if possible
-            # e.g. "Chapter 2" -> "2", "2 Intro" -> "2"
-            chapter_match = re.search(r'\d+', current_chapter)
-            chapter_from_item = chapter_match.group(0) if chapter_match else current_chapter
-        elif item_no:
-            chapter_from_item = re.split(r'[.\-–]', item_no)[0]
-        else:
-            chapter_from_item = ""
+        chapter = source_filename
 
-        caption = para[match.end():].strip(" :.-")
+        full_text = para[match.end():].strip(" :.-")
+        caption, credit_line = extract_credit_from_text(full_text)
 
-        credit_line = ""
+        # Debug logging for Table 27.3
+        if "27.3" in item_no or "27.3" in caption:
+            logger.debug(f"[DEBUG] Processing {item_type} {item_no}")
+            logger.debug(f"  Caption: {caption[:60]}")
+            logger.debug(f"  Credit from same line: {bool(credit_line)}")
 
-        # Same paragraph
-        credit = extract_credit_sentence(para)
-        if credit:
-            credit_line = credit
+        # ── Last-row credit (credit embedded as final merged row of table) ────
+        if not credit_line and i in table_lastrow_credits:
+            credit_line = table_lastrow_credits[i]
+            logger.debug(f"Using last-row credit for {item_type} {item_no}: {credit_line[:60]}")
 
-        # Look ahead for credit lines after caption (up to 10 paragraphs)
+        # Look ahead for credit (extended to 150 paragraphs to catch credits inside long tables)
         if not credit_line:
-            for j in range(i + 1, min(i + 10, len(paragraphs))):
+            for j in range(i + 1, min(i + 150, len(paragraphs))):
                 next_p = paragraphs[j]
                 if match_caption(next_p)[1] or CHAPTER_REGEX.match(next_p):
                     break
-                credit = extract_credit_sentence(next_p)
-                if credit:
-                    credit_line = credit
-                    # If we found a "Sources:" block, try to capture the following lines too
-                    if "sources" in credit.lower():
-                        source_lines = [credit]
-                        # Capture subsequent reference lines (up to 5 more lines)
-                        for k in range(j + 1, min(j + 5, len(paragraphs))):
-                            next_ref = paragraphs[k]
-                            # Stop at next caption or chapter
-                            if match_caption(next_ref)[1] or CHAPTER_REGEX.match(next_ref):
-                                break
-                            # If it looks like a reference line (starts with capital or author name pattern)
-                            if next_ref and (next_ref[0].isupper() or re.match(r'^[A-Z][a-z]+,', next_ref)):
-                                source_lines.append(next_ref)
-                            else:
-                                break
-                        if len(source_lines) > 1:
-                            credit_line = " ".join(source_lines)
-                    break
+                # Skip paragraphs that are inside a table's cell content — they are
+                # part of the table data, not a credit line for this caption.
+                if j in table_cell_indices:
+                    continue
 
-        # User requested to ignore empty captions and only include items with credit lines
+                candidate_cap, candidate = extract_credit_from_text(next_p)
+                is_potential_credit = False
+
+                if candidate:
+                    is_potential_credit = True
+                    credit_line = _clean_italic_markers(candidate)
+                elif not candidate and CREDIT_KEYWORDS_REGEX.search(next_p):
+                    is_potential_credit = True
+                    credit_line = next_p.strip()
+                elif re.match(r'^([A-Z][a-z]+(?:\s+et\s+al\.?|,?\s+[A-Z]\.|\s*&\s*[A-Z][a-z]+)*)\s*\(\d{4}\)', next_p):
+                    is_potential_credit = True
+                    credit_line = next_p.strip()
+
+                if is_potential_credit:
+                    # For Table captions, require an explicit credit prefix on the line
+                    # (Source:, From, Adapted, etc.).  This prevents table footnotes
+                    # like "Note: RDA definitions..." or "based on the adverse effect..."
+                    # from being grabbed as the table credit.
+                    if item_type == "Table" and not TABLE_CREDIT_PREFIX_REGEX.match(next_p):
+                        credit_line = ""
+                        is_potential_credit = False
+
+                if is_potential_credit:
+                    is_standalone = STANDALONE_CREDIT_REGEX.search(next_p)
+                    is_explicit_prefix = re.match(r'^\W*(Adapted|Modified|Reproduced|Reprinted|Courtesy|Sources?|Source|Neuman|Chasin|Bankaitis)\b', next_p, re.IGNORECASE)
+                    is_short_line = len(candidate_cap.strip()) <= 15 if candidate_cap else False
+
+                    # Debug logging for Table 27.3
+                    if "27.3" in item_no:
+                        logger.debug(f"  [Look-ahead {j}] potential_credit={is_potential_credit}, text: {next_p[:60]}")
+                        logger.debug(f"    standalone={is_standalone}, explicit_prefix={is_explicit_prefix}, short_line={is_short_line}")
+                        logger.debug(f"    has_keywords={bool(CREDIT_KEYWORDS_REGEX.search(next_p))}")
+
+                    if is_standalone or is_explicit_prefix or is_short_line or CREDIT_KEYWORDS_REGEX.search(next_p):
+                        if re.match(r'^sources?[\s:;]', next_p, re.IGNORECASE):
+                            source_lines = [credit_line]
+                            for k in range(j + 1, min(j + 10, len(paragraphs))):
+                                nr = paragraphs[k]
+                                if match_caption(nr)[1] or CHAPTER_REGEX.match(nr):
+                                    break
+                                if nr and (nr[0].isupper() or re.match(r'^[A-Z][a-z]+,', nr) or 'http' in nr or 'doi' in nr.lower()):
+                                    source_lines.append(nr)
+                                elif not nr.strip():
+                                    continue
+                                else:
+                                    break
+                            if len(source_lines) > 1:
+                                credit_line = " ".join(source_lines)
+                        break
+
+        # If credit_line is still empty, search the whole document for a reference.
+        # NOTE: This fallback is intentionally skipped for Table items because any body
+        # sentence mentioning "Table X.Y" (e.g. "Table 4.1 reflects...") risks pulling
+        # in surrounding body text as a false credit. Tables get their credits only from
+        # the caption line itself, the immediate post-table footnote block, or the legend
+        # section (handled by merge_with_legend).
+        if not credit_line and item_no != "Unnumbered" and item_type != "Table":
+            search_str = f"{item_type} {item_no}".lower()
+            for para_text in paragraphs:
+                if search_str in para_text.lower():
+                    candidate_cap, candidate = extract_credit_from_text(para_text)
+                    if candidate:
+                        credit_line = _clean_italic_markers(candidate)
+                        break
+
+        caption = caption.strip().strip('.')
+
         if caption and credit_line:
-            # Clean caption: remove the credit line if it appears at the end
-            # Normalize strings for comparison to handle whitespace differences
-            norm_caption = " ".join(caption.split())
-            norm_credit = " ".join(credit_line.split())
-            
-            if norm_credit in norm_caption:
-                # Find index of credit in original caption to preserve original formatting of the rest
-                # This is a simple approximation
-                idx = caption.replace("\n", " ").find(credit_line.split()[0]) # Try to find start
-                if idx != -1:
-                     # Check if the rest roughly matches? 
-                     # Simpler: just replace if exact match in normalized
-                     pass
-
-            # Robust replacement
-            if credit_line in caption:
-                caption = caption.replace(credit_line, "")
-            else:
-                # Fallback: check if caption ends with the credit text (ignoring potential paren differences)
-                # e.g. caption ends in "Source.)" and credit is "Source."
-                pass
-            
-            # Simple cleanup
-            caption = caption.replace(credit_line, "") 
-            caption = caption.strip(" .):")
-            # If caption ends with open paren (leftover), remove it
-            if caption.endswith("("):
-                caption = caption[:-1].strip()
-
             results.append({
-                "chapter": chapter_from_item,
+                "chapter": chapter,
                 "item_type": item_type,
                 "item_no": item_no,
-                "caption": caption.strip(),
-                "credit": credit_line,
+                "caption": caption,
+                "credit": _clean_italic_markers(credit_line),
                 "needs_permission": needs_permission(caption, credit_line)
             })
 
+    items_with_credit = sum(1 for r in results if r["credit"])
+    logger.info(f"Extraction complete: {len(results)} items found WITH credit lines")
     return results
+
+
+# ======================================================
+# MAIN EXTRACTION
+# ======================================================
+
+def extract_from_file(path):
+    if path.lower().endswith(".pdf"):
+        paragraphs = extract_text_from_pdf(path)
+        table_follows_indices = set()  # PDFs have no structural table markers
+        table_cell_indices = set()
+        table_lastrow_credits = {}
+        table_precedes_indices = set()
+        box_tag_indices = set()
+    else:
+        paragraphs, table_follows_indices, table_cell_indices, table_lastrow_credits, table_precedes_indices, box_tag_indices = extract_text_from_docx(path)
+
+    # Build chapter map: every paragraph index maps to the current chapter title
+    current_chapter_map = {}
+    current_chapter = ""
+    for i, para in enumerate(paragraphs):
+        if CHAPTER_REGEX.match(para):
+            m = re.search(r'\d+', para)
+            current_chapter = m.group(0) if m else para
+        current_chapter_map[i] = current_chapter
+
+    import os
+    source_filename = os.path.splitext(os.path.basename(path))[0]
+
+    fig_table_results = extract_figures_tables(paragraphs, current_chapter_map, source_filename,
+                                               table_follows_indices, table_cell_indices,
+                                               table_lastrow_credits, box_tag_indices)
+    box_results = extract_boxes(paragraphs, current_chapter_map, source_filename,
+                              table_precedes_indices, table_follows_indices)
+
+    all_results = fig_table_results + box_results
+
+    # ── Legend section: parse and merge authoritative captions/credits ─────────
+    # Overrides inline lookahead results and adds legend-only entries (e.g.
+    # figures whose captions only appear in the end-of-chapter legend section).
+    legend_map = parse_legend_section(paragraphs)
+    all_results = merge_with_legend(all_results, legend_map, source_filename, needs_permission)
+
+    def sort_key(r):
+        try:
+            ch = int(r["chapter"]) if r["chapter"] else 999
+        except ValueError:
+            ch = 999
+        type_order = {"Figure": 1, "Table": 2, "Box": 3}
+        t = type_order.get(r["item_type"], 9)
+        try:
+            num = float(re.split(r'[.\-–]', r["item_no"].replace("Unnumbered", "0"))[0] or 0)
+        except Exception:
+            num = 0
+        return (ch, t, num)
+
+    all_results.sort(key=sort_key)
+    return all_results
 
 
 # ======================================================

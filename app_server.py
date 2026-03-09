@@ -2434,7 +2434,8 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         temp_ny_path = os.path.join(file_output_dir, f"temp_ny_{uuid.uuid4().hex}.docx")
                         
                         processor = CitationProcessor(current_filepath)
-                        report = processor.process(temp_ny_path)
+                        report = processor.run()
+                        processor.save(temp_ny_path)
                         
                         comment_count = len(report.issues)
                         formatted_count = report.stats.get('matched', 0) + report.stats.get('format_fixed', 0)
