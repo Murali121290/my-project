@@ -179,7 +179,9 @@ def check_locator(loc: str) -> List[str]:
     if is_range  and uses_p:  probs.append("use 'pp.' (not 'p.') for ranges")
     if not is_range and uses_pp: probs.append("use 'p.' (not 'pp.') for single page")
     if is_range  and has_hyphen and not has_endash: probs.append("use en-dash (–) not hyphen for ranges")
-    if not has_space: probs.append(f"add space after period: e.g. '{re.sub(chr(46)+r'(?=\d)', '. ', loc)}'")
+    if not has_space:
+        spaced_loc = re.sub(r"\.(?=\d)", ". ", loc)
+        probs.append(f"add space after period: e.g. '{spaced_loc}'")
     return probs
 
 # ── APA Fixer ─────────────────────────────────────────────────────────────────
