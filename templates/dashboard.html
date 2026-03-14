@@ -328,7 +328,7 @@
         {% endif %}
 
         <!-- Credit Extractor (PERMISSIONS, PM, ADMIN) -->
-        {% if session.get('is_admin') or current_role in ['PERMISSIONS','PPD', 'PM', 'ADMIN'] %}
+        {% if session.get('is_admin') or current_role in ['ADMIN'] %}
         <a href="{{ url_for('credit_extractor') }}" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-file-contract"></i>

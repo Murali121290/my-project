@@ -23,6 +23,29 @@ if not logger.handlers:
 
 
 # ======================================================
+# CONFIGURATION CONSTANTS
+# ======================================================
+
+# Document structure markers (headings that signal end-of-document sections)
+END_OF_DOCUMENT_MARKERS = re.compile(
+    r'^\s*(References?|Works?\s+Cited|Bibliography|Bibliographies|Appendix|Appendices|'
+    r'Figure\s+Legends?|Table\s+Legends?|Figures?|Tables?)\s*$',
+    re.IGNORECASE
+)
+
+# Extraction window configurations
+FIGURE_CREDIT_WINDOW = 2  # Figure credit: same line or next 1 paragraph
+TABLE_CREDIT_WINDOW = 5   # Table credit: inside table or next 4 paragraphs (table note/caption line)
+TABLE_FOOTNOTE_WINDOW = 15  # Distinguish table footnote vs box credit
+BOX_TITLE_LOOKBACK = 15  # Look back for box title
+BOX_TABLE_FOOTNOTE_PROXIMITY = 15  # Avoid confusing table footnotes with box credits
+
+# Text length thresholds
+MAX_TITLE_LENGTH = 200  # Skip very long candidates
+MIN_CREDIT_LENGTH = 10  # Minimum credit line length
+
+
+# ======================================================
 # REGEX SETUP
 # ======================================================
 
@@ -331,6 +354,29 @@ def merge_with_legend(
 
 
 # ======================================================
+# END-OF-DOCUMENT SECTION DETECTION
+# ======================================================
+
+def find_figures_tables_section_start(paragraphs: List[str]) -> int:
+    """
+    Detect where Figures/Tables/Boxes section starts in the document.
+    
+    Returns the paragraph index where the end-of-document section (References,
+    Appendix, Figures, etc.) begins. If not found, returns 0 (process entire doc).
+    
+    This optimization skips processing the main document body and focuses on
+    the end-of-document section where figures, tables, and boxes are typically placed.
+    """
+    for i, para in enumerate(paragraphs):
+        if END_OF_DOCUMENT_MARKERS.match(para.strip()):
+            logger.info(f"Found end-of-document section at paragraph {i}: {para.strip()[:50]}")
+            return i
+    
+    logger.debug("No explicit end-of-document marker found; processing entire document")
+    return 0
+
+
+# ======================================================
 # CHAPTER LOOKUP HELPER
 # ======================================================
 
@@ -361,16 +407,16 @@ def extract_credit_from_text(text: str) -> tuple:
     if not CREDIT_KEYWORDS_REGEX.search(text):
         return text, ""
 
-    # Strategy 1: parenthetical credit at end
+    # Strategy 1: standalone credit paragraph (Source:, Information from:, Data from:)
+    if STANDALONE_CREDIT_REGEX.match(text):
+        return "", _clean_italic_markers(text)
+
+    # Strategy 2: parenthetical credit at end
     paren = _extract_paren_credit(text)
     if paren:
         credit_str, start_idx = paren
         caption = text[:start_idx].strip().rstrip('.')
         return caption, credit_str
-
-    # Strategy 2: standalone credit paragraph (Source:, Information from:, Data from:)
-    if STANDALONE_CREDIT_REGEX.match(text):
-        return "", _clean_italic_markers(text)
 
     # Strategy 3: inline credit after sentence boundary
     inline = _extract_inline_credit(text)
@@ -387,20 +433,46 @@ def _clean_italic_markers(text: str) -> str:
 
 
 def _extract_paren_credit(text: str) -> Optional[tuple]:
-    positions = [i for i, c in enumerate(text) if c == '(']
-    for start in reversed(positions):
-        depth, end = 0, -1
-        for k in range(start, len(text)):
-            if text[k] == '(':
-                depth += 1
-            elif text[k] == ')':
-                depth -= 1
-                if depth == 0:
-                    end = k
-                    break
-        candidate = text[start:end+1] if end != -1 else text[start:]
-        if CREDIT_KEYWORDS_REGEX.search(candidate):
-            return candidate, start
+    """
+    Find top-level parenthetical blocks in the text and return the last one 
+    that contains credit keywords. This allows nested parentheses to be
+    captured as a single block.
+    """
+    total_len = len(text)
+    blocks = []
+    
+    # Identify all top-level blocks (those starting at depth 1)
+    # Scanning from left-to-right to find balanced pairs.
+    idx = 0
+    while idx < total_len:
+        if text[idx] == '(':
+            start = idx
+            depth = 1
+            idx += 1
+            while idx < total_len and depth > 0:
+                if text[idx] == '(':
+                    depth += 1
+                elif text[idx] == ')':
+                    depth -= 1
+                idx += 1
+            
+            if depth == 0:
+                # Successfully found balanced pair
+                block_text = text[start:idx]
+                blocks.append((block_text, start))
+            else:
+                # Unbalanced - rest of string is the block
+                block_text = text[start:]
+                blocks.append((block_text, start))
+                break
+        else:
+            idx += 1
+
+    # Search blocks in reverse (right-to-left) for keywords
+    for block_text, start_idx in reversed(blocks):
+        if CREDIT_KEYWORDS_REGEX.search(block_text):
+            return block_text, start_idx
+            
     return None
 
 
@@ -682,7 +754,31 @@ def normalize_item_type(raw):
 
 def extract_boxes(paragraphs: list, current_chapter_map: dict, source_filename: str = "",
                   table_precedes_indices: set = None,
-                  table_follows_indices: set = None) -> list:
+                  table_follows_indices: set = None,
+                  section_start: int = 0) -> list:
+    """
+    Extract box/sidebar content from document.
+    
+    Uses two detection paths:
+    - Path A: Tag-based detection (<BX>, <BX-TITLE>, </BX>)
+    - Path B: Tag-free detection via standalone credit lines (Source:, etc.)
+    
+    Avoids false positives by:
+    - Rejecting table footnotes (within TABLE_FOOTNOTE_WINDOW)
+    - Rejecting body text references (e.g., "Box 21.1 summarizes...")
+    - Rejecting figure/table credit lines (preceding 10 lines check)
+    
+    Args:
+        paragraphs: List of paragraph strings from document
+        current_chapter_map: Mapping of para index to chapter
+        source_filename: Name of source file (for attribution)
+        table_precedes_indices: Para indices immediately after a table
+        table_follows_indices: Para indices immediately before a table
+    
+    Returns:
+        List of extracted box items with caption, credit, and permission status
+        Structure: {chapter, item_type, item_no, caption, credit, needs_permission}
+    """
     if table_precedes_indices is None:
         table_precedes_indices = set()
     if table_follows_indices is None:
@@ -692,6 +788,10 @@ def extract_boxes(paragraphs: list, current_chapter_map: dict, source_filename: 
     logger.info(f"Starting box extraction from file: {source_filename}")
 
     for i, para in enumerate(paragraphs):
+        # Only process paragraphs from section_start onwards (end-of-document section)
+        if i < section_start:
+            continue
+            
         # ── Path A: tag-based detection ──────────────────────────────
         if BOX_START_TAGS.search(para):
             chapter = source_filename
@@ -746,10 +846,9 @@ def extract_boxes(paragraphs: list, current_chapter_map: dict, source_filename: 
         # another table caption (table_follows_indices entry), meaning this
         # "Source:" line sits in the footnote block between two tables.
         # Also skip if the paragraph immediately precedes a table.
-        TABLE_FOOTNOTE_WINDOW = 15
         is_table_footnote = i in table_precedes_indices  # immediately after a table
         if not is_table_footnote:
-            for _fw in range(i + 1, min(i + TABLE_FOOTNOTE_WINDOW, len(paragraphs))):
+            for _fw in range(i + 1, min(i + BOX_TABLE_FOOTNOTE_PROXIMITY, len(paragraphs))):
                 if _fw in table_follows_indices:
                     # There's a table caption just ahead — this Source: is a footnote
                     is_table_footnote = True
@@ -760,21 +859,25 @@ def extract_boxes(paragraphs: list, current_chapter_map: dict, source_filename: 
         if is_table_footnote:
             continue
 
-        # Skip if a figure/table caption appears within the preceding 10 lines
+        # Skip if a figure/table caption appears within the preceding BOX_TITLE_LOOKBACK lines.
+        # This prevents misidentifying table/figure credits as box credits, since credits
+        # should appear near their captions, not floating unattached as boxes.
         is_fig_table_credit = False
-        for k in range(max(0, i - 10), i):
-            if match_caption(paragraphs[k])[1]:
+        for k in range(max(0, i - BOX_TITLE_LOOKBACK), i):
+            ptype, match = match_caption(paragraphs[k])
+            if match:
                 is_fig_table_credit = True
+                logger.debug(f"Skipping standalone credit at {i} (caption '{paragraphs[k][:40]}...' at {k})")
                 break
         if is_fig_table_credit:
             continue
 
         chapter = source_filename
 
-        # Look back up to 15 lines for the box title
+        # Look back for the box title (up to BOX_TITLE_LOOKBACK lines)
         title = ""
         credit_line = ""
-        for k in range(i - 1, max(i - 15, -1), -1):
+        for k in range(i - 1, max(i - BOX_TITLE_LOOKBACK, -1), -1):
             candidate = paragraphs[k].strip().strip('*_').strip()
             if not candidate:
                 continue
@@ -784,13 +887,18 @@ def extract_boxes(paragraphs: list, current_chapter_map: dict, source_filename: 
                 break
             if STANDALONE_CREDIT_REGEX.match(candidate):
                 break
-            if len(candidate) > 200:
+            if len(candidate) > MAX_TITLE_LENGTH:
                 continue
             title = candidate
             break
 
         # Extract credit from current paragraph (Path B)
         if title:
+            # Validate title: reject if it's just numbers/junk (indicates table content, not a box)
+            if title and re.match(r'^\d+$', title.strip()):
+                logger.debug(f"Skipping box with numeric-only title: {title}")
+                continue
+            
             _, credit_line = extract_credit_from_text(para)
             if credit_line:
                 used_indices.add(i)
@@ -815,18 +923,43 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
                            table_follows_indices: set = None,
                            table_cell_indices: set = None,
                            table_lastrow_credits: dict = None,
-                           box_tag_indices: set = None) -> list:
+                           box_tag_indices: set = None,
+                           section_start: int = 0) -> list:
     """
-    table_follows_indices  : set of para indices where next body element is a <tbl>.
-        Table-type paragraphs only accepted as captions when in this set.
-    table_cell_indices     : set of para indices inside table cell content.
-        Lookahead skips these to avoid grabbing cell data as a credit.
-    table_lastrow_credits  : dict {caption_para_idx: credit_string} for tables
-        where the credit is the final merged row of the table itself.
-    box_tag_indices        : set of para indices inside or at a <BX>...</BX> block.
-        Box-type paragraphs only accepted as captions when in this set,
-        preventing body sentences like "Box 21.1 summarizes..." from being
-        mistaken for box captions.
+    Extract figures and tables from document paragraphs.
+    
+    Uses smart heuristics to distinguish real captions from body text references:
+    
+    For FIGURES:
+    - Matches caption patterns (Figure 1, Fig. 2.1, etc.)
+    - Looks for credit in same line or next 1 paragraph (FIGURE_CREDIT_WINDOW)
+    - Allows implicit credits (no prefix required)
+    
+    For TABLES:
+    - Validates with table_follows_indices (immediately before <tbl> element)
+    - Or checks for explicit credit prefix (Source:, Adapted, From, etc.)
+    - Captures credits embedded in last row of table (table_lastrow_credits)
+    - Looks ahead up to TABLE_CREDIT_WINDOW paragraphs
+    - Rejects table footnotes (Note:, etc.) masquerading as credits
+    
+    Avoids false positives:
+    - Skips body sentences like "Table 4.1 shows..." without structural markers
+    - Skips table cell indices (data rows, not credit lines)
+    - Skips box captions outside <BX> tags
+    
+    Args:
+        paragraphs: List of paragraph strings from document
+        current_chapter_map: Mapping of para index to chapter
+        source_filename: Name of source file (for attribution)
+        table_follows_indices: Set of para indices where next element is a <tbl>
+        table_cell_indices: Set of para indices inside table cell content
+        table_lastrow_credits: Dict {caption_para_idx: credit_string} from table last rows
+        box_tag_indices: Set of para indices inside/at <BX> tagged blocks
+    
+    Returns:
+        List of extracted figure/table items with caption, credit, and permission status
+        Structure: {chapter, item_type, item_no, caption, credit, needs_permission}
+        Item types: Figure, Table, Box, Exhibit, Appendix, Case Study
     """
     if table_follows_indices is None:
         table_follows_indices = set()
@@ -839,9 +972,13 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
 
     results = []
     logger.info(f"Starting extraction from file: {source_filename}")
-    logger.info(f"Total paragraphs to process: {len(paragraphs)}")
+    logger.info(f"Processing end-of-document section: paragraphs {section_start} to {len(paragraphs)-1}")
 
     for i, para in enumerate(paragraphs):
+        # Only process paragraphs from section_start onwards (end-of-document section)
+        if i < section_start:
+            continue
+            
         ptype, match = match_caption(para)
         if not match:
             continue
@@ -863,9 +1000,8 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
         #   (b) it has a last-row credit already captured (table_lastrow_credits), OR
         #   (c) it is a list-style table (no <tbl>) where a credit paragraph
         #       starting with "Adapted from:" / "Source:" etc. appears within
-        #       the next TABLE_LIST_CREDIT_LOOKAHEAD paragraphs.
+        #       the next TABLE_CREDIT_WINDOW paragraphs.
         # Body sentences like "Table 4.1 reflects the range of..." are skipped.
-        TABLE_LIST_CREDIT_LOOKAHEAD = 20
         if item_type == "Table" and table_follows_indices:
             is_real_caption = (
                 i in table_follows_indices
@@ -873,7 +1009,7 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
             )
             if not is_real_caption:
                 # Check for list-style table: scan ahead for an explicit credit prefix
-                for _k in range(i + 1, min(i + TABLE_LIST_CREDIT_LOOKAHEAD, len(paragraphs))):
+                for _k in range(i + 1, min(i + TABLE_CREDIT_WINDOW, len(paragraphs))):
                     _p = paragraphs[_k]
                     if match_caption(_p)[1] or CHAPTER_REGEX.match(_p):
                         break
@@ -909,14 +1045,29 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
             credit_line = table_lastrow_credits[i]
             logger.debug(f"Using last-row credit for {item_type} {item_no}: {credit_line[:60]}")
 
-        # Look ahead for credit (extended to 150 paragraphs to catch credits inside long tables)
-        if not credit_line:
-            for j in range(i + 1, min(i + 150, len(paragraphs))):
+        # Look ahead for credit
+        # Figures: look only next 1 paragraph (same line or next para)
+        # Tables: skip past table cells and look in next eligible paragraph,
+        #         then continue up to TABLE_CREDIT_WINDOW paragraphs beyond first non-cell
+        lookahead_window = FIGURE_CREDIT_WINDOW if item_type == "Figure" else TABLE_CREDIT_WINDOW
+        
+        if not credit_line and item_type != "Figure":
+            # For tables: skip past table cell indices to find the first non-cell paragraph
+            search_start = i + 1
+            if item_type == "Table" and table_cell_indices:
+                # Find first non-cell paragraph after this caption
+                for skip_idx in range(i + 1, len(paragraphs)):
+                    if skip_idx not in table_cell_indices:
+                        search_start = skip_idx
+                        break
+            
+            # Now search from the first non-cell paragraph for credit
+            for j in range(search_start, min(search_start + lookahead_window, len(paragraphs))):
                 next_p = paragraphs[j]
                 if match_caption(next_p)[1] or CHAPTER_REGEX.match(next_p):
                     break
-                # Skip paragraphs that are inside a table's cell content — they are
-                # part of the table data, not a credit line for this caption.
+                # Skip paragraphs that are inside a table's cell content (shouldn't happen now
+                # since we started after non-cell, but keep for safety)
                 if j in table_cell_indices:
                     continue
 
@@ -956,7 +1107,7 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
                     if is_standalone or is_explicit_prefix or is_short_line or CREDIT_KEYWORDS_REGEX.search(next_p):
                         if re.match(r'^sources?[\s:;]', next_p, re.IGNORECASE):
                             source_lines = [credit_line]
-                            for k in range(j + 1, min(j + 10, len(paragraphs))):
+                            for k in range(j + 1, min(j + 5, len(paragraphs))):
                                 nr = paragraphs[k]
                                 if match_caption(nr)[1] or CHAPTER_REGEX.match(nr):
                                     break
@@ -970,13 +1121,8 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
                                 credit_line = " ".join(source_lines)
                         break
 
-        # If credit_line is still empty, search the whole document for a reference.
-        # NOTE: This fallback is intentionally skipped for Table items because any body
-        # sentence mentioning "Table X.Y" (e.g. "Table 4.1 reflects...") risks pulling
-        # in surrounding body text as a false credit. Tables get their credits only from
-        # the caption line itself, the immediate post-table footnote block, or the legend
-        # section (handled by merge_with_legend).
-        if not credit_line and item_no != "Unnumbered" and item_type != "Table":
+        # NOTE: This fallback is intentionally skipped for Figure and Table items.
+        if not credit_line and item_no != "Unnumbered" and item_type not in ["Figure", "Table"]:
             search_str = f"{item_type} {item_no}".lower()
             for para_text in paragraphs:
                 if search_str in para_text.lower():
@@ -1000,6 +1146,56 @@ def extract_figures_tables(paragraphs: list, current_chapter_map: dict, source_f
     items_with_credit = sum(1 for r in results if r["credit"])
     logger.info(f"Extraction complete: {len(results)} items found WITH credit lines")
     return results
+
+
+# ======================================================
+# EXTRACTION RESULT VALIDATION
+# ======================================================
+
+def validate_extraction_results(results: List[dict]) -> List[dict]:
+    """
+    Validate and filter extraction results to ensure quality standards.
+    
+    Removes entries that don't meet minimum requirements:
+    - Missing caption or credit
+    - Credit line too short (less than MIN_CREDIT_LENGTH chars)
+    - Invalid item types
+    
+    Args:
+        results: List of extracted item dictionaries
+    
+    Returns:
+        Filtered list of valid results with logging of rejections
+    """
+    valid_results = []
+    rejected_count = 0
+    
+    valid_types = {"Figure", "Table", "Box", "Exhibit", "Appendix", "Case Study"}
+    
+    for r in results:
+        # Validate required fields
+        if not r.get('caption') or not r.get('credit'):
+            rejected_count += 1
+            continue
+        
+        # Validate credit length
+        if len(r['credit'].strip()) < MIN_CREDIT_LENGTH:
+            logger.debug(f"Rejected {r['item_type']} {r['item_no']}: credit too short")
+            rejected_count += 1
+            continue
+        
+        # Validate item type
+        if r.get('item_type') not in valid_types:
+            logger.debug(f"Rejected {r['item_type']}: unknown type")
+            rejected_count += 1
+            continue
+        
+        valid_results.append(r)
+    
+    if rejected_count > 0:
+        logger.info(f"Validation: rejected {rejected_count} results, kept {len(valid_results)}")
+    
+    return valid_results
 
 
 # ======================================================
@@ -1029,11 +1225,19 @@ def extract_from_file(path):
     import os
     source_filename = os.path.splitext(os.path.basename(path))[0]
 
+    # Detect end-of-document section (References, Bibliography, Appendix, Figures, etc.)
+    # This optimization focuses extraction on the section where figures/tables/boxes are typically placed
+    section_start = find_figures_tables_section_start(paragraphs)
+    if section_start > 0:
+        logger.info(f"Processing ONLY paragraphs {section_start} to {len(paragraphs)-1} (end-of-document section)")
+
     fig_table_results = extract_figures_tables(paragraphs, current_chapter_map, source_filename,
                                                table_follows_indices, table_cell_indices,
-                                               table_lastrow_credits, box_tag_indices)
+                                               table_lastrow_credits, box_tag_indices,
+                                               section_start)
     box_results = extract_boxes(paragraphs, current_chapter_map, source_filename,
-                              table_precedes_indices, table_follows_indices)
+                              table_precedes_indices, table_follows_indices,
+                              section_start)
 
     all_results = fig_table_results + box_results
 
@@ -1042,6 +1246,9 @@ def extract_from_file(path):
     # figures whose captions only appear in the end-of-chapter legend section).
     legend_map = parse_legend_section(paragraphs)
     all_results = merge_with_legend(all_results, legend_map, source_filename, needs_permission)
+
+    # ── Validate results ─────────────────────────────────────────────────────
+    all_results = validate_extraction_results(all_results)
 
     def sort_key(r):
         try:
@@ -1057,6 +1264,7 @@ def extract_from_file(path):
         return (ch, t, num)
 
     all_results.sort(key=sort_key)
+    logger.info(f"Final results: {len(all_results)} items after validation and sorting")
     return all_results
 
 

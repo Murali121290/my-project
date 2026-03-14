@@ -2373,11 +2373,11 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         log_buffer.append(f"Structuring error: {e}")
 
                 # -------------------------------------------------
-                # 1b. Gemini Conversion (Separate Step)
+                # 1b. Conversion (Separate Step)
                 # -------------------------------------------------
                 if run_gemini:
-                    update_progress({"status": f"AI Converting {filename}..."})
-                    log_buffer.append("\n--- GEMINI CONVERSION ---")
+                    update_progress({"status": f"⏳ Converting {filename}..."})
+                    log_buffer.append("\n--- CONVERSION ---")
                     try:
                         from ReferenceConversion import process_conversion
                         # source_style="Auto" auto-detects per reference; target_style is the desired output format
@@ -2389,13 +2389,13 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         
                         if conv_res.get('output_docx') and conv_res.get('output_docx').exists():
                             current_filepath = str(conv_res.get('output_docx'))
-                            log_buffer.append("Gemini conversion successful.")
+                            log_buffer.append("Conversion successful.")
                         else:
-                            log_buffer.append("Gemini conversion failed to produce output.")
+                            log_buffer.append("Conversion failed to produce output.")
                             
                     except Exception as e:
-                        log_errors([f"Gemini conversion error {filename}: {e}"])
-                        log_buffer.append(f"Gemini conversion error: {e}")
+                        log_errors([f"Conversion error {filename}: {e}"])
+                        log_buffer.append(f"Conversion error: {e}")
 
 
 

@@ -48,7 +48,8 @@ def get_xml_color(name_or_index):
 def set_highlight(run, color_name):
     """
     Apply highlight to a run using OXML.
-    color_name: 'yellow', 'cyan', 'magenta', etc.
+    color_name: 'yellow', 'cyan', 'magenta', 'turquoise', etc.
+    Automatically converts to correct XML color value.
     """
     if not color_name:
         return
@@ -60,7 +61,10 @@ def set_highlight(run, color_name):
     if h is None:
         h = OxmlElement('w:highlight')
         rPr.append(h)
-    h.set(qn('w:val'), color_name)
+    
+    # Convert color name to XML value through get_xml_color
+    xml_color = get_xml_color(color_name)
+    h.set(qn('w:val'), xml_color)
 
 def duplicate_run(run, parent_paragraph):
     """
@@ -168,6 +172,65 @@ def highlight_paragraph(paragraph, compiled_regexes, color_name, preserve_commen
         for match in pattern.finditer(text):
             ranges.append((match.start(), match.end()))
             
+    if not ranges:
+        return
+        
+    # Find ignore zones based on any generic tags like <tag> ... </anytag>
+    # Note: Using a heuristic where we look for `<word>` and later find another `<word>` or `</word>`
+    # But for safety based on the prompt, any text wrapped between two tags, or any specific tags 
+    # like <withoutspaceallcaps> we should ignore.
+    ignore_zones = []
+    
+    # Generic regex to find anything that looks like an opening tag: <tagname>
+    # or closing tag </tagname>
+    # We will just collect all tags and treat them as on/off toggles or find pairwise matching.
+    # Since XML tags in text might not be perfectly nested, a simple approach is:
+    # 1. Find all `<[a-zA-Z0-9_]+>` (start tags)
+    # 2. Find all `</[a-zA-Z0-9_]+>` or subsequent tags to close the zone.
+    # However, to be highly resilient: we just find ALL tags, and assume text between 
+    # an opening tag and ANY closing tag (or next tag) is an ignore zone if appropriate, 
+    # but the safest is to explicitly look for `<tag>` and `</tag>` pairs.
+    # Let's match `<[a-zA-Z0-9]+>` as start, and `</[a-zA-Z0-9]+>` as end.
+    
+    all_starts = list(re.finditer(r'<[a-zA-Z0-9_]+>', text))
+    all_ends = list(re.finditer(r'<\/[a-zA-Z0-9_]+>', text))
+    
+    # We will match the nearest end tag that corresponds to the same tag name.
+    for start_m in all_starts:
+        s_pos = start_m.start()
+        tag_str = start_m.group()
+        tag_name = tag_str[1:-1] # strip < and >
+        
+        # Find closing tag
+        end_pattern = f"</{tag_name}>"
+        matching_end = next((e for e in all_ends if e.start() > s_pos and e.group().lower() == end_pattern.lower()), None)
+        
+        if matching_end:
+            ignore_zones.append((s_pos, matching_end.end()))
+        else:
+            # If no explicit closing tag, maybe they meant the whole rest of paragraph,
+            # or maybe there is just another opening tag used as a closer (like <CN> ... <CN>).
+            # To be safe, we just ignore to end of paragraph if no closing tag is found.
+            ignore_zones.append((s_pos, len(text)))
+            
+    # Filter out ranges that fall within any ignore zone
+    filtered_ranges = []
+    for r_s, r_e in ranges:
+        is_ignored = False
+        for i_s, i_e in ignore_zones:
+            if r_s >= i_s and r_e <= i_e:
+                is_ignored = True
+                break
+            elif r_s < i_e and r_e > i_s:
+                # Partial overlap: since highlighting is generally at the word/phrase level,
+                # we will skip the entire highlight if it overlaps with an ignore zone.
+                is_ignored = True
+                break
+        
+        if not is_ignored:
+            filtered_ranges.append((r_s, r_e))
+            
+    ranges = filtered_ranges
     if not ranges:
         return
         
@@ -321,7 +384,7 @@ def highlight_comments(doc, compiled_regexes, color_name):
 # ---------------------------
 UNITS_PATTERN = r"\b[0-9]{1,}\sper\s(dL|µ|µL|mL|ml|L|g|mg|kg|min|h|hr|hour|day|week|month)\b"
 
-METRIC_UNITS = [r"(micro|micron|liter|liters|mcg|mcm|mcl|mmHg|cc|cm|mL|mcm|mcg|gram|meter|liter|feet|inch|pound|ounce|mile|yard)"]
+METRIC_UNITS = [r"\b\d+[- ]?(micro|micron|liter|liters|mcg|mcm|mcl|mmHg|cc|cm|mL|mcm|mcg|gram|meter|liter|feet|inch|pound|ounce|mile|yard|g|mg|kg)\b"]
 
 TIME_ABBR = [
     r"\b(?:a\.?m\.?|p\.?m\.?|a\.?d\.?|b\.?c\.?e?\.?|c\.?e\.?)\b"
@@ -365,7 +428,7 @@ COMMON_ABBR = [
     r"\b(Blvd|St|Ste)\b"
 ]
 
-LATIN_PHRASES = [r"\b(in vitro|in vivo|in situ|ex situ|per se|ad hoc|de novo|a priori|de facto|status quo|a posteriori|ad libitum|ad lib|supra|verbatim|cf\.|ibid|id\.)\b"]
+LATIN_PHRASES = [r"\b(in vitro|in vivo|ex vivo|in situ|ex situ|per se|ad hoc|de novo|a priori|de facto|status quo|a posteriori|ad libitum|ad lib|supra|verbatim|cf\.|ibid|id\.)\b"]
 
 MEDICAL_SUPERSCRIPT = [r"\b(Paco2|Pco2|Sao2|o2max|Cao2|Spo2|Pvo2|o2|Fio2|PIO2|Vo2|Pao2|Pio2|PAo2|Po2)\b"]
 
@@ -400,10 +463,27 @@ NUMERIC_RANGES = [
 DEGREES = [r"\b\d{1,3}-degree angle\b", r"\b\d{1,3}\sdegree angle\b", r"\b\d{1,3}\s?°\s?angle\b", r"\b\d{1,3}\s?°\b", r"\b\d+\s?°F\b", r"\b\d+\s?°C\b", r"°F", r"°C", r"\b\d+\sdegree\b"]
 XRAY = [r"\b[xX]-?ray\b"]
 PACO2_ETC = [r"\b(Paco2|Pco2|Sao2|Spo2|Fio2|Pao2|Po2)\b"]
-TRADEMARKS = [r"[™®©]"]
+TRADEMARKS = [r"\b[\w\-]+[™®©]", r"[™®©]"]
 VERSUS = [r"\b(vs\.?|versus|v\.?)\b"]
 SPECIAL_CHARS = [r"[§¶†‡]"]
 FIGURE_TABLE = [r"\b(Figure|Table)\s*\d+"]
+
+# New patterns for special dashes and characters
+DOUBLE_DASHES = [
+    r"--",        # Double hyphen
+    r"––",        # Double en-dash
+    r"\s-\s",     # Space-hyphen-space
+    r"\s–\s",     # Space-en-dash-space
+    r"\s—\s"      # Space-em-dash-space
+]
+
+# Phrases within parentheses
+PHRASES_IN_PARENS = [
+    r"\(\s*for\s+example[^)]*\)",
+    r"\(\s*e\.g\.[^)]*\)",
+    r"\(\s*that\s+is[^)]*\)",
+    r"\(\s*i\.e\.[^)]*\)"
+]
 
 def compile_patterns(patterns):
     compiled = []
@@ -413,6 +493,255 @@ def compile_patterns(patterns):
         except re.error as e:
             print(f"Warning: Invalid regex '{p}': {e}")
     return compiled
+
+def highlight_unmatched_parentheses(doc):
+    """
+    Detect and highlight unmatched opening or closing parentheses.
+    Scans each paragraph and highlights parentheses that don't have matching pairs.
+    Uses a safer approach that only highlights entire runs containing unmatched parens.
+    """
+    for para in doc.paragraphs:
+        if is_skip_style(para):
+            continue
+        
+        text = para.text
+        if not text or '(' not in text and ')' not in text:
+            continue
+        
+        # Track which parens are unmatched
+        open_stack = []  # Stores indices of unmatched opening parens
+        unmatched = set()  # Indices of unmatched parens
+        
+        for i, char in enumerate(text):
+            if char == '(':
+                open_stack.append(i)
+            elif char == ')':
+                if open_stack:
+                    open_stack.pop()  # Match found
+                else:
+                    unmatched.add(i)  # No matching open paren
+        
+        # Remaining unclosed opening parens
+        unmatched.update(open_stack)
+        
+        if not unmatched:
+            continue
+        
+        # Build mask for unmatched parens
+        mask = [False] * len(text)
+        for idx in unmatched:
+            mask[idx] = True
+        
+        # Safe highlighting: iterate runs and highlight if contains unmatched parens
+        original_runs = list(para.runs)
+        global_ptr = 0
+        
+        for run in original_runs:
+            run_text = run.text
+            run_len = len(run_text)
+            
+            if run_inside_comment(run) or run_inside_track_change(run):
+                global_ptr += run_len
+                continue
+            
+            if run_len == 0:
+                continue
+            
+            # Check if this run contains any unmatched parens
+            run_has_unmatched = any(mask[global_ptr + i] for i in range(run_len) if global_ptr + i < len(mask))
+            
+            if run_has_unmatched:
+                # Highlight entire run if it contains unmatched parens
+                set_highlight(run, "turquoise")
+            
+            global_ptr += run_len
+
+def highlight_unmatched_quotes(doc):
+    """
+    Detect and highlight unmatched quotes (both straight and smart double quotes).
+    Scans each paragraph and highlights quotes that don't have matching pairs.
+    """
+    for para in doc.paragraphs:
+        if is_skip_style(para):
+            continue
+        
+        text = para.text
+        if not text:
+            continue
+            
+        has_straight = '"' in text
+        has_smart_open = '“' in text
+        has_smart_close = '”' in text
+        
+        if not (has_straight or has_smart_open or has_smart_close):
+            continue
+            
+        unmatched = set()
+        
+        # Smart quotes
+        open_stack = []
+        for i, char in enumerate(text):
+            if char == '“':
+                open_stack.append(i)
+            elif char == '”':
+                if open_stack:
+                    open_stack.pop()
+                else:
+                    unmatched.add(i)
+        unmatched.update(open_stack)
+        
+        # Straight quotes
+        straight_indices = []
+        for i, char in enumerate(text):
+            if char == '"':
+                straight_indices.append(i)
+        if len(straight_indices) % 2 != 0:
+            unmatched.update(straight_indices)
+            
+        if not unmatched:
+            continue
+            
+        mask = [False] * len(text)
+        for idx in unmatched:
+            mask[idx] = True
+            
+        original_runs = list(para.runs)
+        global_ptr = 0
+        
+        for run in original_runs:
+            run_text = run.text
+            run_len = len(run_text)
+            
+            if run_inside_comment(run) or run_inside_track_change(run):
+                global_ptr += run_len
+                continue
+            
+            if run_len == 0:
+                continue
+                
+            run_has_unmatched = any(mask[global_ptr + i] for i in range(run_len) if global_ptr + i < len(mask))
+            
+            if run_has_unmatched:
+                set_highlight(run, "turquoise")
+                
+            global_ptr += run_len
+
+def highlight_double_dashes(doc):
+    """
+    Highlight double hyphens, double en-dashes, and space-dash-space patterns.
+    """
+    compiled = compile_patterns(DOUBLE_DASHES)
+    if not compiled:
+        return
+    
+    for para in doc.paragraphs:
+        if is_skip_style(para):
+            continue
+        highlight_paragraph(para, compiled, "turquoise")
+
+def highlight_phrases_in_parentheses(doc):
+    """
+    Highlight phrases like 'for example', 'that is', 'e.g.', 'i.e.' within parentheses.
+    """
+    compiled = compile_patterns(PHRASES_IN_PARENS)
+    if not compiled:
+        return
+    
+    for para in doc.paragraphs:
+        if is_skip_style(para):
+            continue
+        highlight_paragraph(para, compiled, "turquoise")
+
+def highlight_symbol_fonts(doc):
+    """
+    Detect and highlight text that uses symbol fonts (Symbol, Wingdings, Webdings, etc.).
+    Symbol fonts are mapped to regular Unicode characters but should be highlighted.
+    Also highlights ® ™ © symbols that appear to be in special fonts.
+    Uses safe approach without excessive run splitting.
+    """
+    SYMBOL_FONTS = {
+        'symbol', 'wingdings', 'wingdings 2', 'wingdings 3', 'webdings',
+        'symbol kitty', 'symbol smartdraw', 'symbol monospaced',
+        'ms sans serif', 'arial unicode'
+    }
+    
+    SYMBOL_CHARS = {'®', '™', '©'}  # Common symbols that often use symbol fonts
+    
+    def get_font_name(run):
+        """Extract font name from run, checking multiple sources."""
+        # Check direct run font
+        if run.font.name:
+            return run.font.name.lower()
+        
+        # Check rPr element
+        rPr = run._element.rPr
+        if rPr is not None:
+            # Check w:rFonts element
+            rFonts = rPr.find(qn('w:rFonts'))
+            if rFonts is not None:
+                # Try ascii first, then hAnsi, then cs
+                font = rFonts.get(qn('w:ascii'))
+                if font:
+                    return font.lower()
+                font = rFonts.get(qn('w:hAnsi'))
+                if font:
+                    return font.lower()
+                font = rFonts.get(qn('w:cs'))
+                if font:
+                    return font.lower()
+        
+        return None
+    
+    def is_symbol_font_run(run, font_name):
+        """Check if run should be highlighted as symbol font."""
+        # If font is explicitly a symbol font
+        if font_name and font_name in SYMBOL_FONTS:
+            return True
+        
+        # If run contains symbol characters (common trademarked/symbol chars)
+        text = run.text
+        if text and any(char in SYMBOL_CHARS for char in text):
+            return True
+        
+        return False
+    
+    def process_paragraph(para):
+        if is_skip_style(para):
+            return
+        
+        original_runs = list(para.runs)
+        
+        for run in original_runs:
+            if run_inside_comment(run) or run_inside_track_change(run):
+                continue
+            
+            text = run.text
+            if not text:
+                continue
+            
+            # Get font name from multiple sources
+            font_name = get_font_name(run)
+            
+            # Check if this run should be highlighted
+            if not is_symbol_font_run(run, font_name):
+                continue
+            
+            # Safe approach: highlight entire run instead of splitting every character
+            # This prevents XML corruption from excessive element creation
+            set_highlight(run, "turquoise")
+    
+    # Process all paragraphs
+    for para in doc.paragraphs:
+        process_paragraph(para)
+    
+    # Process table cells
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    process_paragraph(para)
+
+
 
 def process_docx(input_file, output_file, skip_validation=False, verbose=True):
     if verbose:
@@ -487,6 +816,21 @@ def process_docx(input_file, output_file, skip_validation=False, verbose=True):
 
     if verbose: print("Highlighting multilingual chars...")
     highlight_multilingual_chars(doc)
+    
+    if verbose: print("Highlighting double dashes...")
+    highlight_double_dashes(doc)
+    
+    if verbose: print("Highlighting phrases in parentheses...")
+    highlight_phrases_in_parentheses(doc)
+    
+    if verbose: print("Checking for unmatched parentheses...")
+    highlight_unmatched_parentheses(doc)
+    
+    if verbose: print("Checking for unmatched quotes...")
+    highlight_unmatched_quotes(doc)
+    
+    if verbose: print("Highlighting symbol fonts...")
+    highlight_symbol_fonts(doc)
     
     if not skip_validation:
         if verbose: print("Checking headings...")

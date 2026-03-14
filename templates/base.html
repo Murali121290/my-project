@@ -206,7 +206,7 @@
                 {% endif %}
 
                 <!-- Credit Extractor (roles: PERMISSIONS, PM, ADMIN) -->
-                {% if current_role in ['PERMISSIONS', 'PM','PPD', 'ADMIN'] %}
+                {% if current_role in ['ADMIN'] %}
                 <a href="{{ url_for('credit_extractor') }}"
                     class="nav-link {% if request.endpoint == 'credit_extractor' %}active{% endif %}">
                     <i class="fas fa-file-contract"></i> Credit Extractor
