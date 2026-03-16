@@ -210,8 +210,8 @@ def highlight_paragraph(paragraph, compiled_regexes, color_name, preserve_commen
         else:
             # If no explicit closing tag, maybe they meant the whole rest of paragraph,
             # or maybe there is just another opening tag used as a closer (like <CN> ... <CN>).
-            # To be safe, we just ignore to end of paragraph if no closing tag is found.
-            ignore_zones.append((s_pos, len(text)))
+            # To be safe, we just ignore the tag itself if no closing tag is found.
+            ignore_zones.append((s_pos, start_m.end()))
             
     # Filter out ranges that fall within any ignore zone
     filtered_ranges = []
@@ -254,7 +254,8 @@ def highlight_paragraph(paragraph, compiled_regexes, color_name, preserve_commen
             mask[i] = True
             
     # Iterate runs
-    original_runs = list(paragraph.runs)
+    from docx.text.run import Run
+    original_runs = [Run(r, paragraph) for r in paragraph._element.xpath('.//w:r')]
     p_element = paragraph._element
     global_ptr = 0
     
@@ -320,10 +321,12 @@ def highlight_paragraph(paragraph, compiled_regexes, color_name, preserve_commen
             new_elements.append(new_run._element)
             
         try:
-            run_index = p_element.index(run._element)
-            for new_el in reversed(new_elements):
-                p_element.insert(run_index, new_el)
-            p_element.remove(run._element)
+            run_parent = run._element.getparent()
+            if run_parent is not None:
+                run_index = run_parent.index(run._element)
+                for new_el in reversed(new_elements):
+                    run_parent.insert(run_index, new_el)
+                run_parent.remove(run._element)
         except ValueError:
             pass
             
@@ -533,7 +536,8 @@ def highlight_unmatched_parentheses(doc):
             mask[idx] = True
         
         # Safe highlighting: iterate runs and highlight if contains unmatched parens
-        original_runs = list(para.runs)
+        from docx.text.run import Run
+        original_runs = [Run(r, para) for r in para._element.xpath('.//w:r')]
         global_ptr = 0
         
         for run in original_runs:
@@ -605,7 +609,8 @@ def highlight_unmatched_quotes(doc):
         for idx in unmatched:
             mask[idx] = True
             
-        original_runs = list(para.runs)
+        from docx.text.run import Run
+        original_runs = [Run(r, para) for r in para._element.xpath('.//w:r')]
         global_ptr = 0
         
         for run in original_runs:
@@ -709,7 +714,8 @@ def highlight_symbol_fonts(doc):
         if is_skip_style(para):
             return
         
-        original_runs = list(para.runs)
+        from docx.text.run import Run
+        original_runs = [Run(r, para) for r in para._element.xpath('.//w:r')]
         
         for run in original_runs:
             if run_inside_comment(run) or run_inside_track_change(run):
@@ -896,7 +902,8 @@ def highlight_italic_punctuation(doc):
         if is_skip_style(para): continue
         
         # Snapshot runs
-        original_runs = list(para.runs)
+        from docx.text.run import Run
+        original_runs = [Run(r, para) for r in para._element.xpath('.//w:r')]
         p_element = para._element
 
         for run in original_runs:
@@ -943,21 +950,24 @@ def highlight_italic_punctuation(doc):
 
             # Build new elements
             new_elements = []
-            for (txt, col, is_last) in segments:
+            for txt, color, is_last in segments:
                 new_run = duplicate_run(run, para)
                 new_run.text = txt
-                if col:
-                    set_highlight(new_run, col)
+                if color:
+                    set_highlight(new_run, get_xml_color(color))
+                
                 if is_last:
                     copy_run_extras(run, new_run)
+                
                 new_elements.append(new_run._element)
-            
-            # Swap in XML
+                
             try:
-                run_index = p_element.index(run._element)
-                for new_el in reversed(new_elements):
-                    p_element.insert(run_index, new_el)
-                p_element.remove(run._element)
+                run_parent = run._element.getparent()
+                if run_parent is not None:
+                    run_index = run_parent.index(run._element)
+                    for new_el in reversed(new_elements):
+                        run_parent.insert(run_index, new_el)
+                    run_parent.remove(run._element)
             except ValueError:
                 pass
 
@@ -1063,7 +1073,8 @@ def highlight_words_in_styles(doc):
             
         # 1. Apply Turfuoise to whole para
         # We can just set highlight on all existing runs
-        for run in para.runs:
+        from docx.text.run import Run
+        for run in [Run(r, para) for r in para._element.xpath('.//w:r')]:
              set_highlight(run, wdTurquoise)
              
         # 2. Highlight short words Green

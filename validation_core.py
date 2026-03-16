@@ -39,8 +39,8 @@ except ImportError:
 CITE_STYLE         = "cite_bib"
 GREEN              = WD_COLOR_INDEX.BRIGHT_GREEN
 YELLOW             = WD_COLOR_INDEX.YELLOW
-COMMENT_AUTHOR     = "Ref Validator"
-COMMENT_INITIALS   = "RV"
+COMMENT_AUTHOR     = "S4C"
+COMMENT_INITIALS   = "S4C"
 FUZZY_THRESHOLD    = 0.88          # BUG-03: raised from 0.80
 SHORT_NAME_MAX_LEN = 6             # BUG-03: exact-surname required for short names
 NEAR_DUP_THRESHOLD = 0.97

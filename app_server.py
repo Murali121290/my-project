@@ -2644,6 +2644,8 @@ def validate_file():
             return jsonify({"success": False, "message": f"Start failed: {str(e)}"})
 
     # GET Request - Render Page
+    if get_user_role() == 'USER':
+        return render_template("index.html")
     return render_template("upload.html")
 
 
