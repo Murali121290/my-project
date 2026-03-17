@@ -256,14 +256,34 @@ class CitationAnalyzer:
             if s_low in ['fig-leg', 'fgc', 't1', 'tt', 'figurelegend', 'tablecaption', 'cs-ttl','nbx1-num','nbx1-ttl','nbx2-num','nbx2-ttl', 'exhibitcaption']:
                 return True
 
-        t = self.normalize_for_regex(text.strip()).lower()
-        if not t:
+        t_norm = self.normalize_for_regex(text.strip())
+        if not t_norm:
             return False
-        if len(t.splitlines()) > 7:
+        if len(t_norm.splitlines()) > 7:
             return False
-        for prefix in ['figure', 'fig.', 'table', 'tab.', 'box', 'exhibit', 'appendix', 'case study']:
-            if t.startswith(prefix):
-                return True
+            
+        # Match label + number, followed by optional caption text
+        # e.g., "Figure 12.1. Text..." or "Figure 12.2"
+        match = re.match(r'(?i)^(figure|fig\.|table|tab\.|box|exhibit|appendix|case\s+study)\s+([0-9]+(?:[.\-][0-9]+)*[a-zA-Z]?)(.*)', t_norm)
+        if match:
+            remainder = match.group(3).strip()
+            
+            # If the remainder doesn't contain any alphanumeric characters (e.g., it's empty or just "."), 
+            # it lacks actual caption text. We return False so it gets treated as a citation, 
+            # which correctly triggers a "Missing Caption" error in the dashboard.
+            if not re.search(r'[A-Za-z0-9]', remainder):
+                return False
+                
+            # Remove leading punctuation and spaces to check the first actual alphanumeric character
+            first_word_char = re.sub(r'^[\W_]+', '', remainder)
+            
+            # If the text after the number starts with a lowercase letter, 
+            # it's likely a body text sentence referencing the figure (e.g., " shows that...")
+            if first_word_char and first_word_char[0].islower():
+                return False
+                
+            return True
+            
         return False
 
     def analyze_document_citations(self, document_content: List[Tuple[str, int, bool]]) -> Dict[str, Any]:
