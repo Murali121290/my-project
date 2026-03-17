@@ -162,7 +162,10 @@ def highlight_paragraph(paragraph, compiled_regexes, color_name, preserve_commen
     if not compiled_regexes:
         return
         
-    text = paragraph.text
+    from docx.text.run import Run
+    original_runs = [Run(r, paragraph) for r in paragraph._element.xpath('.//w:r')]
+    text = "".join(r.text or "" for r in original_runs)
+    
     if not text:
         return
 
@@ -254,13 +257,11 @@ def highlight_paragraph(paragraph, compiled_regexes, color_name, preserve_commen
             mask[i] = True
             
     # Iterate runs
-    from docx.text.run import Run
-    original_runs = [Run(r, paragraph) for r in paragraph._element.xpath('.//w:r')]
     p_element = paragraph._element
     global_ptr = 0
     
     for run in original_runs:
-        run_text = run.text
+        run_text = run.text or ""
         run_len = len(run_text)
         
         # Safety: Skip runs inside comments if requested (preserves structure)
@@ -279,10 +280,11 @@ def highlight_paragraph(paragraph, compiled_regexes, color_name, preserve_commen
         # Identify segments
         segments = []
         current_segment_start = 0
-        current_state = mask[global_ptr]
+        current_state = mask[global_ptr] if global_ptr < len(mask) else False
         
         for i in range(1, run_len):
-            char_state = mask[global_ptr + i]
+            idx = global_ptr + i
+            char_state = mask[idx] if idx < len(mask) else False
             if char_state != current_state:
                 # Cut
                 seg_text = run_text[current_segment_start:i]
