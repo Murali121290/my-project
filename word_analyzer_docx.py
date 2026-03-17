@@ -292,7 +292,16 @@ class CitationAnalyzer:
         for text, page_no, is_caption in document_content:
             txt = self.normalize_for_regex(text)
 
+            # Determine the boundary of the caption label so subsequent matches in the 
+            # same paragraph are treated as citations rather than captions.
+            label_boundary = 60
+            if is_caption:
+                match_boundary = re.search(r'[\.\:\-\u2013\u2014]\s', txt)
+                if match_boundary and match_boundary.start() < 60:
+                    label_boundary = match_boundary.end() + 5
+
             for m in self.regex_patterns['range'].finditer(txt):
+                is_match_caption = is_caption and m.start() <= label_boundary
                 label = self.normalize_type(m.group(1))
                 start_num = self.normalize_fig_number(m.group(2))
                 end_num = self.normalize_fig_number(m.group(4))
@@ -304,27 +313,29 @@ class CitationAnalyzer:
                         end_minor = int(ep[1])
                         for n in range(start_minor, end_minor + 1):
                             item_id = f"{label} {sp[0]}.{n}"
-                            self._store(dict_types, label, item_id, page_no, is_caption)
+                            self._store(dict_types, label, item_id, page_no, is_match_caption)
                     else:
-                        self._store(dict_types, label, f"{label} {start_num}", page_no, is_caption)
-                        self._store(dict_types, label, f"{label} {end_num}", page_no, is_caption)
+                        self._store(dict_types, label, f"{label} {start_num}", page_no, is_match_caption)
+                        self._store(dict_types, label, f"{label} {end_num}", page_no, is_match_caption)
                 except Exception:
-                    self._store(dict_types, label, f"{label} {start_num}", page_no, is_caption)
-                    self._store(dict_types, label, f"{label} {end_num}", page_no, is_caption)
+                    self._store(dict_types, label, f"{label} {start_num}", page_no, is_match_caption)
+                    self._store(dict_types, label, f"{label} {end_num}", page_no, is_match_caption)
 
             for m in self.regex_patterns['and'].finditer(txt):
+                is_match_caption = is_caption and m.start() <= label_boundary
                 label = self.normalize_type(m.group(1))
                 first_num = self.normalize_fig_number(m.group(2))
                 second_num = self.normalize_fig_number(m.group(4))
-                self._store(dict_types, label, f"{label} {first_num}", page_no, is_caption)
-                self._store(dict_types, label, f"{label} {second_num}", page_no, is_caption)
+                self._store(dict_types, label, f"{label} {first_num}", page_no, is_match_caption)
+                self._store(dict_types, label, f"{label} {second_num}", page_no, is_match_caption)
 
             for m in self.regex_patterns['single'].finditer(txt):
+                is_match_caption = is_caption and m.start() <= label_boundary
                 label = self.normalize_type(m.group(1))
                 main_no = m.group(2)
                 suffix = m.group(3) or ""
                 item_id = f"{label} {self.normalize_fig_number(main_no + suffix)}"
-                self._store(dict_types, label, item_id, page_no, is_caption)
+                self._store(dict_types, label, item_id, page_no, is_match_caption)
 
         return dict_types
 
