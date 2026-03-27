@@ -2,176 +2,26 @@
 import os
 import re
 import datetime
+import subprocess
+from pathlib import Path
 from collections import defaultdict
-from dataclasses import dataclass
-from typing import List, Tuple, Dict, Any, Set
+from typing import List, Tuple, Dict, Any, Set, Optional
+import jinja2
 from docx import Document
 from docx.oxml.ns import qn
 from lxml import etree
 
+import importlib.util as _importlib_util
+HAS_PDFPLUMBER: bool = _importlib_util.find_spec("pdfplumber") is not None
+
+def _normalize_for_match(text: str) -> str:
+    """Strip all non-alphanumeric chars and lowercase for robust matching."""
+    return re.sub(r'\W+', '', text.lower())
+
 # ------------------------------
 # 1. HTML Templates & Helpers
+# (Templates moved to templates/ directory and loaded via Jinja2)
 # ------------------------------
-DASHBOARD_CSS = r"""/* === S4Carlisle AI Manuscript Analysis Dashboard === */
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; padding: 20px; }
-.container { max-width: 1400px; margin: 0 auto; }
-.header { background: white; border-radius: 15px; padding: 30px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-.title { font-size: 2rem; font-weight: 700; color: #2c3e50; margin-bottom: 20px; }
-.metadata { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
-.meta-item { background: #f8f9ff; padding: 15px; border-radius: 10px; border-left: 4px solid #667eea; }
-.meta-label { font-weight: 600; color: #555; font-size: 0.9rem; }
-.meta-value { font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-top: 5px; }
-.nav-tabs { display: flex; background: white; border-radius: 15px; padding: 5px; margin-bottom: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); gap: 5px; }
-.nav-tab { flex: 1; text-align: center; padding: 15px; border-radius: 10px; cursor: pointer; transition: all 0.3s; font-weight: 500; }
-.nav-tab.active { background: #667eea; color: white; box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3); }
-.nav-tab:hover:not(.active) { background: #f8f9ff; }
-.tab-content { display: none; background: white; border-radius: 15px; padding: 30px; box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
-.tab-content.active { display: block; animation: fadeIn 0.3s; }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.section-title { font-size: 1.5rem; font-weight: 600; color: #2c3e50; margin-bottom: 20px; }
-table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; border-radius: 10px; overflow: hidden; }
-th { background: #667eea; color: white; padding: 12px; font-weight: 600; text-align: left; }
-td { padding: 10px 12px; border-bottom: 1px solid #eee; }
-tr:hover { background: #f8f9ff; }
-h3 { color: #2c3e50; margin-top: 30px; margin-bottom: 15px; font-size: 1.2rem; }
-.summary-table { margin-bottom: 30px; }
-@media (max-width: 768px) { .container { padding: 10px; } .title { font-size: 1.5rem; } .metadata { grid-template-columns: 1fr; } }
-"""
-
-DASHBOARD_JS = r"""
-function showTab(tabId) {
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-    const target = document.getElementById(tabId);
-    if (target) target.classList.add('active');
-    const tabs = document.querySelectorAll('.nav-tab');
-    tabs.forEach(tab => {
-        if (tab.getAttribute('data-target') === tabId) tab.classList.add('active');
-    });
-}
-document.addEventListener('DOMContentLoaded', function() {
-    if (!document.querySelector('.nav-tab.active')) {
-        const first = document.querySelector('.nav-tab');
-        if (first) first.classList.add('active');
-    }
-});
-"""
-
-HTML_WRAPPER = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Document Analysis - {{ doc_name }}</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-<style>{{ css }}</style>
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-</head>
-<body>
-<div class="container">
-    <div class="header">
-        <div class="title">
-            <img src="{{ logo_path }}" alt="" style="height:40px;vertical-align:middle;margin-right:10px;">
-            <i class="fa-solid fa-robot"></i>S4Carlisle Manuscript Analysis Dashboard
-        </div>
-        <div class="metadata">
-            <div class="meta-item"><div class="meta-label">File</div><div class="meta-value">{{ doc_name }}</div></div>
-            <div class="meta-item"><div class="meta-label">Pages</div><div class="meta-value">{{ pages }}</div></div>
-            <div class="meta-item"><div class="meta-label">Words</div><div class="meta-value">{{ words }}</div></div>
-            <div class="meta-item"><div class="meta-label">CE Pages</div><div class="meta-value">{{ ce_pages }}</div></div>
-            <div class="meta-item"><div class="meta-label">Date</div><div class="meta-value">{{ date }}</div></div>
-            <div class="meta-item"><div class="meta-label">Analyst</div><div class="meta-value">{{ analyst }}</div></div>
-        </div>
-    </div>
-    
-    <div id="analysis-summary" class="tab-content active" style="margin-bottom: 25px;">
-    {{ detailed_summary|safe }}
-    </div>
-
-    <!-- Navigation Tabs -->
-    <div class="nav-tabs">
-        <div class="nav-tab active" data-target="citations" onclick="showTab('citations')">Citations</div>
-        <div class="nav-tab" data-target="special-chars" onclick="showTab('special-chars')">Special Chars</div>
-        <div class="nav-tab" data-target="formatting" onclick="showTab('formatting')">Formatting</div>
-        <div class="nav-tab" data-target="comments" onclick="showTab('comments')">Comments</div>
-        <div class="nav-tab" data-target="media" onclick="showTab('media')">Media</div>
-    </div>
-
-    <!-- Tabs -->
-    <div id="citations" class="tab-content active">
-        <div class="section-title"><i class="fa-solid fa-closed-captioning"></i> Citations & Captions</div>
-        {{ msr_content|safe }}
-    </div>
-
-    <div id="special-chars" class="tab-content">
-        <div class="section-title"><i class="fas fa-language"></i> Special Characters</div>
-        {{ spec_content|safe }}
-    </div>
-
-    <div id="formatting" class="tab-content">
-        <div class="section-title"><i class="fas fa-cogs"></i> Formatting</div>
-        {{ fmt_content|safe }}
-    </div>
-
-    <div id="comments" class="tab-content">
-        <div class="section-title"><i class="fas fa-comments"></i> Comments & Highlights</div>
-        {{ comment_content|safe }}
-        {{ export_highlight|safe }}
-    </div>
-
-    <div id="media" class="tab-content">
-        <div class="section-title"><i class="fas fa-images"></i> Media & Notes</div>
-        <p><b>Images:</b> {{ images }} | <b>Footnotes:</b> {{ footnotes }} | <b>Endnotes:</b> {{ endnotes }}</p>
-    </div>
-
-</div>
-
-<!-- Tab JS -->
-<script>
-function showTab(tabId) {
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-    const target = document.getElementById(tabId);
-    if (target) target.classList.add('active');
-    document.querySelectorAll('.nav-tab').forEach(tab => {
-        if (tab.getAttribute('data-target') === tabId) tab.classList.add('active');
-    });
-}
-</script>
-
-<script>
-$(document).ready(function(){
-    $('table').each(function(){
-        const hasIrregularRows = $(this).find('td[colspan], td[rowspan]').length > 0;
-        if (hasIrregularRows) {
-            console.log('Skipping DataTables init for irregular table:', this.id);
-            return;
-        }
-
-        try {
-            $(this).DataTable({
-                pageLength: 10,
-                autoWidth: false,
-                ordering: true,
-                responsive: true,
-                columnDefs: [
-                    { targets: "_all", defaultContent: "" }
-                ]
-            });
-        } catch (e) {
-            console.warn('DataTable init failed for', this.id, e);
-        }
-    });
-});
-</script>
-
-<script>{{ js }}</script>
-</body>
-</html>
-"""
 
 def escape_html(s: str) -> str:
     if not isinstance(s, str): return str(s)
@@ -182,12 +32,6 @@ def escape_html(s: str) -> str:
 # ------------------------------
 # 2. Citation Analyzer Class (Same Logic)
 # ------------------------------
-@dataclass
-class CitationItem:
-    item_id: str
-    page_no: int
-    is_caption: bool
-
 
 class CitationAnalyzer:
     def __init__(self):
@@ -197,21 +41,23 @@ class CitationAnalyzer:
     def _setup_regex_patterns(self) -> Dict[str, re.Pattern]:
         patterns = {}
         patterns['single'] = re.compile(
-            r'(?:\(|\b)(Figure|Fig\.?|Table|Tab\.?|Box|Exhibit|Appendix|Case\s+Study)\.?\s*([0-9]+(?:[.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
+            r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Box(?:es)?|BX|Exhibits?|Appendix|Appendices|Case\s+Stud(?:y|ies))\.?\s*([0-9]+(?:[.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
             re.IGNORECASE
         )
         patterns['range'] = re.compile(
-            r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Exhibits?|Appendices?|Case\s+Studies?)\.?\s+([0-9]+(?:[\.\-][0-9]+)+)([A-Za-z]?)\s*(?:to|through|–|—|-)\s*([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
+            r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Exhibits?|Appendices?|Case\s+Studies?)\.?\s+([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\s+(?:to|through)\s+|\s*[\u2013\u2014]\s*|\s+-\s+)([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
             re.IGNORECASE
         )
         patterns['and'] = re.compile(
-            r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Exhibits?|Appendices?|Case\s+Studies?)\.?\s+([0-9]+(?:[\.\-][0-9]+)+)([A-Za-z]?)\s+(?:and|&)\s*([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
+            r'(?:\(|\b)(Figures?|Figs?\.?|Tables?|Tabs?\.?|Boxes?|Exhibits?|Appendices?|Case\s+Studies?)\.?\s+([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)\s+(?:and|&)\s*([0-9]+(?:[\.\-][0-9]+)*)([A-Za-z]?)(?:\)|\b)',
             re.IGNORECASE
         )
         return patterns
 
     def normalize_for_regex(self, text: str) -> str:
-        text = text.replace('\u2013', '-').replace('\u2014', '-').replace('\xa0', ' ')
+        # Keep en-dash/em-dash distinct from hyphen so range detection stays correct.
+        # Only normalize non-breaking space to regular space.
+        text = text.replace('\xa0', ' ')
         return text
 
     def normalize_type(self, label: str) -> str:
@@ -222,7 +68,7 @@ class CitationAnalyzer:
             return "Figure"
         if lbl.startswith('tab'):
             return "Table"
-        if lbl.startswith('box'):
+        if lbl.startswith('box') or lbl.startswith('bx'):
             return "Box"
         if lbl.startswith('exhibit'):
             return "Exhibit"
@@ -257,11 +103,12 @@ class CitationAnalyzer:
                 return True
 
         t_norm = self.normalize_for_regex(text.strip())
+        t_norm = re.sub(r'^(?:<[^>]*>\s*)+', '', t_norm)  # local: ignore leading tags for caption match
         if not t_norm:
             return False
         if len(t_norm.splitlines()) > 7:
             return False
-            
+
         # Match label + number, followed by optional caption text
         # e.g., "Figure 12.1. Text..." or "Figure 12.2"
         match = re.match(r'(?i)^(figure|fig\.|table|tab\.|box|exhibit|appendix|case\s+study)\s+([0-9]+(?:[.\-][0-9]+)*[a-zA-Z]?)(.*)', t_norm)
@@ -291,6 +138,7 @@ class CitationAnalyzer:
 
         for text, page_no, is_caption in document_content:
             txt = self.normalize_for_regex(text)
+            txt = re.sub(r'^(?:<[^>]*>\s*)+', '', txt)  # local: ignore leading tags for citation match
 
             # Determine the boundary of the caption label so subsequent matches in the 
             # same paragraph are treated as citations rather than captions.
@@ -352,71 +200,271 @@ class CitationAnalyzer:
                 tdict['Citation'][item_id] = True
                 tdict['CitationPage'][item_id] = page_no
 
-    def build_citation_tables_html(self, dict_types: Dict, doc_name: str) -> str:
-        html = "<div class='citation-analysis'>"
-        html += self._build_summary_table(dict_types)
-        html += self._build_table("Citations Found", dict_types, "Citation", doc_name)
-        html += self._build_table("Captions Found", dict_types, "Caption", doc_name)
-        html += self._build_missing_table("Missing Captions", dict_types, True, doc_name)
-        html += self._build_missing_table("Missing Citations", dict_types, False, doc_name)
-        html += "</div>"
-        return html
 
-    def _build_summary_table(self, dict_types):
-        h = "<h3>Summary Overview</h3><table class='summary-table'><thead><tr><th>Type</th><th>Captions</th><th>Citations</th><th>Missing Captions</th><th>Missing Citations</th></tr></thead><tbody>"
-        for type_key in self.supported_types:
-            cap_cnt = len(dict_types[type_key]["Caption"])
-            cit_cnt = len(dict_types[type_key]["Citation"])
-            miss_cap_cnt = sum(
-                1 for cit_key in dict_types[type_key]["Citation"].keys()
-                if not any(self.normalize_fig_number(cap_key) == self.normalize_fig_number(cit_key)
-                           for cap_key in dict_types[type_key]["Caption"].keys())
+# ------------------------------
+# Box Tag Linker
+# ------------------------------
+_NBX_TYPE_DEF_RE  = re.compile(
+    r'<BX_TYPE>\s*Box\s+(\d+[\.\-]\d+)[^<]*<BX_TTL>(.*)', re.IGNORECASE
+)
+_NBX_TTL_SAME_RE  = re.compile(                         # same-line legacy: <BXN.N> <NBX-TTL>Title
+    r'<BX(\d+[\.\-]\d+)>\s*<NBX-TTL>(.*)', re.IGNORECASE
+)
+_NBX_TTL_NEXT_RE  = re.compile(r'^<NBX-TTL>(.*)', re.IGNORECASE)  # next-line (chap12)
+_BX_TAG_ONLY_RE   = re.compile(r'^<BX(\d+[\.\-]\d+)>$', re.IGNORECASE)  # standalone tag
+_BX_TAG_RE        = re.compile(r'<BX(\d+[\.\-]\d+)>',   re.IGNORECASE)
+_BX_PLAIN_DEF_RE  = re.compile(                         # ch007: "Box 7-1\u2003Title" at para start
+    r'^Box\s+(\d+[\.\-]\d+)\u2003\s*(\S.*)', re.IGNORECASE  # em-space required — reliable definition signal
+)
+_BX_PLAIN_SPC_RE  = re.compile(                         # fallback: "Box 7-1 Text" with regular space
+    r'^Box\s+(\d+[\.\-]\d+)\s+(\S.*)', re.IGNORECASE
+)
+_BX_CAPTION_WORD_LIMIT = 15                             # ≤ 15 words → caption title; > 15 words → body prose
+_BX_TEXT_RE       = re.compile(r'\bBox(?:es)?\s+(\d+[\.\-]\d+)\b', re.IGNORECASE)
+
+
+class BoxTagLinker:
+    def __init__(self, chapter_number: Optional[str] = None):
+        # Normalize to the leading digit(s) only: "Chapter 12" → "12", "7" → "7"
+        raw = str(chapter_number).strip() if chapter_number else ""
+        _m = re.search(r'\d+', raw)
+        self.chapter_number: Optional[str] = _m.group() if _m else (raw or None)
+        self.citations:     Dict[str, List[int]] = {}
+        self.definitions:   Dict[str, Dict[str, Any]] = {}
+        self.cross_chapter: Dict[str, List[int]] = {}
+        self.errors:        List[str] = []
+
+    def _norm(self, raw: str) -> str:
+        return raw.replace('.', '-')
+
+    def _is_cross_chapter(self, norm_id: str) -> bool:
+        if not self.chapter_number:
+            return False
+        first_part = norm_id.split('-')[0]
+        return first_part != self.chapter_number
+
+    def scan(self, paragraphs: list) -> None:
+        # paragraphs: list of (text, page_no, is_caption, ...)
+        texts = [(item[0].strip(), item[1]) for item in paragraphs]
+        skip_next = False
+        for line_no, (s, page_no) in enumerate(texts):
+            if skip_next:
+                skip_next = False
+                continue
+            # Priority 1: <BX_TYPE>Box N-N <BX_TTL>Title  (PPD same-line format)
+            m = _NBX_TYPE_DEF_RE.search(s)
+            if m:
+                self._store_def(self._norm(m.group(1)), m.group(2).strip(), line_no, page_no)
+                continue
+            # Priority 2: <BXN.N> standalone paragraph → next line is <NBX-TTL>Title (chap12)
+            m = _BX_TAG_ONLY_RE.match(s)
+            if m:
+                next_s = texts[line_no + 1][0] if line_no + 1 < len(texts) else ""
+                nm = _NBX_TTL_NEXT_RE.match(next_s)
+                if nm:
+                    self._store_def(self._norm(m.group(1)), nm.group(1).strip(), line_no, page_no)
+                    skip_next = True
+                    continue
+                # No NBX-TTL follows → body-text placeholder citation
+                self._store_citation(self._norm(m.group(1)), line_no)
+                continue
+            # Priority 3: <BXN.N> <NBX-TTL>Title same-line (legacy)
+            m = _NBX_TTL_SAME_RE.search(s)
+            if m:
+                self._store_def(self._norm(m.group(1)), m.group(2).strip(), line_no, page_no)
+                continue
+            # Priority 4: Box N-N\u2003Title at para start — em-space is definitive (ch007)
+            m = _BX_PLAIN_DEF_RE.match(s)
+            if m:
+                self._store_def(self._norm(m.group(1)), m.group(2).strip(), line_no, page_no)
+                continue
+            # Priority 4b: Box N-N[space]Text — short paragraph = caption title; long = body prose
+            m = _BX_PLAIN_SPC_RE.match(s)
+            if m:
+                nid  = self._norm(m.group(1))
+                rest = m.group(2).strip()
+                if len(rest.split()) <= _BX_CAPTION_WORD_LIMIT:
+                    self._store_def(nid, rest, line_no, page_no)
+                else:
+                    self._store_citation(nid, line_no)
+                continue
+            # Priority 5 & 6: citations — tag then plain-text
+            for m in _BX_TAG_RE.finditer(s):
+                self._store_citation(self._norm(m.group(1)), line_no)
+            for m in _BX_TEXT_RE.finditer(s):
+                self._store_citation(self._norm(m.group(1)), line_no)
+
+    def _store_def(self, nid: str, caption: str, line_no: int, page_no: int) -> None:
+        if nid in self.definitions:
+            prev = self.definitions[nid]['line']
+            self.errors.append(f"Duplicate box definition: Box {nid} (lines {prev} and {line_no})")
+        else:
+            self.definitions[nid] = {"caption": caption, "line": line_no, "page": page_no}
+
+    def _store_citation(self, nid: str, line_no: int) -> None:
+        if self._is_cross_chapter(nid):
+            if nid not in self.cross_chapter:
+                self.cross_chapter[nid] = []
+            self.cross_chapter[nid].append(line_no)
+        else:
+            if nid not in self.citations:
+                self.citations[nid] = []
+            self.citations[nid].append(line_no)
+
+    def validate(self):
+        for nid in self.citations:
+            if nid not in self.definitions:
+                self.errors.append(f"Missing caption for Box {nid}")
+        for nid in self.definitions:
+            if nid not in self.citations:
+                self.errors.append(f"Orphan box — no in-chapter reference: Box {nid}")
+
+    def results(self):
+        def sort_key(x):
+            return [int(p) for p in x.replace('-', '.').split('.') if p.isdigit()]
+        all_ids = sorted(set(self.citations) | set(self.definitions), key=sort_key)
+        rows = []
+        for nid in all_ids:
+            cit  = nid in self.citations
+            defn = self.definitions.get(nid)
+            status = "Matched" if (cit and defn) else ("Missing Caption" if cit else "Orphan Box")
+            rows.append({
+                "box_id": f"Box {nid}", "citation_found": cit,
+                "caption_found": bool(defn),
+                "caption_text": defn["caption"] if defn else "", "status": status,
+            })
+        for nid in sorted(self.cross_chapter, key=sort_key):
+            rows.append({
+                "box_id": f"Box {nid}", "citation_found": True,
+                "caption_found": False, "caption_text": "", "status": "Cross-Chapter Ref",
+            })
+        return rows
+
+    def build_html(self):
+        rows = self.results()
+        if not rows and not self.errors:
+            return ""
+        icon = {
+            "Matched": "✅ Matched", "Missing Caption": "⚠️ Missing Caption",
+            "Orphan Box": "⚠️ Orphan Box", "Cross-Chapter Ref": "ℹ️ Cross-Chapter Ref",
+        }
+        lines = [
+            '<h3>Box Citation ↔ Caption Mapping</h3>',
+            '<table><thead><tr><th>Box ID</th><th>Cited in Text</th>'
+            '<th>Caption Found</th><th>Status</th><th>Caption Title</th></tr></thead><tbody>',
+        ]
+        for r in rows:
+            if r["status"] == "Matched":
+                continue
+            lines.append(
+                f'<tr><td>{r["box_id"]}</td>'
+                f'<td>{"Yes" if r["citation_found"] else "No"}</td>'
+                f'<td>{"Yes" if r["caption_found"] else "No"}</td>'
+                f'<td>{icon.get(r["status"], r["status"])}</td>'
+                f'<td>{r["caption_text"]}</td></tr>'
             )
-            miss_cit_cnt = sum(
-                1 for cap_key in dict_types[type_key]["Caption"].keys()
-                if not any(self.normalize_fig_number(cit_key) == self.normalize_fig_number(cap_key)
-                           for cit_key in dict_types[type_key]["Citation"].keys())
-            )
-            if cap_cnt > 0 or cit_cnt > 0:
-                h += f"<tr><td><strong>{type_key}</strong></td><td>{cap_cnt}</td><td>{cit_cnt}</td><td>{miss_cap_cnt}</td><td>{miss_cit_cnt}</td></tr>"
-        h += "</tbody></table>"
-        return h
+        lines.append('</tbody></table>')
+        if self.errors:
+            lines.append('<ul style="color:red">')
+            lines += [f'<li>{e}</li>' for e in self.errors]
+            lines.append('</ul>')
+        return "\n".join(lines)
 
-    def _build_table(self, title, dict_types, dict_key, doc_name):
-        h = f"<h3>{title}</h3><table id='{title.replace(' ', '').lower()}Table'><thead><tr><th>Document</th><th>Type</th><th>Item</th><th>Page</th></tr></thead><tbody>"
-        count = 0
-        for type_key in self.supported_types:
-            for item_key in sorted(dict_types[type_key][dict_key].keys()):
-                page_no = dict_types[type_key].get(dict_key + "Page", {}).get(item_key, "N/A")
-                h += f"<tr><td>{doc_name}</td><td>{type_key}</td><td>{item_key}</td><td>{page_no}</td></tr>"
-                count += 1
-        if count == 0:
-            h += "<tr><td colspan='4'>No items found</td></tr>"
-        h += "</tbody></table>"
-        return h
 
-    def _build_missing_table(self, title, dict_types, missing_cap, doc_name):
-        h = f"<h3>{title}</h3><table id='{title.replace(' ', '').lower()}Table'><thead><tr><th>Document</th><th>Type</th><th>Item</th><th>Page</th></tr></thead><tbody>"
-        count = 0
-        for type_key in self.supported_types:
-            if missing_cap:
-                for cit_key in dict_types[type_key]["Citation"].keys():
-                    if not any(self.normalize_fig_number(cap_key) == self.normalize_fig_number(cit_key)
-                               for cap_key in dict_types[type_key]["Caption"].keys()):
-                        page_no = dict_types[type_key]["CitationPage"].get(cit_key, "N/A")
-                        h += f"<tr><td>{doc_name}</td><td>{type_key}</td><td>{cit_key}</td><td>{page_no}</td></tr>"
-                        count += 1
-            else:
-                for cap_key in dict_types[type_key]["Caption"].keys():
-                    if not any(self.normalize_fig_number(cit_key) == self.normalize_fig_number(cap_key)
-                               for cit_key in dict_types[type_key]["Citation"].keys()):
-                        page_no = dict_types[type_key]["CaptionPage"].get(cap_key, "N/A")
-                        h += f"<tr><td>{doc_name}</td><td>{type_key}</td><td>{cap_key}</td><td>{page_no}</td></tr>"
-                        count += 1
-        if count == 0:
-            h += "<tr><td colspan='4'>All items matched</td></tr>"
-        h += "</tbody></table>"
-        return h
+def build_element_mapping_html(
+    dict_types: Dict[str, Any],
+    type_key: str,
+    chapter_number: str = "",
+) -> str:
+    # Mapping table docstring omitted due to strange byte issues
+    data: Dict[str, Any] = dict_types.get(type_key) or {}
+    if not data:
+        return ""
+
+    captions:  Dict[str, Any] = data.get("Caption",     {})
+    citations: Dict[str, Any] = data.get("Citation",    {})
+    cap_pages: Dict[str, Any] = data.get("CaptionPage", {})
+    cit_pages: Dict[str, Any] = data.get("CitationPage",{})
+
+    _cm = re.search(r'\d+', chapter_number) if chapter_number else None
+    ch_digit = _cm.group() if _cm else ""
+
+    def _id_prefix(label: str) -> str:
+        m = re.search(r'(\d+)[.\-]\d+', label)
+        return m.group(1) if m else ""
+
+    def _norm(label: str) -> str:
+        return re.sub(r'[.\-]', '-', label.strip().lower())
+
+    all_ids: List[str] = sorted(
+        set(captions.keys()) | set(citations.keys()),
+        key=lambda x: [int(d) for d in re.findall(r'\d+', str(x))]
+    )
+
+    icon = {
+        "Matched":           "✅ Matched",
+        "Missing Caption":   "⚠️ Missing Caption",
+        "Orphan":            "⚠️ Missing citation",
+        "Cross-Chapter Ref": "ℹ️ Cross-Chapter Ref",
+    }
+
+    rows: List[Dict[str, Any]] = []
+    cross_ids: List[str] = []
+    for label in all_ids:
+        prefix = _id_prefix(label)
+        if ch_digit and prefix and prefix != ch_digit:
+            cross_ids.append(label)
+            continue
+        norm = _norm(label)
+        cap_found = any(_norm(k) == norm for k in captions)
+        cit_found = any(_norm(k) == norm for k in citations)
+        status = ("Matched"         if cap_found and cit_found else
+                  "Missing Caption" if cit_found               else "Orphan")
+        rows.append({
+            "label":     label,
+            "cit_found": cit_found,
+            "cap_found": cap_found,
+            "status":    status,
+            "cit_page":  cit_pages.get(label, ""),
+            "cap_page":  cap_pages.get(label, ""),
+        })
+    for label in cross_ids:
+        rows.append({
+            "label":     label,
+            "cit_found": label in citations,
+            "cap_found": label in captions,
+            "status":    "Cross-Chapter Ref",
+            "cit_page":  cit_pages.get(label, ""),
+            "cap_page":  cap_pages.get(label, ""),
+        })
+
+    if not rows:
+        return ""
+
+    lines = [
+        f'<h3>{type_key} Citation \u2194 Caption Mapping</h3>',
+        '<table><thead><tr>'
+        f'<th>{type_key} ID</th>'
+        '<th>Cited in Text</th><th>Caption Found</th>'
+        '<th>Status</th><th>Citation Page</th><th>Caption Page</th>'
+        '</tr></thead><tbody>',
+    ]
+    for r in rows:
+        if r["status"] == "Matched":
+            continue
+        lines.append(
+            f'<tr>'
+            f'<td>{r["label"]}</td>'
+            f'<td>{"Yes" if r["cit_found"] else "No"}</td>'
+            f'<td>{"Yes" if r["cap_found"] else "No"}</td>'
+            f'<td>{icon.get(r["status"], r["status"])}</td>'
+            f'<td>{r["cit_page"]}</td>'
+            f'<td>{r["cap_page"]}</td>'
+            f'</tr>'
+        )
+    lines.append('</tbody></table>')
+    return "\n".join(lines)
+
 
 def build_detailed_summary_table(
     dict_types: dict,
@@ -426,62 +474,139 @@ def build_detailed_summary_table(
     endnote_count: int,
     fmt_content: str,
     spec_content: str,
-    comment_content: str
+    comment_content: str,
+    ref_count: int = 0,
+    unnumbered_counts: dict = None,
+    chapter_number: str = "",
+    box_linker: Optional["BoxTagLinker"] = None,
 ) -> str:
     # (Implementation identical to word_analyzer.py, omitted for brevity but logic is same)
     # Re-using the logic from the original file since it's pure string manipulation
     def count_items(section_html: str, token: str) -> int:
         return section_html.lower().count(token.lower())
 
-    def build_progress_row(title: str, cap_cnt: int, cit_cnt: int, miss_cap: int, miss_cit: int) -> str:
+    def extract_num(item: str) -> str:
+        parts = item.strip().split()
+        return parts[-1] if parts else item
+
+    def format_num_list(items: List[str]) -> str:
+        def _num_key(s: str):
+            return [int(x) for x in re.findall(r'\d+', s)]
+        nums = sorted(set(extract_num(i) for i in items), key=_num_key)
+        if len(nums) == 1:
+            return nums[0]
+        return ", ".join(nums[:-1]) + f" and {nums[-1]}"
+
+    def _chap_digit(chapter_number: str) -> str:
+        m = re.search(r'\d+', chapter_number)
+        return m.group() if m else ""
+
+    def _item_chap(item: str) -> str:
+        m = re.search(r'(\d+)', item.strip())
+        return m.group(1) if m else ""
+
+    def _format_action(verb: str, kind: str, items: List[str],
+                       chapter_number: str = "") -> str:
+        if not items:
+            return ""
+        n = len(items)
+        cn = _chap_digit(chapter_number) if chapter_number else ""
+        if cn:
+            this_ch  = [i for i in items if _item_chap(i) == cn]
+            other_ch = [i for i in items if _item_chap(i) != cn]
+            parts = []
+            if this_ch:
+                parts.append(f"Chapter ({cn}): {format_num_list(this_ch)}.")
+            if other_ch:
+                parts.append(f"Other chapters: {format_num_list(other_ch)}.")
+            split_text = "<br>&nbsp;&nbsp;".join(parts)
+            return f"Missing {n} {kind}(s): {verb}:<br>&nbsp;&nbsp;{split_text}"
+        else:
+            return f"Missing {n} {kind}(s): {verb} {format_num_list(items)}."
+
+    def build_action_text(miss_cap_items: List[str],
+                          miss_cit_items: List[str], chapter_number: str = "") -> str:
+        cap_icon = "<i class='fas fa-times-circle' style='color:#e74c3c;'></i> "
+        cit_icon = "<i class='fas fa-exclamation-triangle' style='color:#f39c12;'></i> "
+        parts = []
+        cap_text = _format_action("Provide captions for", "caption", miss_cap_items, chapter_number)
+        cit_text = _format_action("Insert citations for", "citation", miss_cit_items, chapter_number)
+        if cap_text:
+            parts.append(cap_icon + cap_text)
+        if cit_text:
+            parts.append(cit_icon + cit_text)
+        return "<br>".join(parts) if parts else "No action required"
+
+    def build_progress_row(title: str, cap_cnt: int, cit_cnt: int, miss_cap: int, miss_cit: int,
+                           action_text: str = "No action required",
+                           miss_cap_items: Optional[List[str]] = None,
+                           miss_cit_items: Optional[List[str]] = None,
+                           chapter_number: str = "",
+                           tab_target: str = "citations") -> str:
+        miss_cap_items = miss_cap_items or []
+        miss_cit_items = miss_cit_items or []
         total = max(cap_cnt, cit_cnt)
         complete_pct = round(((total - miss_cap - miss_cit) / total * 100), 1) if total else 0
-        html = f"""
-        <tr>
-          <td><strong>{title}</strong></td>
-          <td>{total}</td>
-          <td>
-            <div style='display:flex;align-items:center;gap:10px;'>
-              <div style='width:100px;height:20px;background:#f0f0f0;border-radius:10px;overflow:hidden;'>
-                <div style='width:{complete_pct}%;height:100%;background:linear-gradient(90deg,#27ae60,#2ecc71);'></div>
-              </div>
-              <span style='font-size:12px;color:#27ae60;'>{complete_pct}% Complete</span>
-            </div>
-          </td>
-          <td>
-            <i class='fas fa-check-circle' style='color:#27ae60;'></i> {cit_cnt} citation(s)<br>
-            {'<span style="color:#e74c3c;"><i class="fas fa-times-circle"></i> Missing ' + str(miss_cap) + ' caption(s)</span>' if miss_cap else ''}
-          </td>
-          <td>
-            <i class='fas fa-check-circle' style='color:#27ae60;'></i> {cap_cnt} caption(s)<br>
-            {'<span style="color:#f39c12;"><i class="fas fa-exclamation-triangle"></i> Missing ' + str(miss_cit) + ' citation(s)</span>' if miss_cit else ''}
-          </td>
-          <td>{"Add missing items" if miss_cap or miss_cit else "No action required"}</td>
-        </tr>
-        """
+        html = (
+            f"<tr class='summary-table-row'>\n"
+            f"  <td style='cursor:pointer;' onclick=\"showTabFromRow('{tab_target}', this.closest('tr'))\"><strong>{title}</strong></td>\n"
+            f"  <td>{total}</td>\n"
+            f"  <td>\n"
+            f"    <div style='display:flex;align-items:center;gap:10px;'>\n"
+            f"      <div style='width:100px;height:20px;background:#f0f0f0;border-radius:10px;overflow:hidden;'>\n"
+            f"        <div style='width:0%;height:100%;background:linear-gradient(90deg,#27ae60,#2ecc71);transition:width 1s ease-in-out;' data-w='{complete_pct}'></div>\n"
+            f"      </div>\n"
+            f"      <span style='font-size:12px;color:#27ae60;'>{complete_pct}% Complete</span>\n"
+            f"    </div>\n"
+            f"  </td>\n"
+            f"  <td><i class='fas fa-check-circle' style='color:#27ae60;'></i> {cit_cnt} citation(s)</td>\n"
+            f"  <td><i class='fas fa-check-circle' style='color:#27ae60;'></i> {cap_cnt} caption(s)</td>\n"
+            f"  <td>{action_text}</td>\n"
+            f"</tr>\n"
+        )
         return html
 
-    def build_critical_issues_block(fig_miss_cap, fig_miss_cit, tab_miss_cap, tab_miss_cit, fmt_count):
-        html = """
-        <div style='background:#fff3cd;border:1px solid #ffeaa7;border-radius:10px;padding:20px;margin-top:20px;'>
-          <h3 style='color:#856404;margin-bottom:15px;'><i class='fas fa-exclamation-triangle'></i> Critical Issues Requiring Attention</h3>
-          <ul style='margin:0;padding-left:20px;color:#856404;'>
-        """
-        if (fig_miss_cit + tab_miss_cit) > 0:
-            html += f"<li><strong>{fig_miss_cit + tab_miss_cit} Missing Citations:</strong> Check missing citations in Citations tab</li>"
-        if (fig_miss_cap + tab_miss_cap) > 0:
-            html += f"<li><strong>{fig_miss_cap + tab_miss_cap} Missing Captions:</strong> Check missing captions in Citations tab</li>"
-        if fmt_count > 0:
-            html += f"<li><strong>{fmt_count} Formatting Issues:</strong> See Formatting tab</li>"
-        html += "</ul></div>"
-        return html
+    # def build_critical_issues_block(fig_miss_cap, fig_miss_cit, tab_miss_cap, tab_miss_cit, fmt_count):
+    #     html = """
+    #     <div style='background:#fff3cd;border:1px solid #ffeaa7;border-radius:10px;padding:20px;margin-top:20px;'>
+    #       <h3 style='color:#856404;margin-bottom:10px;cursor:pointer;user-select:none;'
+    #           onclick="var ul=this.nextElementSibling;ul.style.display=ul.style.display==='none'?'block':'none';this.querySelector('.ci-arrow').textContent=ul.style.display==='none'?'▶':'▼';">
+    #         <i class='fas fa-exclamation-triangle'></i> Critical Issues Requiring Attention
+    #         <span class='ci-arrow' style='float:right;font-size:14px;'>▼</span>
+    #       </h3>
+    #       <ul style='margin:0;padding-left:20px;color:#856404;'>
+    #     """
+    #     if (fig_miss_cit + tab_miss_cit) > 0:
+    #         html += f"<li><strong>{fig_miss_cit + tab_miss_cit} Missing Citations:</strong> Check missing citations in Citations tab</li>"
+    #     if (fig_miss_cap + tab_miss_cap) > 0:
+    #         html += f"<li><strong>{fig_miss_cap + tab_miss_cap} Missing Captions:</strong> Check missing captions in Citations tab</li>"
+    #     if fmt_count > 0:
+    #         html += f"<li><strong>{fmt_count} Formatting Issues:</strong> See Formatting tab</li>"
+    #     html += "</ul></div>"
+    #     return html
 
-    fmt_count = count_items(fmt_content, "<tr")
-    spec_count = count_items(spec_content, "<tr")
-    comment_count_val = count_items(comment_content, "<tr")
+    fmt_count = count_items(fmt_content, "<tr><td>")
+    spec_count = count_items(spec_content, "<tr><td>")
+    comment_count_val = count_items(comment_content, "<tr><td>")
+
+    global_stats = {
+        "fmt_issues": fmt_count,
+        "missing_citations": 0,
+        "missing_captions": 0,
+        "fig_missing_cap": 0,
+        "fig_missing_cit": 0,
+        "tab_missing_cap": 0,
+        "tab_missing_cit": 0,
+        "box_missing_cap": 0,
+        "box_missing_cit": 0
+    }
 
     fig_cap = fig_cit = fig_miss_cap = fig_miss_cit = 0
     tab_cap = tab_cit = tab_miss_cap = tab_miss_cit = 0
+    fig_miss_cap_items: List[str] = []
+    fig_miss_cit_items: List[str] = []
+    tab_miss_cap_items: List[str] = []
+    tab_miss_cit_items: List[str] = []
 
     def normalize_ref(ref: str) -> str:
         return ref.replace("-", ".").strip().lower()
@@ -494,10 +619,12 @@ def build_detailed_summary_table(
                 norm = normalize_ref(k)
                 if not any(normalize_ref(x) == norm for x in dict_types[type_key]["Caption"]):
                     fig_miss_cap += 1
+                    fig_miss_cap_items.append(str(k))  # type: ignore[arg-type]
             for k in dict_types[type_key]["Caption"]:
                 norm = normalize_ref(k)
                 if not any(normalize_ref(x) == norm for x in dict_types[type_key]["Citation"]):
                     fig_miss_cit += 1
+                    fig_miss_cit_items.append(str(k))  # type: ignore[arg-type]
         elif type_key == "Table":
             tab_cap = len(dict_types[type_key]["Caption"])
             tab_cit = len(dict_types[type_key]["Citation"])
@@ -505,10 +632,12 @@ def build_detailed_summary_table(
                 norm = normalize_ref(k)
                 if not any(normalize_ref(x) == norm for x in dict_types[type_key]["Caption"]):
                     tab_miss_cap += 1
+                    tab_miss_cap_items.append(str(k))  # type: ignore[arg-type]
             for k in dict_types[type_key]["Caption"]:
                 norm = normalize_ref(k)
                 if not any(normalize_ref(x) == norm for x in dict_types[type_key]["Citation"]):
                     tab_miss_cit += 1
+                    tab_miss_cit_items.append(str(k))  # type: ignore[arg-type]
 
     html = """
     <div class='header'>
@@ -517,59 +646,167 @@ def build_detailed_summary_table(
         <thead>
           <tr>
             <th>Element Type</th>
-            <th>Total Found</th>
+            <th>Totals</th>
             <th>Status Overview</th>
             <th>Citations Status</th>
             <th>Captions Status</th>
-            <th>Action Required</th>
+            <th>Recommended Actions</th>
           </tr>
         </thead><tbody>
     """
 
-    html += build_progress_row("Figures", fig_cap, fig_cit, fig_miss_cap, fig_miss_cit)
-    html += build_progress_row("Tables", tab_cap, tab_cit, tab_miss_cap, tab_miss_cit)
+    html += build_progress_row("Figures", fig_cap, fig_cit, fig_miss_cap, fig_miss_cit,
+                               build_action_text(fig_miss_cap_items, fig_miss_cit_items, chapter_number),
+                               fig_miss_cap_items, fig_miss_cit_items, chapter_number)
+    html += build_progress_row("Tables", tab_cap, tab_cit, tab_miss_cap, tab_miss_cit,
+                               build_action_text(tab_miss_cap_items, tab_miss_cit_items, chapter_number),
+                               tab_miss_cap_items, tab_miss_cit_items, chapter_number)
+
+    global_stats["missing_captions"] += fig_miss_cap + tab_miss_cap
+    global_stats["missing_citations"] += fig_miss_cit + tab_miss_cit
+    global_stats["fig_missing_cap"] = fig_miss_cap
+    global_stats["fig_missing_cit"] = fig_miss_cit
+    global_stats["tab_missing_cap"] = tab_miss_cap
+    global_stats["tab_missing_cit"] = tab_miss_cit
+
+    # Box row — use BoxTagLinker data when available (accurate caption detection via tags)
+    if box_linker is not None:
+        bx_cit_cnt = len(box_linker.citations)
+        bx_cap_cnt = len(box_linker.definitions)
+        bx_miss_cap = [nid for nid in box_linker.citations if nid not in box_linker.definitions]
+        bx_miss_cit = [nid for nid in box_linker.definitions if nid not in box_linker.citations]
+        global_stats["missing_captions"] += len(bx_miss_cap)
+        global_stats["missing_citations"] += len(bx_miss_cit)
+        global_stats["box_missing_cap"] = len(bx_miss_cap)
+        global_stats["box_missing_cit"] = len(bx_miss_cit)
+        html += build_progress_row(
+            "Boxes", bx_cap_cnt, bx_cit_cnt,
+            len(bx_miss_cap), len(bx_miss_cit),
+            build_action_text(bx_miss_cap, bx_miss_cit, chapter_number),
+            bx_miss_cap, bx_miss_cit, chapter_number
+        )
+
+    # Additional element types (Exhibit, Appendix, Case Study) — Box handled above via BoxTagLinker
+    other_types: List[str] = [str(k) for k in dict_types.keys() if k not in ("Figure", "Table")]  # type: ignore[misc]
+    for type_key in other_types:
+        if box_linker is not None and type_key == "Box":
+            continue  # already rendered above via BoxTagLinker
+        o_cap = len(dict_types[type_key]["Caption"])
+        o_cit = len(dict_types[type_key]["Citation"])
+        o_miss_cap = 0
+        o_miss_cit = 0
+        o_miss_cap_items: List[str] = []
+        o_miss_cit_items: List[str] = []
+        for k in dict_types[type_key]["Citation"]:
+            norm = normalize_ref(k)
+            if not any(normalize_ref(x) == norm for x in dict_types[type_key]["Caption"]):
+                o_miss_cap += 1
+                o_miss_cap_items.append(str(k))  # type: ignore[arg-type]
+        for k in dict_types[type_key]["Caption"]:
+            norm = normalize_ref(k)
+            if not any(normalize_ref(x) == norm for x in dict_types[type_key]["Citation"]):
+                o_miss_cit += 1
+                o_miss_cit_items.append(str(k))  # type: ignore[arg-type]
+        
+        global_stats["missing_captions"] += o_miss_cap
+        global_stats["missing_citations"] += o_miss_cit
+
+        if o_cap > 0 or o_cit > 0:
+            html += build_progress_row(str(type_key) + "s", o_cap, o_cit, o_miss_cap, o_miss_cit,
+                                       build_action_text(o_miss_cap_items, o_miss_cit_items, chapter_number),
+                                       o_miss_cap_items, o_miss_cit_items, chapter_number)
 
     html += f"""
-    <tr><td><strong>Special Characters</strong></td><td>{spec_count}</td>
+    <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('special-chars', this.closest('tr'))"><strong>Special Characters</strong></td><td>{spec_count}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('special-chars');"
         style='color:#667eea;text-decoration:underline;'>Review multilingual symbols</a></td>
         <td>Review unusual characters</td></tr>
 
-    <tr><td><strong>Formatting Issues</strong></td><td>{fmt_count}</td>
+    <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('formatting', this.closest('tr'))"><strong>Formatting Issues</strong></td><td>{fmt_count}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('formatting');"
         style='color:#f39c12;text-decoration:underline;'>View formatting issues</a></td>
         <td>Review formatting anomalies</td></tr>
 
-    <tr><td><strong>Comments</strong></td><td>{comment_count_val}</td>
+    <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('comments', this.closest('tr'))"><strong>Comments</strong></td><td>{comment_count_val}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('comments');"
         style='color:#3498db;text-decoration:underline;'>Review editor comments</a></td>
         <td>Review highlighted feedback</td></tr>
 
-    <tr><td><strong>Notes</strong></td><td>{footnote_count + endnote_count}</td>
-        <td colspan='3'><a href='javascript:void(0);' onclick="showTab('media');"
-        style='color:#27ae60;text-decoration:underline;'>{footnote_count} Footnotes, {endnote_count} Endnotes</a></td>
+    <tr class='summary-table-row'><td><strong>Notes</strong></td><td>{footnote_count + endnote_count}</td>
+        <td colspan='3'>{footnote_count} Footnotes, {endnote_count} Endnotes</td>
         <td>No action required</td></tr>
     """
 
     if figure_count > 0:
         html += f"""
-        <tr><td><strong>Images</strong></td><td>{figure_count}</td>
+        <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('media', this.closest('tr'))"><strong>Images</strong></td><td>{figure_count}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('media');"
         style='color:#27ae60;text-decoration:underline;'><i class='fas fa-check-circle'></i> {figure_count} image(s) detected</a></td>
         <td>No action required</td></tr>
         """
     else:
         html += """
-        <tr><td><strong>Images</strong></td><td>0</td>
+        <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('media', this.closest('tr'))"><strong>Images</strong></td><td>0</td>
         <td colspan='3'><span style='color:#e67e22;'><i class='fas fa-exclamation-triangle'></i> No images detected</span></td>
         <td>Check for missing image elements</td></tr>
         """
 
+    # Reference count row
+    if ref_count > 0:
+        html += f"""
+        <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('media', this.closest('tr'))"><strong>References</strong></td><td>{ref_count}</td>
+        <td colspan='3'><span style='color:#27ae60;'><i class='fas fa-check-circle'></i> {ref_count} reference(s) detected</span></td>
+        <td>No action required</td></tr>
+        """
+
+    # Unnumbered elements row
+    if unnumbered_counts:
+        u_figs         = unnumbered_counts.get("unnumbered_images",    0)
+        u_tabs         = unnumbered_counts.get("unnumbered_tables",    0)
+        u_boxes        = unnumbered_counts.get("unnumbered_boxes",     0)
+        u_callouts     = unnumbered_counts.get("callouts",             0)
+        u_eq_omml      = unnumbered_counts.get("equations_omml",       0)
+        u_eq_mt        = unnumbered_counts.get("equations_mathtype",   0)
+        u_placeholders = unnumbered_counts.get("image_placeholders",   0)
+        u_total = u_figs + u_tabs + u_boxes + u_callouts + u_eq_omml + u_eq_mt + u_placeholders
+        if u_total > 0:
+            detail = ", ".join(filter(None, [
+                f"{u_figs} fig(s)"                       if u_figs          else "",
+                f"{u_tabs} table(s)"                     if u_tabs          else "",
+                f"{u_boxes} box(es)"                     if u_boxes         else "",
+                f"{u_callouts} callout(s)"               if u_callouts      else "",
+                f"{u_eq_omml} OMML eq(s)"                if u_eq_omml       else "",
+                f"{u_eq_mt} MathType eq(s)"              if u_eq_mt         else "",
+                f"{u_placeholders} image placeholder(s)" if u_placeholders  else "",
+            ]))
+            html += f"""
+            <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('unnumbered', this.closest('tr'))"><strong>Unnumbered Elements</strong></td><td>{u_total}</td>
+            <td colspan='3'><span style='color:#e67e22;'><i class='fas fa-exclamation-triangle'></i> {detail}</span></td>
+            <td>Add numbers/captions where needed</td></tr>
+            """
+
     html += "</tbody></table>"
-    html += build_critical_issues_block(fig_miss_cap, fig_miss_cit, tab_miss_cap, tab_miss_cit, fmt_count)
+    # html += build_critical_issues_block(fig_miss_cap, fig_miss_cit, tab_miss_cap, tab_miss_cit, fmt_count)
+
+    html += f"""
+<style>
+  .summary-row-active td {{ background:#f0f4ff !important; border-left:4px solid #667eea; }}
+  .summary-table-row td:first-child:hover {{ background:#eef2ff; }}
+</style>
+<script>
+(function(){{
+  document.addEventListener('DOMContentLoaded', function(){{
+    document.querySelectorAll('[data-w]').forEach(function(bar){{
+      var w = bar.getAttribute('data-w');
+      setTimeout(function(){{ bar.style.width = w + '%'; }}, 150);
+    }});
+  }});
+}})();
+</script>"""
+
     html += "</div>"
 
-    return html
+    return html, global_stats
 
 def build_comments_html(comments: List[Tuple]):
     if not comments:
@@ -577,6 +814,29 @@ def build_comments_html(comments: List[Tuple]):
     html = "<table><thead><tr><th>#</th><th>Page</th><th>Author</th><th>Comment</th></tr></thead><tbody>"
     for i, (author, text, page) in enumerate(comments, start=1):
         html += f"<tr><td>{i}</td><td>{page}</td><td>{escape_html(author)}</td><td>{escape_html(text)}</td></tr>"
+    html += "</tbody></table>"
+    return html
+
+
+def build_unnumbered_tab_html(unnumbered_counts: dict) -> str:
+    if not unnumbered_counts:
+        return "<p>No unnumbered elements data available.</p>"
+    rows = [
+        ("Figures",          unnumbered_counts.get("unnumbered_images",  0), "Images with no numbered Figure caption"),
+        ("Tables",           unnumbered_counts.get("unnumbered_tables",  0), "Tables with no numbered Table caption"),
+        ("Boxes",            unnumbered_counts.get("unnumbered_boxes",   0), "Box-style paragraphs with no numbered Box caption"),
+        ("Callouts",         unnumbered_counts.get("callouts",           0), "Vague cross-references (e.g. 'see figure above', page refs)"),
+        ("OMML Equations",   unnumbered_counts.get("equations_omml",     0), "Inline OMML math without numbered labels"),
+        ("MathType Equations", unnumbered_counts.get("equations_mathtype", 0), "MathType math without numbered labels"),
+    ]
+    total = sum(r[1] for r in rows)
+    html = "<table><thead><tr><th>Element Type</th><th>Count</th><th>Notes</th></tr></thead><tbody>"
+    if total == 0:
+        html += "<tr><td colspan='3'>No unnumbered elements found.</td></tr>"
+    else:
+        for label, count, notes in rows:
+            if count > 0:
+                html += f"<tr><td>{label}</td><td>{count}</td><td>{notes}</td></tr>"
     html += "</tbody></table>"
     return html
 
@@ -648,45 +908,71 @@ def get_xml_note_count(doc, note_type='footnotes'):
         pass
     return count
 
-def extract_with_docx(doc_path: str):
+def extract_with_docx(doc_path: str, doc: Optional[Any] = None):
     """
     Robust extraction using python-docx + lxml.
     Returns: paragraphs, comments, img_count, footnotes, endnotes
     """
-    if not os.path.exists(doc_path):
-        raise FileNotFoundError(f"{doc_path} not found")
+    if doc is None:
+        if not os.path.exists(doc_path):
+            raise FileNotFoundError(f"{doc_path} not found")
+        doc = Document(doc_path)
 
-    doc = Document(doc_path)
     analyzer = CitationAnalyzer()
-    
+
     # 1. Paragraphs (Text, Page, Caption, Highlighted)
     paragraphs = []
-    
-    # We iterate document paragraphs to find highlights and text
-    # Page approximation: 40 paras / page
+
     for i, p in enumerate(doc.paragraphs):
         text = p.text.strip()
         if not text:
             continue
-            
+
         try:
             s_name = p.style.name
         except:
             s_name = ""
         is_caption = analyzer.is_caption_paragraph(text, style_name=s_name)
-        
+
         # Check highlighting: if ANY run is highlighted
         is_highlighted = False
         for run in p.runs:
             if run.font.highlight_color:
                 is_highlighted = True
                 break
-                
+
         paragraphs.append((text, i // 40 + 1, is_caption, is_highlighted))
         
+    # 1b. Scan first row of each table for embedded captions (e.g. "Table 7-3 Title" as first cell)
+    # python-docx excludes table cell paragraphs from doc.paragraphs, so we walk them separately.
+    for tbl_idx, table in enumerate(doc.tables):
+        if not table.rows:
+            continue
+        first_row = table.rows[0]
+        found_caption = False
+        for cell in first_row.cells:
+            for cp in cell.paragraphs:
+                cell_text = cp.text.strip()
+                if not cell_text:
+                    continue
+                try:
+                    s_name = cp.style.name or ""
+                except Exception:
+                    s_name = ""
+                # Strip leading markup tags before caption check
+                clean_text = re.sub(r'^(?:<[^>]*>\s*)+', '', cell_text)
+                if analyzer.is_caption_paragraph(clean_text, style_name=str(s_name)):
+                    # Use last body paragraph's page as proxy — far closer than tbl_idx math
+                    page_est = paragraphs[-1][1] if paragraphs else 1
+                    paragraphs.append((cell_text, page_est, True, False))
+                    found_caption = True
+                    break
+            if found_caption:
+                break
+
     # 2. Comments (XML)
     comments = get_xml_comments(doc)
-    
+
     # 3. Images (RELS)
     img_count = 0
     for rel in doc.part.rels.values():
@@ -699,15 +985,17 @@ def extract_with_docx(doc_path: str):
     
     return paragraphs, comments, img_count, footnotes, endnotes
 
-def remove_tags_keep_formatting_docx(doc_path):
+def remove_tags_keep_formatting_docx(doc_path: str, doc: Optional[Any] = None):
     """
     Removes <tags> using regex on run text, preserving other formatting.
     """
-    if not os.path.exists(doc_path):
-        return
+    should_save = False
+    if doc is None:
+        if not os.path.exists(doc_path):
+            return
+        doc = Document(doc_path)
+        should_save = True
         
-    doc = Document(doc_path)
-    
     tag_cleaner = re.compile(r'<[^>]+>')
     
     modified = False
@@ -732,22 +1020,158 @@ def remove_tags_keep_formatting_docx(doc_path):
                                  run.text = new_text
                                  modified = True
 
-    if modified:
+    if modified and should_save:
         doc.save(doc_path)
         
     return doc_path
 
-def generate_formatting_html(doc_path: str, used_word: bool=False) -> str:
+
+def extract_unnumbered_image_markups(doc_path: str, doc: Optional[Any] = None, text_page_map: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """
+    Scans paragraph text for image placeholder markup (e.g. <UNFIG 5-1>,
+    <ch007_csimage001>, <insert Photo>) and returns a list of dicts:
+        [{"markup": "<UNFIG 5-1>", "page": 12}, ...]
+    Must be called BEFORE remove_tags_keep_formatting_docx() so tags are still present.
+    """
+    if not os.path.exists(doc_path):
+        return []
+    if doc is None:
+        doc = Document(doc_path)
+    if text_page_map is None:
+        _, text_page_map = build_text_page_map(doc_path)
+
+    results = []
+    for para_idx, p in enumerate(doc.paragraphs):
+        text = p.text
+        matches = _UNIMG_MARKUP_RE.findall(text)
+        if matches:
+            page = _page_from_map(text_page_map, text, para_idx // 40 + 1)
+            for m in matches:
+                results.append({"markup": m.strip(), "page": page})
+    return results
+
+
+def build_unnumbered_image_markups_html(items: List[Dict[str, Any]]) -> str:
+    """
+    Renders a list from extract_unnumbered_image_markups() as an HTML table.
+    Columns: # | Markup Text | Page
+    """
+    if not items:
+        return "<p>No unnumbered image placeholders found.</p>"
+
+    rows = []
+    for i, item in enumerate(items, 1):
+        markup_escaped = item["markup"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        rows.append(
+            f'<tr><td style="text-align:center">{i}</td>'
+            f'<td><code>{markup_escaped}</code></td>'
+            f'<td style="text-align:center">{item["page"]}</td></tr>'
+        )
+
+    rows_html = "\n".join(rows)
+    return (
+        '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">'
+        "<thead><tr>"
+        '<th style="text-align:center">#</th>'
+        "<th>Markup Text</th>"
+        '<th style="text-align:center">Page</th>'
+        "</tr></thead>"
+        f"<tbody>{rows_html}</tbody>"
+        "</table>"
+    )
+
+
+# ------------------------------
+# PDF Conversion & Page Lookup
+# ------------------------------
+
+def convert_to_pdf(docx_path: str) -> str:
+    """
+    Convert a DOCX file to PDF. Returns the PDF path on success, or "" on failure.
+    Uses LibreOffice subprocess, which works on Linux without Windows/Word dependencies.
+    """
+    import shutil
+    pdf_path = str(Path(docx_path).with_suffix(".pdf"))
+    
+    # OPTIMIZATION: Check if the batch processor already created the PDF
+    if os.path.exists(pdf_path):
+        return pdf_path
+
+    lo_cmd = shutil.which("libreoffice") or shutil.which("soffice")
+    if not lo_cmd and os.name == "nt" and os.path.exists(r"C:\Program Files\LibreOffice\program\soffice.exe"):
+        lo_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe"
+
+    if not lo_cmd:
+        print("DEBUG: LibreOffice not found in PATH. Conversion will fail.")
+        return ""
+
+    # Strategy 1: LibreOffice subprocess (Linux / macOS / Windows with LO installed)
+    try:
+        out_dir = str(Path(docx_path).parent)
+        result = subprocess.run(
+            [lo_cmd, "--headless", "--convert-to", "pdf", "--outdir", out_dir, os.path.abspath(docx_path)],
+            timeout=60, capture_output=True
+        )
+        if result.returncode == 0 and os.path.exists(pdf_path):
+            return pdf_path
+    except Exception:
+        pass
+
+    return ""
+
+
+
+def build_text_page_map(docx_path: str) -> Tuple[int, List[str]]:
+    """
+    Convert DOCX to PDF then build a list of normalized text for each page.
+    Returns (total_pages, list_of_page_texts).
+    Falls back to (0, []) if pdfplumber is unavailable or conversion fails.
+    """
+    if not HAS_PDFPLUMBER:
+        return 0, []
+    pdf_path = convert_to_pdf(docx_path)
+    if not pdf_path:
+        return 0, []
+        
+    page_texts: List[str] = []
+    total_pages = 0
+    try:
+        import pdfplumber as _pdfplumber  # local import avoids unbound warning
+        with _pdfplumber.open(pdf_path) as pdf:
+            total_pages = len(pdf.pages)
+            for page in pdf.pages:
+                raw = page.extract_text() or ""
+                page_texts.append(_normalize_for_match(raw))
+    except Exception:
+        pass
+    return total_pages, page_texts
+
+
+def _page_from_map(text_page_map: Optional[List[str]], text: str, fallback: int) -> int:
+    """Look up real page number by searching normalized text; fall back to estimated value."""
+    if text_page_map:
+        search_str = _normalize_for_match(text)[:60]
+        if search_str:
+            for page_idx, p_text in enumerate(text_page_map):
+                if search_str in p_text:
+                    return page_idx + 1
+    return fallback
+
+
+def generate_formatting_html(doc_path: str, used_word: bool = False,
+                             text_page_map: Optional[List[str]] = None,
+                             doc: Optional[Any] = None) -> str:
     """
     Scans for Strikethrough, Hidden, Section Breaks using python-docx.
     Ignores `used_word` flag as we are strictly python-docx now.
     """
-    doc = Document(doc_path)
+    if doc is None:
+        doc = Document(doc_path)
     rows = []
     
     # 1. Strikethrough & Hidden (Run level)
     for i, p in enumerate(doc.paragraphs):
-        page = i // 40 + 1
+        page = _page_from_map(text_page_map, p.text, i // 40 + 1)
         for run in p.runs:
             if run.font.strike or run.font.double_strike:
                 rows.append(("Formatting", page, "Strikethrough", escape_html(run.text[:50])))
@@ -769,13 +1193,18 @@ def generate_formatting_html(doc_path: str, used_word: bool=False) -> str:
     html += "</tbody></table>"
     return html
 
-def generate_multilingual_html(doc_path: str) -> str:
+def generate_multilingual_html(doc_path: str,
+                               text_page_map: Optional[List[str]] = None,
+                               doc: Optional[Any] = None) -> str:
     """
     highlights multilingual chars and keywords using python-docx.
     Saves document if changes made.
     Returns HTML summary.
     """
-    doc = Document(doc_path)
+    should_save = False
+    if doc is None:
+        doc = Document(doc_path)
+        should_save = True
     modified = False
     page_map = defaultdict(set)
     
@@ -803,8 +1232,8 @@ def generate_multilingual_html(doc_path: str) -> str:
     for i, p in enumerate(doc.paragraphs):
         text = p.text
         if not text: continue
-        page = i // 40 + 1
-        
+        page = _page_from_map(text_page_map, text, i // 40 + 1)
+
         # 1. Keywords
         for match in keyword_pattern.finditer(text):
             # Applying highlighting to specific sub-range in python-docx is hard 
@@ -831,7 +1260,7 @@ def generate_multilingual_html(doc_path: str) -> str:
                              modified = True
                     break
 
-    if modified:
+    if modified and should_save:
         doc.save(doc_path)
 
     html = "<table><thead><tr><th>Language/Type</th><th>Page</th></tr></thead><tbody>"
@@ -844,31 +1273,371 @@ def generate_multilingual_html(doc_path: str) -> str:
     return html
 
 # ------------------------------
-# 4. Exports
+# 4. Document Metadata & Extended Counts
+# ------------------------------
+
+_REFS_HEADING_RE = re.compile(
+    r'^\s*('
+    r'references?'                      # Reference / References
+    r'|bibliographys?'                  # Bibliography / Bibliographys
+    r'|notes\s+and\s+bibliography'      # Notes and Bibliography
+    r'|works\s+citeds?'                 # Works Cited / Works Citeds
+    r'|cited\s+works?'                  # Cited Work / Cited Works
+    r'|literature\s+cited'              # Literature Cited (biology style)
+    r'|reference\s+list'                # Reference List
+    r'|selected\s+bibliography'         # Selected Bibliography
+    r'|further\s+reading'               # Further Reading
+    r')\s*:?\s*$',
+    re.IGNORECASE
+)
+_MARKUP_TAG_RE   = re.compile(r'<[^>]+>')
+_FIGURE_LEGENDS_RE = re.compile(r'^\s*(figure\s+legends?|list\s+of\s+(figures?|tables?|illustrations?))\s*:?\s*$', re.IGNORECASE)
+_AUTHOR_STYLE_RE = re.compile(r'author|by.?line|^a[0-9]$', re.IGNORECASE)
+_TITLE_STYLE_RE  = re.compile(r'heading\s*1|chapter\s*title|^ct$|^title$', re.IGNORECASE)
+_CALLOUT_RE      = re.compile(r'\b(see\s+(figure|fig\.?|table|tab\.?|box)\s+(above|below|following|on\s+page))\b', re.IGNORECASE)
+_PAGE_REF_RE     = re.compile(r'\(p\.?\s*\d+\)', re.IGNORECASE)
+_UNIMG_MARKUP_RE = re.compile(
+    # optional prefix like ch007_ before the keyword (e.g. <ch007_csimage001>, <ch007_unfigure002>)
+    r'<\s*(?:[a-zA-Z0-9]+_)*'
+    r'(?:unfig(?:ure)?'                          # <UNFIG 5-1>, <ch007_unfigure002
+    r'|csimage'                                   # <ch007_csimage001>, <csimage...>
+    r'|coimage'                                   # <ch007_COimageXXX>, <coimage...>
+    r'|insert\s+(?:photo|unf(?:ig(?:ure)?)?'     # <insert Photo>, <Insert UNF Here>, <insert unfigure>
+    r'|fig(?:ure)?|here)'
+    r'|icon\s+here'                              # <ICON HERE>
+    r'|unf\b)'                                   # standalone <UNF ...>
+    r'[^>]*>?',
+    re.IGNORECASE
+)
+
+
+def extract_chapter_metadata(doc_path: str, doc: Optional[Any] = None):
+    """
+    Returns (chapter_title: str, authors: str) extracted from the chapter opener.
+    Supports production markup tags (<ct>=title, <cau>/<au>=author, <cn>=chapter num)
+    and plain-text heuristics for documents without markup.
+    """
+    if not os.path.exists(doc_path):
+        return "", ""
+    if doc is None:
+        doc = Document(doc_path)
+    chapter_number = ""
+    chapter_title = ""
+    authors = []
+    found_title = False
+
+    _TAG_PREFIX_RE   = re.compile(r'^<([^>]+)>(.*)', re.DOTALL)
+    _CHAP_NUM_RE     = re.compile(r'^(?:(?:chapter|ch\.?)\s*)?\d+\s*$', re.IGNORECASE)
+
+    _CHAP_INLINE_RE  = re.compile(r'^((?:chapter|ch\.?)\s*\d+)\s+(.+)$', re.IGNORECASE)
+    _TITLE_TAGS      = {'ct', 'chapter-title', 'chaptertitle', 'chap-title', 'chaptitle'}
+    _AUTHOR_TAGS     = {'cau', 'au', 'author', 'byline', 'by-line', 'contrib'}
+    _CHAP_NUM_TAGS   = {'cn', 'chapternum', 'chnum', 'cn1'}
+
+    for p in doc.paragraphs[:4]:
+        raw = p.text.strip()
+        if not raw:
+            continue
+        try:
+            s_name = p.style.name.strip()
+        except:
+            s_name = ""
+
+        tag_match = _TAG_PREFIX_RE.match(raw)
+        tag_name  = tag_match.group(1).lower().strip() if tag_match else ""
+        text      = _MARKUP_TAG_RE.sub('', raw).strip()
+        if not text:
+            continue
+
+        # --- Markup-tag based (highest priority) ---
+        if tag_name in _TITLE_TAGS:
+            chapter_title = text
+            found_title = True
+            continue
+        if tag_name in _AUTHOR_TAGS:
+            authors.append(text)
+            continue
+        if tag_name in _CHAP_NUM_TAGS:
+            chapter_number = text
+            continue
+        # Any other markup tag after we already have title/authors → stop scanning
+        if tag_name and (found_title or authors):
+            break
+        # Any other markup tag before title → skip this line
+        if tag_name:
+            continue
+
+        # --- Style-based fallback ---
+        if _TITLE_STYLE_RE.search(s_name):
+            chapter_title = text
+            found_title = True
+            continue
+        if _AUTHOR_STYLE_RE.search(s_name):
+            authors.append(text)
+            continue
+
+        # --- Plain-text heuristics (no markup, Normal style) ---
+        # Case 3: "Chapter 12  Title on same line" → split into number + title
+        inline_m = _CHAP_INLINE_RE.match(text)
+        if inline_m:
+            chapter_number = inline_m.group(1).strip()
+            chapter_title  = inline_m.group(2).strip()
+            found_title = True
+            continue
+        # Case 2: standalone "Chapter 12" or bare "7" line → capture as chapter number
+        if _CHAP_NUM_RE.match(text):
+            chapter_number = text
+            continue
+
+        if not found_title:
+            # Short line → chapter title (case-insensitive)
+            words = text.split()
+            if chapter_number and len(words) <= 15:
+                chapter_title = text
+                found_title = True
+            elif len(words) <= 15:
+                chapter_title = text
+                found_title = True
+        else:
+            # Short line matching a person-name pattern → author(s)
+            words = text.split()
+            if (len(words) <= 12
+                    and re.match(r'^[A-Za-z][\w.]+ [A-Za-z]', text, re.IGNORECASE)
+                    and not re.search(r'[.?!]$', text)):
+                authors.append(text)
+            elif len(words) > 20:
+                break  # hit body text
+
+    return chapter_number, chapter_title, "; ".join(authors) if authors else ""
+
+
+def count_references_and_body_wc(doc_path: str, doc: Optional[Any] = None):
+    """
+    Returns (ref_count: int, body_wc: int, total_wc: int).
+    ref_count  — paragraphs in the References/Bibliography section.
+    body_wc    — words in body text only (ignores everything after References).
+    total_wc   — words in the entire document including references, tables, and figures.
+    """
+    if not os.path.exists(doc_path):
+        return 0, 0, 0
+    if doc is None:
+        doc = Document(doc_path)
+    analyzer = CitationAnalyzer()
+
+    # Collect table paragraph texts so we can exclude them
+    table_para_texts: Set[int] = set()
+    total_wc = 0
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                for tp in cell.paragraphs:
+                    table_para_texts.add(id(tp))
+                    total_wc += len(tp.text.split())
+
+    body_wc = 0
+    ref_count = 0
+    in_refs = False
+
+    # Caption starters used to detect figure/table legends section inside refs
+    _CAPTION_START_RE = re.compile(r'^\s*(figure|fig\.?|table|tab\.?|box|exhibit|appendix)\s', re.IGNORECASE)
+
+    for p in doc.paragraphs:
+        raw_text = p.text.strip()
+        if not raw_text:
+            continue
+            
+        total_wc += len(raw_text.split())
+        
+        # Strip inline markup tags (e.g. <REF1>, <CE:AUTHOR>) from visible text
+        text = _MARKUP_TAG_RE.sub('', raw_text).strip()
+        if not text:
+            continue
+        try:
+            s_name = p.style.name.strip()
+        except:
+            s_name = ""
+
+        # Detect References/Bibliography boundary
+        if _REFS_HEADING_RE.match(text) and ("heading" in s_name.lower() or len(text.split()) <= 3):
+            in_refs = True
+            continue
+
+        if in_refs:
+            # Stop counting if we hit a "Figure Legends" / "List of Figures" header
+            if _FIGURE_LEGENDS_RE.match(text):
+                in_refs = True # We continue ignoring everything after references
+                continue
+            # Stop counting if we hit a new section heading (non-reference paragraph)
+            if "heading" in s_name.lower() and not re.match(r'^\d', text):
+                in_refs = True # Continue ignoring everything after references
+                continue
+            # Stop counting when the first figure/table caption appears after references
+            if _CAPTION_START_RE.match(text):
+                in_refs = True # Continue ignoring everything after references
+                continue
+            # Skip table/figure footnote lines (source notes, abbreviation keys, etc.)
+            if re.match(r'^\s*(source|note[s]?|adapted\s+from|information\s+(based|from)|'
+                        r'abbreviation|\*not\s+a\s+U\.S\.|IM,|IV,|PO,)', text, re.IGNORECASE):
+                continue
+            # Only count paragraphs that look like reference entries:
+            # must contain a year (APA/Vancouver/numbered refs always have one)
+            # OR start with a digit (numbered reference style)
+            if not (re.search(r'(?<!\d)(?:19|20)\d{2}(?!\d)', text) or re.match(r'^\d+[\.\t\s]', text)):
+                continue
+            ref_count += 1
+        else:
+            # Not in refs, so count as body text
+            # Do NOT explicitly exclude tables or captions in the body per new instruction.
+            # All tables and figures are assumed to be placed after references.
+            body_wc += len(raw_text.split())
+
+    return ref_count, body_wc, total_wc
+
+
+def count_equations(doc: Any) -> Dict[str, int]:
+    """
+    Count equations in a python-docx Document.
+    Returns:
+        omml     — native Word OMML equations (<m:oMath> elements)
+        mathtype — MathType / Equation Editor OLE objects
+    """
+    _M_NS        = 'http://schemas.openxmlformats.org/officeDocument/2006/math'
+    _W_NS        = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    _O_NS        = 'urn:schemas-microsoft-com:office:office'
+    _omath_tag   = f'{{{_M_NS}}}oMath'
+    _obj_tag     = f'{{{_W_NS}}}object'
+    _ole_tag     = f'{{{_O_NS}}}OLEObject'
+    _progid_attr = f'{{{_O_NS}}}ProgID'
+
+    # Search entire document XML tree so equations inside table cells,
+    # text boxes, and headers are included (not just doc.paragraphs)
+    root = doc.element
+
+    # OMML: every <m:oMath> = one equation block (display or inline)
+    omml_count = len(root.findall(f'.//{_omath_tag}'))
+
+    # MathType / Equation Editor OLE objects
+    mathtype_count = 0
+    for obj in root.findall(f'.//{_obj_tag}'):
+        for ole in obj.findall(f'.//{_ole_tag}'):
+            prog_id = ole.get(_progid_attr, '')
+            if 'Equation' in prog_id or 'MathType' in prog_id:
+                mathtype_count += 1
+
+    return {"omml": omml_count, "mathtype": mathtype_count}
+
+
+def count_unnumbered_elements(doc_path: str, dtypes: dict, doc: Optional[Any] = None):
+    """
+    Returns a dict with counts of unnumbered/uncaptioned elements:
+      unnumbered_images  — images with no numbered Figure caption
+      unnumbered_tables  — doc.tables with no numbered Table caption
+      unnumbered_boxes   — box-style paragraphs with no numbered Box caption
+      callouts           — vague references like "see figure above"
+    """
+    if not os.path.exists(doc_path):
+        return {}
+    if doc is None:
+        doc = Document(doc_path)
+
+    # Images: total rels - numbered figures
+    img_count = sum(1 for rel in doc.part.rels.values() if "image" in rel.reltype)
+    numbered_figs = len(dtypes.get("Figure", {}).get("Caption", {}))
+    unnumbered_images = max(0, img_count - numbered_figs)
+
+    # Tables: doc.tables count - numbered table captions
+    numbered_tabs = len(dtypes.get("Table", {}).get("Caption", {}))
+    unnumbered_tables = max(0, len(doc.tables) - numbered_tabs)
+
+    # Boxes: find paragraphs whose style name contains 'nbx', 'box', or 'sidebar'
+    # (case-insensitive). These are considered box-style elements.
+    # Subtract how many numbered Box captions exist in dtypes —
+    # the remainder are boxes that lack a proper numbered caption.
+    numbered_boxes = len(dtypes.get("Box", {}).get("Caption", {}))
+    box_style_re = re.compile(r'nbx|box|sidebar', re.IGNORECASE)
+    box_para_count = sum(1 for p in doc.paragraphs
+                         if p.text.strip() and box_style_re.search(getattr(p.style, 'name', '') or ''))
+    unnumbered_boxes = max(0, box_para_count - numbered_boxes)
+
+    # Callouts: scan every paragraph's text for vague cross-references such as
+    # "see figure above" or "on page X" using _CALLOUT_RE and _PAGE_REF_RE.
+    # Each matching paragraph increments the callout counter — these are flagged
+    # because they rely on relative position rather than a numbered label.
+    callout_count = 0
+    for p in doc.paragraphs:
+        t = p.text
+        if _CALLOUT_RE.search(t) or _PAGE_REF_RE.search(t):
+            callout_count += 1
+
+    eq = count_equations(doc)
+    return {
+        "unnumbered_images":  unnumbered_images,
+        "unnumbered_tables":  unnumbered_tables,
+        "unnumbered_boxes":   unnumbered_boxes,
+        "callouts":           callout_count,
+        "equations_omml":     eq["omml"],
+        "equations_mathtype": eq["mathtype"],
+    }
+
+
+def build_combined_dashboard_html(chapters_data: list, css: str, js: str, logo_b64: str) -> str:
+    """
+    Builds a single Combined_Dashboard.html from a list of per-chapter data dicts.
+    Each chapter gets its own section with scoped tab IDs (ch0_, ch1_, ...) so
+    tabs in different chapters don't interfere with each other.
+    """
+    # Load Jinja2 templates from the 'templates' directory relative to the current working directory
+    template_dir = os.path.join(os.getcwd(), 'templates')
+    
+    # If the default templates dir is not found, fallback to script directory
+    if not os.path.exists(template_dir):
+        template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+        
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_dir))
+    
+    try:
+        template = env.get_template('word_analyzer_dashboard.html')
+        css_content = env.get_template('word_analyzer_styles.css').render()
+        js_content = env.get_template('word_analyzer_scripts.js').render()
+    except jinja2.exceptions.TemplateNotFound as e:
+        # Fallback inline templates if files are missing during execution
+        raise FileNotFoundError(f"Template not found: {e}. Ensure templates/ contains the HTML/CSS/JS dashboard files.")
+
+    # Render the main dashboard template with context
+    return template.render(
+        chapters_data=chapters_data,
+        css_content=css_content,
+        js_content=js_content,
+        logo_b64=logo_b64
+    )
+
+
+# ------------------------------
+# 5. Exports
 # ------------------------------
 __all__ = [
     "CitationAnalyzer",
+    "BoxTagLinker",
+    "build_element_mapping_html",
     "extract_with_docx",
-    "extract_with_word", # Kept for compatibility if needed, but points to docx version in this file? No, assume this file is LINUX only.
     "generate_formatting_html",
     "generate_multilingual_html",
     "build_comments_html",
     "build_detailed_summary_table",
+    "build_combined_dashboard_html",
     "build_export_highlight_html",
     "remove_tags_keep_formatting_docx",
-    "DASHBOARD_CSS",
-    "DASHBOARD_JS",
-    "HTML_WRAPPER",
+    "extract_chapter_metadata",
+    "count_references_and_body_wc",
+    "count_unnumbered_elements",
+    "extract_unnumbered_image_markups",
+    "build_unnumbered_image_markups_html",
+    "convert_to_pdf",
+    "build_text_page_map",
+    "_page_from_map",
+    "HAS_PDFPLUMBER",
 ]
 
-# Alias for compatibility if imported elsewhere expecting 'extract_with_word' to exist
-extract_with_word = extract_with_docx
-
-# Compatibility flags
-HAS_WIN32COM = False
-HAS_DOCX = True
-
-__all__.extend(["HAS_WIN32COM", "HAS_DOCX"])
 
 if __name__ == "__main__":
     import sys
@@ -883,7 +1652,8 @@ if __name__ == "__main__":
         
     print(f"Analyzing {file_path}...")
     try:
-        paras, comments, imgs, footnotes, endnotes = extract_with_docx(file_path)
+        doc = Document(file_path)
+        paras, comments, imgs, footnotes, endnotes = extract_with_docx(file_path, doc=doc)
         print(f"Extraction Success:")
         print(f" - Paragraphs: {len(paras)}")
         print(f" - Comments: {len(comments)}")
@@ -892,11 +1662,11 @@ if __name__ == "__main__":
         print(f" - Endnotes: {endnotes}")
         
         print("\nChecking Formatting...")
-        fmt_html = generate_formatting_html(file_path)
+        fmt_html = generate_formatting_html(file_path, doc=doc)
         print("Formatting HTML generated (length: {} chars)".format(len(fmt_html)))
         
         print("\nChecking Multilingual...")
-        multi_html = generate_multilingual_html(file_path)
+        multi_html = generate_multilingual_html(file_path, doc=doc)
         print("Multilingual HTML generated (length: {} chars)".format(len(multi_html)))
         
     except Exception as e:

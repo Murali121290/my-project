@@ -1982,6 +1982,9 @@ def ppd():
     if not saved:
         return jsonify({"error": "No valid .doc/.docx files uploaded"}), 400
 
+    # Combined dashboard flag — only relevant when 2+ files uploaded
+    combined_dashboard = request.form.get('combined_dashboard', 'false').lower() == 'true'
+
     # Capture username before thread starts
     username = session.get("username") or "Analyst"
 
@@ -2009,19 +2012,26 @@ def ppd():
         with app.app_context():
             from word_analyzer_docx import (
                 CitationAnalyzer,
-                extract_with_word,
+                BoxTagLinker,
+                build_element_mapping_html,
                 extract_with_docx,
                 remove_tags_keep_formatting_docx,
                 generate_formatting_html,
                 generate_multilingual_html,
                 build_comments_html,
                 build_export_highlight_html,
+                build_unnumbered_tab_html,
                 build_detailed_summary_table,
-                DASHBOARD_CSS,
-                DASHBOARD_JS,
-                HTML_WRAPPER,
-                HAS_WIN32COM,
+                build_combined_dashboard_html,
+                extract_chapter_metadata,
+                count_references_and_body_wc,
+                count_unnumbered_elements,
+                extract_unnumbered_image_markups,
+                build_unnumbered_image_markups_html,
+                build_text_page_map,
+                _page_from_map,
             )
+            from docx import Document as _DocxDocument
 
             # Helper to update progress file
             def update_progress(updates):
@@ -2038,6 +2048,24 @@ def ppd():
                     print(f"Progress update failed: {ex}")
 
             results = []
+            chapters_data = []
+
+            # --- START LINUX BATCH PDF CONVERSION OPTIMIZATION ---
+            # Pre-convert all uploaded docs to PDF simultaneously to avoid LibreOffice cold-starts
+            import subprocess
+            import shutil
+            lo_cmd = shutil.which("libreoffice") or shutil.which("soffice")
+            if not lo_cmd and os.name == "nt" and os.path.exists(r"C:\Program Files\LibreOffice\program\soffice.exe"):
+                lo_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe"
+            
+            if lo_cmd and saved:
+                update_progress({"status": "Batch converting all documents to PDF..."})
+                try:
+                    cmd = [lo_cmd, "--headless", "--convert-to", "pdf", "--outdir", unique_folder] + [os.path.abspath(p) for p in saved]
+                    subprocess.run(cmd, timeout=300, capture_output=True)
+                except Exception as e:
+                    app.logger.warning(f"Batch PDF conversion failed: {e}")
+            # --- END LINUX BATCH PDF CONVERSION OPTIMIZATION ---
 
             for i, path in enumerate(saved, 1):
                 fname = os.path.basename(path)
@@ -2047,52 +2075,121 @@ def ppd():
                 })
 
                 try:
-                    # Extract content
-                    if os.name == "nt" and HAS_WIN32COM:
-                        paras, comments, imgs, foot, end = extract_with_word(path)
-                    else:
-                        paras, comments, imgs, foot, end = extract_with_docx(path)
+                    # --- Step 1: extract paragraphs (fallback page numbers) ---
+                    paras, comments, imgs, foot, end = extract_with_docx(path)
 
-                    remove_tags_keep_formatting_docx(path)
-
+                    # --- Step 1b: compute dtypes and unnumbered counts from original file ---
+                    # Must happen BEFORE tag removal so inline markers like <UNFIG...> are present
                     analyzer = CitationAnalyzer()
                     doc_data = [(t, p, c) for (t, p, c, _) in paras]
                     dtypes = analyzer.analyze_document_citations(doc_data)
+                    unnumbered_counts = count_unnumbered_elements(path, dtypes)
+
+                    # Extract image markup placeholders BEFORE tags are stripped
+                    img_markup_items = extract_unnumbered_image_markups(path)
+                    unnumbered_counts["image_placeholders"] = len(img_markup_items)
+
+                    # --- Step 2: strip inline tags from .docx on disk ---
+                    remove_tags_keep_formatting_docx(path)
+
+                    # --- Step 3: build PDF page map ONCE (LibreOffice/docx2pdf) ---
+                    pdf_total_pages, text_page_map = build_text_page_map(path)
+
+                    # Remap paragraph page numbers with real PDF values
+                    paras = [
+                        (t, _page_from_map(text_page_map, t, p), c, h)
+                        for (t, p, c, h) in paras
+                    ]
+
+                    # --- Step 4: load Document once for all analysis passes ---
+                    _doc = _DocxDocument(path)
+
                     table_count = len(dtypes.get("Table", {}).get("Caption", {}))
 
-                    fmt_html = generate_formatting_html(path, used_word=False)
-                    spec_html = generate_multilingual_html(path)
-                    com_html = build_comments_html(comments)
-                    summary_html = build_detailed_summary_table(
-                        dtypes, imgs, table_count, foot, end,
-                        fmt_html, spec_html, com_html
+                    # --- Step 5: generate all HTML sections (reuse _doc) ---
+                    fmt_html = generate_formatting_html(
+                        path, used_word=False, text_page_map=text_page_map, doc=_doc
                     )
-                    msr_html = analyzer.build_citation_tables_html(dtypes, fname)
+                    # multilingual loads its own copy because it highlights+saves the doc
+                    spec_html = generate_multilingual_html(path, text_page_map=text_page_map)
+                    com_html = build_comments_html(comments)
+
+                    # Chapter metadata, reference count, body word count
+                    chapter_number, chapter_title, authors = extract_chapter_metadata(path, doc=_doc)
+                    ref_count, body_wc, total_wc = count_references_and_body_wc(path, doc=_doc)
+
+                    box_linker = BoxTagLinker(chapter_number=chapter_number)
+                    box_linker.scan(doc_data)
+                    box_linker.validate()
+
+                    summary_html, stats = build_detailed_summary_table(
+                        dtypes, imgs, table_count, foot, end,
+                        fmt_html, spec_html, com_html,
+                        ref_count=ref_count,
+                        unnumbered_counts=unnumbered_counts,
+                        chapter_number=chapter_number,
+                        box_linker=box_linker,
+                    )
+                    msr_html = build_element_mapping_html(dtypes, "Figure",     chapter_number)
+                    msr_html += build_element_mapping_html(dtypes, "Table",      chapter_number)
+                    msr_html += build_element_mapping_html(dtypes, "Exhibit",    chapter_number)
+                    msr_html += build_element_mapping_html(dtypes, "Appendix",   chapter_number)
+                    msr_html += build_element_mapping_html(dtypes, "Case Study", chapter_number)
+                    msr_html += box_linker.build_html()
                     exp_html = build_export_highlight_html(paras)
+                    unnumbered_html = build_unnumbered_tab_html(unnumbered_counts)
+                    if img_markup_items:
+                        unnumbered_html += "<h3>Unnumbered Image Placeholders</h3>"
+                        unnumbered_html += build_unnumbered_image_markups_html(img_markup_items)
 
-                    wc = sum(len(t.split()) for (t, _, _, _) in paras)
+                    # Total words for fallback if something goes wrong
+                    para_words_only = sum(len(t.split()) for (t, _, _, _) in paras)
 
-                    # Render HTML without Flask context
-                    template = Template(HTML_WRAPPER)
-                    html = template.render(
-                        doc_name=fname,
-                        pages=(len(paras) // 40) + 1,
-                        words=wc,
-                        ce_pages=(wc // 250) + 1,
-                        date=_now_utc().strftime("%d-%m-%Y"),
-                        analyst=username,
-                        detailed_summary=summary_html,
-                        msr_content=msr_html,
-                        fmt_content=fmt_html,
-                        spec_content=spec_html,
-                        comment_content=com_html,
-                        export_highlight=exp_html,
-                        images=imgs,
-                        footnotes=foot,
-                        endnotes=end,
-                        css=DASHBOARD_CSS,
-                        js=DASHBOARD_JS,
-                        logo_path="",
+                    # Original Total Page Count (from PDF; fallback to estimation)
+                    actual_total_pages = pdf_total_pages if pdf_total_pages > 0 else (len(paras) // 40) + 1
+
+                    # Body Words & Body Pages
+                    final_body_wc = body_wc if body_wc > 0 else para_words_only
+                    body_pages = round(final_body_wc / 250) if final_body_wc > 0 else 1
+
+                    # CE Pages (Total document words / 250)
+                    final_total_wc = total_wc if total_wc > 0 else para_words_only
+                    ce_pages_val = round(final_total_wc / 250) if final_total_wc > 0 else 1
+
+                    # Render individual file dashboard using Jinja template
+                    single_chapter_data = [{
+                        "doc_name":          fname,
+                        "chapter_number":    chapter_number or "—",
+                        "chapter_title":     chapter_title or "—",
+                        "authors":           authors or "—",
+                        "total_pages":       actual_total_pages,
+                        "pages":             body_pages,
+                        "words":             final_body_wc,
+                        "total_words":       final_total_wc,
+                        "ce_pages":          ce_pages_val,
+                        "date":              _now_utc().strftime("%d-%m-%Y"),
+                        "analyst":           username,
+                        "detailed_summary":  summary_html,
+                        "msr_content":       msr_html,
+                        "fmt_content":       fmt_html,
+                        "spec_content":      spec_html,
+                        "comment_content":   com_html,
+                        "export_highlight":  exp_html,
+                        "unnumbered_content": unnumbered_html,
+                        "missing_citations": stats.get("missing_citations", 0),
+                        "missing_captions":  stats.get("missing_captions", 0),
+                        "fmt_issues":        stats.get("fmt_issues", 0),
+                        "fig_missing_cit":   stats.get("fig_missing_cit", 0),
+                        "fig_missing_cap":   stats.get("fig_missing_cap", 0),
+                        "tab_missing_cit":   stats.get("tab_missing_cit", 0),
+                        "tab_missing_cap":   stats.get("tab_missing_cap", 0),
+                        "box_missing_cit":   stats.get("box_missing_cit", 0),
+                        "box_missing_cap":   stats.get("box_missing_cap", 0),
+                    }]
+                    html = build_combined_dashboard_html(
+                        single_chapter_data,
+                        css="", js="",
+                        logo_b64=get_base64_logo()
                     )
 
                     out_html = os.path.join(unique_folder, Path(path).stem + "_Dashboard.html")
@@ -2100,6 +2197,37 @@ def ppd():
                         f.write(html)
 
                     results.append(out_html)
+
+                    # Collect chapter data for optional combined dashboard
+                    chapters_data.append({
+                        "doc_name":          fname,
+                        "chapter_number":    chapter_number or "—",
+                        "chapter_title":     chapter_title or "—",
+                        "authors":           authors or "—",
+                        "total_pages":       actual_total_pages,
+                        "pages":             body_pages,
+                        "words":             final_body_wc,
+                        "total_words":       final_total_wc,
+                        "ce_pages":          ce_pages_val,
+                        "date":              _now_utc().strftime("%d-%m-%Y"),
+                        "analyst":           username,
+                        "detailed_summary":  summary_html,
+                        "msr_content":       msr_html,
+                        "fmt_content":       fmt_html,
+                        "spec_content":      spec_html,
+                        "comment_content":   com_html,
+                        "export_highlight":  exp_html,
+                        "unnumbered_content": unnumbered_html,
+                        "missing_citations": stats.get("missing_citations", 0),
+                        "missing_captions":  stats.get("missing_captions", 0),
+                        "fmt_issues":        stats.get("fmt_issues", 0),
+                        "fig_missing_cit":   stats.get("fig_missing_cit", 0),
+                        "fig_missing_cap":   stats.get("fig_missing_cap", 0),
+                        "tab_missing_cit":   stats.get("tab_missing_cit", 0),
+                        "tab_missing_cap":   stats.get("tab_missing_cap", 0),
+                        "box_missing_cit":   stats.get("box_missing_cit", 0),
+                        "box_missing_cap":   stats.get("box_missing_cap", 0),
+                    })
 
                     # Convert to XLS (no images)
                     excel_output = html_to_excel_no_images(out_html, unique_folder)
@@ -2113,8 +2241,20 @@ def ppd():
                     update_progress({"status": f"Failed: {e}"})
                     break
 
+            # Generate combined dashboard if requested and 2+ chapters processed
+            if combined_dashboard and len(chapters_data) > 1:
+                combined_html = build_combined_dashboard_html(
+                    chapters_data,
+                    css="", js="",
+                    logo_b64=get_base64_logo(),
+                )
+                combined_path = os.path.join(unique_folder, "Combined_Dashboard.html")
+                with open(combined_path, "w", encoding="utf-8") as f:
+                    f.write(combined_html)
+                results.append(combined_path)
+
             # Create ZIP
-            zip_path = os.path.join(unique_folder, "PPD_Results.zip")
+            zip_path = os.path.join(unique_folder, "Manuscript_Analysis_Results.zip")
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
                 for f in results + saved:
                     z.write(f, arcname=os.path.basename(f))

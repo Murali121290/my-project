@@ -41,8 +41,8 @@ GREEN              = WD_COLOR_INDEX.BRIGHT_GREEN
 YELLOW             = WD_COLOR_INDEX.YELLOW
 COMMENT_AUTHOR     = "S4C"
 COMMENT_INITIALS   = "S4C"
-FUZZY_THRESHOLD    = 0.88          # BUG-03: raised from 0.80
-SHORT_NAME_MAX_LEN = 6             # BUG-03: exact-surname required for short names
+FUZZY_THRESHOLD    = 0.88         
+SHORT_NAME_MAX_LEN = 6            
 NEAR_DUP_THRESHOLD = 0.97
 ET_AL_MIN          = 3
 BIB_TAG_OPEN       = "<ref-open>"
@@ -68,16 +68,16 @@ _YEAR_RANGE_P  = r"(?:(?:19|20)\d{2})/(?:(?:19|20)\d{2})"
 # are captured. The locator is extracted separately by _RE_LOCATOR.
 _LOCATOR_TAIL  = r'(?:,\s*pp?\.\s*\d+(?:[\u2013\u2014\-]\d+)?)?'
 _RE_PAREN      = re.compile(
-    r'\(([A-ZÀ-Ö][^()]{1,120}?' + _YEAR_ANY + _LOCATOR_TAIL + r')\)',
+    r'\(([^\s\d][^()]{1,120}?' + _YEAR_ANY + _LOCATOR_TAIL + r')\)',
     re.UNICODE | re.IGNORECASE | re.DOTALL)
 _RE_NARRATIVE  = re.compile(
-    r'(?<!\()([A-ZÀ-Ö][a-zà-ö]+(?:\s+et\s+al\.)?)\s+\((' + _YEAR_ANY + r')\)',
+    r'(?<!\()([^\s\d]+(?:\s+et\s+al\.)?)\s+\((' + _YEAR_ANY + r')\)',
     re.UNICODE | re.IGNORECASE)
 _RE_MULTI_Y_P  = re.compile(
-    r'\(([A-ZÀ-Ö][^()]{1,80}?),\s*((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
+    r'\(([^\s\d][^()]{1,80}?),\s*((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
     re.UNICODE)
 _RE_MULTI_Y_N  = re.compile(
-    r'(?<!\()([A-ZÀ-Ö][a-zà-ö]+(?:\s+et\s+al\.)?)\s+\(((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
+    r'(?<!\()([^\s\d]+(?:\s+et\s+al\.)?)\s+\(((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
     re.UNICODE)
 _RE_SECONDARY  = re.compile(
     r'\(([^()]+?),\s*(' + _YEAR_ANY + r')\s*,\s*as\s+cited\s+in\s+([^()]+?),\s*(' + _YEAR_ANY + r')\)',
@@ -88,13 +88,13 @@ _RE_CITE_UNIT  = re.compile(
 _RE_LOCATOR    = re.compile(r',\s*(pp?\.\s*\d+(?:[–—\-]\d+)?)', re.IGNORECASE)
 _RE_AMA        = re.compile(r'\b([A-Z][a-z]+(?:\s+et\s+al\.)?)\s+((?:19|20)\d{2})\b(?!\s*[,;])')
 _RE_BAD_ETAL   = re.compile(r'\(([A-Z][a-z]+)\s+et\s+al\s+((?:19|20)\d{2}[a-z]?)\)')
-_RE_MISS_COMMA = re.compile(r'\(([A-Z][^(),]{0,80}?)\s+((?:19|20)\d{2}[a-z]?)\)')
+_RE_MISS_COMMA = re.compile(r'\(([^\s\d][^(),]{0,80}?)\s+((?:19|20)\d{2}[a-z]?)\)')
 _RE_YR_RANGE   = re.compile(r'\b((?:19|20)\d{2})/((?:19|20)\d{2})\b')
-_RE_BAD_ND     = re.compile(r'\(\s*([A-ZÀ-Ö][^()]{0,80}?),?\s*(nd\.?|n\.d(?!\.)|N\.D\.?)\s*\)')
-_RE_BAD_INPRES = re.compile(r'\(\s*([A-ZÀ-Ö][^()]{0,80}?),\s*(In\s+Press|IN\s+PRESS|In\s+press)\s*\)')
+_RE_BAD_ND     = re.compile(r'\(\s*([^\s\d][^()]{0,80}?),?\s*(nd\.?|n\.d(?!\.)|N\.D\.?)\s*\)')
+_RE_BAD_INPRES = re.compile(r'\(\s*([^\s\d][^()]{0,80}?),\s*(In\s+Press|IN\s+PRESS|In\s+press)\s*\)')
 _RE_ETAL_NOPER = re.compile(r'\bet\s+al(?!\.)\b')
 _RE_ETDOT_AL   = re.compile(r'\bet\.\s*al\.?', re.IGNORECASE)
-_RE_PAREN_AND  = re.compile(r'\(\s*([A-ZÀ-Ö][^(),]{1,60}?)\s+and\s+([A-ZÀ-Ö][^(),]{1,60}?),\s*((?:19|20)\d{2}[a-z]?)\s*\)', re.IGNORECASE | re.UNICODE)
+_RE_PAREN_AND  = re.compile(r'\(\s*([^\s\d][^(),]{1,60}?)\s+and\s+([^\s\d][^(),]{1,60}?),\s*((?:19|20)\d{2}[a-z]?)\s*\)', re.IGNORECASE | re.UNICODE)
 _RE_BIB_ABBREV = re.compile(r'\[([A-Z]{2,8})\]')
 _HEADING_RE    = re.compile(r"heading\s*\d|title", re.IGNORECASE)
 _FOOTNOTE_RE   = re.compile(r"footnote|endnote", re.IGNORECASE)
@@ -118,6 +118,21 @@ _ORG_KW_RE     = re.compile(
 def _strip_diacritics(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", s)
                    if not unicodedata.combining(c))
+
+def _to_smart_quotes(text: str) -> str:
+    """Convert straight quotes to curly (smart) quotes."""
+    if not text:
+        return text
+    # Double quotes: opening
+    text = re.sub(r'(^|[\s(\[{])"', r'\1“', text)
+    # Double quotes: closing
+    text = text.replace('"', '”')
+    # Single quotes: opening
+    text = re.sub(r"(^|[\s(\[{])'", r'\1‘', text)
+    # Single quotes: closing / apostrophe
+    text = text.replace("'", '’')
+    return text
+
 
 def _norm_apos(s: str) -> str:
     # BUG-08: extended to cover all common smart/curly quote variants
@@ -373,12 +388,23 @@ class ApaFixer:
 
     @staticmethod
     def fix_etal_expansion(cite_author: str, bib: Dict) -> Optional[str]:
-        if bib.get("author_count", 1) < ET_AL_MIN:
+        n = bib.get("author_count", 1)
+        has_etal = re.search(r"\bet\s+al\b", cite_author, re.IGNORECASE)
+
+        if n < ET_AL_MIN:
+            # Issue 09: if 2 authors and has et al, suggest full names
+            if n == 2 and has_etal:
+                # APA 7th style for 2 authors in citation: "A & B"
+                return bib.get("display", "")
             return None
-        if re.search(r"\bet\s+al\b", cite_author, re.IGNORECASE):
+
+        if has_etal:
             return None
+
+        # Expansion for >= 3 authors
         first = bib.get("display", "").split(" et al.")[0].split(" &")[0].strip()
-        return f"{first} et al." if first else None
+        res = f"{first} et al." if first else None
+        return _to_smart_quotes(res) if res else None
 
 # ── Citation Extractor ────────────────────────────────────────────────────────
 class CitationExtractor:
@@ -683,6 +709,15 @@ class GrobidClient:
             raw_txt = "".join(bib.itertext())
             ym = re.search(r"\b((?:19|20)\d{2})\b", raw_txt)
             year = ym.group(1) if ym else "n.d."
+
+        # ISSUE 20: Recover year suffix from raw text if missing from 'when'
+        # GROBID often returns only "2020". We look for "2020a" in the vicinity.
+        if year != "n.d." and len(year) == 4:
+            raw_txt = "".join(bib.iteritertext() if hasattr(bib, 'iteritertext') else bib.itertext())
+            # Look for YYYY[a-z] in the raw text
+            sm = re.search(rf"\b{year}([a-z])\b", raw_txt)
+            if sm:
+                year = f"{year}{sm.group(1)}"
 
         # ── Title (for diagnostics / future use) ─────────────────────────────
         title = (bib.findtext(".//tei:title[@level='a']", None, NS)
@@ -1084,19 +1119,29 @@ def _para_context(para) -> str:
 
 # ── Word XML helpers ──────────────────────────────────────────────────────────
 def _ensure_style(doc):
-    """Ensure the cite_bib character style exists with visible formatting.
+    """Ensure the cite_bib character style exists and is visible in Word.
 
-    cite_bib is applied to every matched in-text citation run.  We give it no
-    colour of its own — the highlight (GREEN / YELLOW) is still set on the run
-    directly — but we mark it bold so editors can filter by style in Word's
-    Find/Replace and the style name appears in the Styles pane.
+    Creates the character style if absent, then unconditionally ensures
+    hidden=False and a UI priority so the style appears in Word's Styles pane.
     """
+    _log = logging.getLogger(__name__)
     if CITE_STYLE not in [s.name for s in doc.styles]:
         try:
             cs = doc.styles.add_style(CITE_STYLE, WD_STYLE_TYPE.CHARACTER)
             cs.font.bold = False   # neutral — highlighting carries the signal
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("Could not create '%s' character style: %s", CITE_STYLE, exc)
+            return
+    # Style now guaranteed to exist — apply/correct visibility properties
+    try:
+        cs = doc.styles[CITE_STYLE]
+        cs.hidden = False        # removes <w:semiHidden> so Word shows the style
+        cs.quick_style = True    # adds <w:qFormat/> → appears in Quick Style Gallery
+        cs.priority = 100        # <w:uiPriority w:val="100"/> → ordered in pane
+    except Exception as exc:
+        _log.warning("Could not set visibility on '%s' style: %s", CITE_STYLE, exc)
+    
+    return doc.styles[CITE_STYLE].style_id
 
 
 def apply_highlight_by_span(para, char_start: int, char_end: int,
@@ -1263,7 +1308,8 @@ def _tc_rpr_change(run_el, new_highlight=None, new_style_id=None):
 
     if new_style_id is not None:
         rs = OxmlElement('w:rStyle')
-        rs.set(qn('w:val'), new_style_id)
+        actual_id = "citebib" if new_style_id == CITE_STYLE else new_style_id
+        rs.set(qn('w:val'), actual_id)
         for old in rpr.findall(qn('w:rStyle')):
             rpr.remove(old)
         rpr.insert(0, rs)   # rStyle must be first child
@@ -1280,8 +1326,15 @@ def _tc_rpr_change(run_el, new_highlight=None, new_style_id=None):
     rpr.append(rpc)
 
 
-def tracked_replace(para, old_text: str, new_text: str,
-                    highlight, style: str = CITE_STYLE) -> bool:
+def _tracked_replace_one(para, old_text: str, new_text: str,
+                         highlight, style_id: str = None) -> bool:
+    """Internal core to replace one occurrence of *old_text*.
+    
+    If style_id is not provided, defaults to CITE_STYLE ("cite_bib").
+    """
+    new_text = _to_smart_quotes(new_text)
+    if style_id is None:
+        style_id = CITE_STYLE
     """Replace *old_text* with *new_text* in *para* as a tracked change.
 
     Inserts <w:del>old</w:del><w:ins>new</w:ins> at the location of *old_text*
@@ -1327,7 +1380,8 @@ def tracked_replace(para, old_text: str, new_text: str,
         new_rPr.remove(old)
     new_rPr.append(hl_el)
     rs_el = OxmlElement('w:rStyle')
-    rs_el.set(qn('w:val'), style)
+    actual_id = "citebib" if style_id == CITE_STYLE else style_id
+    rs_el.set(qn('w:val'), actual_id)
     for old in new_rPr.findall(qn('w:rStyle')):
         new_rPr.remove(old)
     new_rPr.insert(0, rs_el)
@@ -1386,7 +1440,8 @@ def safe_splice(para, start, end, new_text, highlight, style):
     st._r.append(t)
     if style is not None:
         try:
-            st.style = style
+            actual_name = CITE_STYLE if style in ("citebib", "cite_bib") else style
+            st.style = actual_name
         except Exception:
             pass
     if highlight is not None:
@@ -1450,12 +1505,13 @@ def isolate_target_run(p, txt):
                            runs_text[pos:pos + len(txt)], None, None)
     return None
 
-def apply_style_to_text(p, txt, hl):
-    """Apply highlight + cite_bib style to *txt* in *p*, recorded as a
-    tracked formatting change (rPrChange) so Word shows it as a revision.
-
-    Uses para.runs-only text for position calculation (safe_splice skips <w:ins>).
+def apply_style_to_text(p, txt, hl, style_id=None):
+    """Apply highlight + character style to *txt* in *p*.
+    
+    If style_id is not provided, defaults to CITE_STYLE ("cite_bib").
     """
+    if style_id is None:
+        style_id = CITE_STYLE
     if not txt:
         return None
     offset = 0
@@ -1470,7 +1526,7 @@ def apply_style_to_text(p, txt, hl):
             break
         st = safe_splice(p, pos, pos + len(txt), txt, None, None)
         if st is not None:
-            _tc_rpr_change(st, new_highlight=hl, new_style_id=CITE_STYLE)
+            _tc_rpr_change(st, new_highlight=hl, new_style_id=style_id)
             res = st
         offset = pos + max(len(txt), 1)
 
@@ -1479,27 +1535,32 @@ def apply_style_to_text(p, txt, hl):
         runs_text = "".join(r.text for r in p.runs)
         pos = runs_text.lower().find(txt.lower())
         if pos != -1:
-            apply_highlight_by_span(p, pos, pos + len(txt), hl, CITE_STYLE)
+            apply_highlight_by_span(p, pos, pos + len(txt), hl, style_id)
             res = True
 
     return res
 
 
-def replace_and_style(p, old, new, hl):
-    """Replace *old* with *new* in *p* as a tracked delete+insert change."""
-    if not old:
+def tracked_replace(p, old_text, new_text, highlight=None, style_id=None):
+    """Replace *old_text* in *p* with *new_text* as a tracked delete+insert change.
+    
+    If style_id is not provided, defaults to CITE_STYLE ("cite_bib").
+    """
+    if style_id is None:
+        style_id = CITE_STYLE
+    if not old_text:
         return None
     res = None
     # Use tracked_replace for each occurrence
     full = _full_text(p)
-    pos  = full.find(old)
+    pos  = full.find(old_text)
     while pos != -1:
-        ok = tracked_replace(p, old, new, hl)
+        ok = _tracked_replace_one(p, old_text, new_text, highlight, style_id)
         if ok:
             res = True
         # Recalculate after replacement
         full = _full_text(p)
-        pos  = full.find(old, pos + max(len(new), 1))
+        pos  = full.find(old_text, pos + max(len(new_text), 1))
     return res
 
 
@@ -1539,7 +1600,7 @@ def sort_citation_block(para, block_raw: str, highlight) -> tuple:
     new_block = "(" + "; ".join(sorted_segs) + ")"
 
     # tracked_replace uses runs-only offsets internally — try it first
-    if tracked_replace(para, block_raw, new_block, highlight):
+    if tracked_replace(para, block_raw, new_block, highlight, CITE_STYLE):
         return True, True   # ← already_styled=True
 
     # Fallback: block split across many runs — locate span using runs-only text
@@ -1559,14 +1620,19 @@ def sort_citation_block(para, block_raw: str, highlight) -> tuple:
     span_end = min(span_end + 1, len(runs_text))
 
     old_block_found = runs_text[span_start:span_end]
-    if old_block_found and tracked_replace(para, old_block_found, new_block, highlight):
+    if old_block_found and tracked_replace(para, old_block_found, new_block, highlight, CITE_STYLE):
         return True, True   # ← already_styled
 
     # Last resort plain splice — not tracked, not pre-styled
     result = safe_splice(para, span_start, span_end, new_block, highlight, CITE_STYLE)
     if result is not None:
+        # Resolve style_id from doc if possible, else use name
+        sid = getattr(para.part.document.styles.get(CITE_STYLE), 'style_id', CITE_STYLE)
+        _tc_rpr_change(result, new_highlight=highlight, new_style_id=sid)
         return True, False
-    apply_highlight_by_span(para, span_start, span_end, highlight, CITE_STYLE)
+    
+    sid = getattr(para.part.document.styles.get(CITE_STYLE), 'style_id', CITE_STYLE)
+    apply_highlight_by_span(para, span_start, span_end, highlight, sid)
     return True, False
 
 def _get_comments_part(doc):
@@ -1815,7 +1881,7 @@ class CitationProcessor:
         self.include_contexts = include_contexts or {"body"}
         self.log              = logging.getLogger(f"{__name__}.{job_id}")
         self.grobid           = grobid       # optional GrobidClient instance
-        _ensure_style(self.doc)
+        self.cite_style_id    = _ensure_style(self.doc)
         self.bibliography:    Dict[str, dict]    = {}
         self._bib_ordered:    List[dict]         = []
         self._issues:         List[dict]         = []
@@ -1838,12 +1904,12 @@ class CitationProcessor:
     # ── Internal helpers ──────────────────────────────────────────────────────
     def _apply_tracked_fix(self, para, original, fixed, fix_type):
         if not track_changes or not self.enable_track_changes:
-            replace_and_style(para, original, fixed, YELLOW)
+            tracked_replace(para, original, fixed, YELLOW, self.cite_style_id)
         else:
             try:
                 full_text = _full_text(para)
                 if full_text.find(original) != -1:
-                    replace_and_style(para, original, fixed, YELLOW)
+                    tracked_replace(para, original, fixed, YELLOW, self.cite_style_id)
                     self._tracked_changes.append({
                         "type": fix_type, "original": original, "fixed": fixed,
                         "para_idx": (list(self.doc.paragraphs).index(para)
@@ -1855,7 +1921,7 @@ class CitationProcessor:
                     self.log.warning(f"Could not find '{original}' in paragraph")
             except Exception as exc:
                 self.log.error(f"Error applying tracked fix: {exc}")
-                replace_and_style(para, original, fixed, YELLOW)
+                tracked_replace(para, original, fixed, YELLOW, self.cite_style_id)
 
     # ── Bibliography parsing ──────────────────────────────────────────────────
     def _parse_bibliography(self):
@@ -2020,7 +2086,7 @@ class CitationProcessor:
             if mr.key and mr.match_type in ("exact", "smart", "org_abbrev"):
                 self.bibliography[mr.key]["cited"] = True
                 self._cited_keys.add(mr.key)
-            apply_style_to_text(para, raw, YELLOW)
+            apply_style_to_text(para, raw, YELLOW, self.cite_style_id)
             self._add_issue(
                 "secondary", para_idx, para, raw,
                 f"SECONDARY: '({oa},{oy}, as cited in {auth},{year})' "
@@ -2045,7 +2111,7 @@ class CitationProcessor:
                         "multi_year_mismatches", para_idx, para, raw,
                         f"MULTI-YEAR: '{auth}, {year}' — no matching bib entry.")
                     self._stats["multi_year_mismatches"] += 1
-            apply_style_to_text(para, raw, YELLOW if any_miss else GREEN)
+            apply_style_to_text(para, raw, YELLOW if any_miss else GREEN, self.cite_style_id)
             return
 
         raw     = cite["raw"]
@@ -2135,7 +2201,7 @@ class CitationProcessor:
         if mt in ("suffix_ambiguous", "suffix_mismatch"):
             _mark_block_yellow()
             if blk_sz == 1:
-                apply_style_to_text(para, raw, YELLOW)
+                apply_style_to_text(para, raw, YELLOW, self.cite_style_id)
             if mt == "suffix_ambiguous":
                 self._add_issue(
                     "suffix_ambiguous", para_idx, para, raw,
@@ -2157,20 +2223,20 @@ class CitationProcessor:
                 _mark_block_yellow()
                 ff = ApaFixer.fix_etal_expansion(auth, ref)
                 if ff and ff != auth:
-                    replace_and_style(para, auth, ff, YELLOW)
+                    tracked_replace(para, auth, ff, YELLOW, self.cite_style_id)
                     self._add_issue(
                         "etal_enforcement", para_idx, para, raw,
                         f"👥 {ew} AUTO-FIXED → '{ff}'.")
                     self._stats["etal_autofixes"] += 1
                 else:
                     if blk_sz == 1:
-                        apply_style_to_text(para, raw, YELLOW)
+                        apply_style_to_text(para, raw, YELLOW, self.cite_style_id)
                     self._add_issue("etal_enforcement", para_idx, para, raw, f"👥 {ew}")
                 self._stats["etal_enforcement"] += 1
             else:
                 # Clean match — block colour handled by _apply_block_highlights
                 if blk_sz == 1:
-                    apply_style_to_text(para, raw, GREEN)
+                    apply_style_to_text(para, raw, GREEN, self.cite_style_id)
                 self._stats["matched"] += 1
 
             if mt == "org_abbrev":
@@ -2207,9 +2273,9 @@ class CitationProcessor:
             # apply_highlight_by_span to create a duplicate plain run.
             if blk_sz == 1:
                 if new_raw != raw:
-                    replace_and_style(para, raw, new_raw, YELLOW)
+                    tracked_replace(para, raw, new_raw, YELLOW, self.cite_style_id)
                 else:
-                    apply_style_to_text(para, raw, YELLOW)
+                    apply_style_to_text(para, raw, YELLOW, self.cite_style_id)
             self._add_issue(
                 "year_mismatch", para_idx, para, new_raw,
                 f"AQ: Note that the citation of reference \"{auth}, {year}\" has been "
@@ -2221,7 +2287,7 @@ class CitationProcessor:
             ref = self.bibliography[rk]
             _mark_block_yellow()
             if blk_sz == 1:
-                apply_style_to_text(para, raw, YELLOW)
+                apply_style_to_text(para, raw, YELLOW, self.cite_style_id)
             self._add_issue(
                 "spelling_mismatch", para_idx, para, raw,
                 f"SPELLING: cited '{auth}', bib has '{ref['display']}'.")
@@ -2230,7 +2296,7 @@ class CitationProcessor:
         else:
             _mark_block_yellow()
             if blk_sz == 1:
-                apply_style_to_text(para, raw, YELLOW)
+                apply_style_to_text(para, raw, YELLOW, self.cite_style_id)
             self._add_issue(
                 "missing", para_idx, para, raw,
                 f"AQ: The reference \"{raw}\" is cited in the text but not given in "
@@ -2283,9 +2349,9 @@ class CitationProcessor:
                 pos = runs_text.lower().find(blk_text.lower())
             if pos != -1:
                 apply_highlight_by_span(para, pos, pos + len(blk_text),
-                                        colour, CITE_STYLE)
+                                        colour, self.cite_style_id)
             else:
-                apply_style_to_text(para, pb["orig_blk"], colour)
+                apply_style_to_text(para, pb["orig_blk"], colour, self.cite_style_id)
 
         self._pending_blocks.clear()
 
@@ -2325,7 +2391,7 @@ class CitationProcessor:
             # to it without a second safe_splice call.
             highlight_run = None
             if para is not None:
-                highlight_run = apply_style_to_text(para, full_ref_text, YELLOW)
+                highlight_run = apply_style_to_text(para, full_ref_text, YELLOW, self.cite_style_id)
 
             # Attach the run to the issue so _insert_comments can use it.
             if self._issues:
@@ -2355,6 +2421,7 @@ class CitationProcessor:
     def _add_issue(self, itype, para_idx, para, raw, message, target_text=None):
         if target_text is None:
             target_text = raw
+        message = _to_smart_quotes(message)
         with self._lock:
             self._issues.append({
                 "type": itype,

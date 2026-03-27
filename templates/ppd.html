@@ -159,6 +159,20 @@
         <div id="fileList" class="file-list"></div>
     </div>
 
+    <!-- Combined dashboard option — visible only when 2+ files selected -->
+    <div id="combinedOption" style="display:none; margin: 1rem 0; padding: 1rem;
+         background: rgba(67,97,238,0.06); border-radius: 8px; border-left: 4px solid var(--primary);">
+        <label style="display:flex; align-items:center; gap:0.75rem; cursor:pointer; margin:0;">
+            <input type="checkbox" id="combinedCheck" class="task-checkbox">
+            <span>
+                <strong>Generate Combined Dashboard</strong>
+                <span class="text-muted" style="font-size:0.85rem; display:block;">
+                    Produces one <code>Combined_Dashboard.html</code> with all chapters on a single page
+                </span>
+            </span>
+        </label>
+    </div>
+
     <!-- Progress Bar -->
     <div id="progressSection" class="progress-section" style="display:none;">
         <label class="form-label">Processing Progress</label>
@@ -275,6 +289,11 @@
                 updateFileList();
             });
         });
+
+        // Show combined option only when 2+ files selected
+        const combinedOption = document.getElementById('combinedOption');
+        combinedOption.style.display = files.length >= 2 ? 'block' : 'none';
+        if (files.length < 2) document.getElementById('combinedCheck').checked = false;
     }
 
     function formatFileSize(bytes) {
@@ -296,6 +315,7 @@
             formData.append('docfiles', file);
         }
         formData.append('run_mss', 'true'); // Always run MSS analysis
+        formData.append('combined_dashboard', document.getElementById('combinedCheck').checked ? 'true' : 'false');
 
         // Show progress section
         progressSection.style.display = 'block';

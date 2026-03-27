@@ -128,7 +128,8 @@ def format_apa_from_metadata(meta: Dict) -> str:
             parts.insert(0, f"{', '.join(eds)} {ed_label}.")
 
         title_str = f"*{book_title}*" if book_title else ""
-        if edition: title_str += f" ({_ordinal(edition)} ed.)"
+        if edition and _ordinal(edition) not in ("1st", "1", "first"):
+            title_str += f" ({_ordinal(edition)} ed.)"
         if title_str: parts.append(title_str + ".")
         if publisher: parts.append(publisher + ".")
         if doi:       parts.append(f"https://doi.org/{doi}")
@@ -154,7 +155,8 @@ def format_apa_from_metadata(meta: Dict) -> str:
         ed_label = "Ed." if len(editors) == 1 else "Eds."
         in_str = "In " + ", ".join(editors) + f" ({ed_label}.), " if editors else "In "
         book_str = f"*{book}*" if book else ""
-        if edition: book_str += f" ({_ordinal(edition)} ed.)"
+        if edition and _ordinal(edition) not in ("1st", "1", "first"):
+            book_str += f" ({_ordinal(edition)} ed.)"
         pages = f"pp. {fpage}–{lpage}" if fpage and lpage else (f"pp. {fpage}" if fpage else "")
         chunk = in_str + book_str
         if pages: chunk += f" ({pages})"
@@ -274,7 +276,8 @@ def format_ama_from_metadata(meta: Dict) -> str:
             parts.append(", ".join(eds) + f", {ed_label}.")
 
         title_str = book_title or ""
-        if edition and edition != "1": title_str += f". {_ordinal(edition)} ed."
+        if edition and _ordinal(edition) not in ("1st", "1", "first"):
+            title_str += f". {_ordinal(edition)} ed."
         if title_str: parts.append(title_str + ".")
         if publisher: parts.append(publisher + ";")
         if year:      parts.append(year + ".")
@@ -302,7 +305,8 @@ def format_ama_from_metadata(meta: Dict) -> str:
         ed_label = "ed." if len(editors) == 1 else "eds."
         in_str = "In: " + ", ".join(editors) + f", {ed_label}. " if editors else "In: "
         book_str = book or ""
-        if edition and edition != "1": book_str += f". {_ordinal(edition)} ed."
+        if edition and _ordinal(edition) not in ("1st", "1", "first"):
+            book_str += f". {_ordinal(edition)} ed."
         parts.append(in_str + book_str + ".")
         if publisher: parts.append(publisher + ";")
         if year:      parts.append(year + ".")
@@ -364,13 +368,20 @@ def format_ama_from_metadata(meta: Dict) -> str:
 
 
 def _ordinal(n: str) -> str:
-    """Convert "2" → "2nd", "3" → "3rd", etc."""
+    """Convert "2" → "2nd", "3" → "3rd", etc. Handles strings like "1st ed"."""
     try:
-        n_int = int(n)
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n_int % 10 if n_int % 100 not in (11, 12, 13) else 0, "th")
-        return f"{n_int}{suffix}"
-    except (ValueError, TypeError):
-        return str(n)
+        import re
+        m = re.search(r'^(\d+)', str(n).strip())
+        if m:
+            n_int = int(m.group(1))
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(n_int % 10 if n_int % 100 not in (11, 12, 13) else 0, "th")
+            return f"{n_int}{suffix}"
+    except Exception:
+        pass
+    
+    # Fallback if no digit found: clean up 'ed' so it doesn't double print
+    clean = str(n).lower().replace("edition", "").replace("ed.", "").replace("ed", "").strip()
+    return clean
 
 
 # ─────────────────────────────────────────────
@@ -408,6 +419,8 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
     _clear_paragraph_text(para)
     styles = doc.styles if doc is not None else None
 
+    _ITALIC_STYLES = {"bib_journal", "bib_book", "bib_title"}
+
     # --- Extract Prefix (Numbering like "1. ", "2.\t") ---
     import re
     match = re.match(r'^(\d+\.[\t\s]*)', original_text)
@@ -438,11 +451,14 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
                 continue
             run = para.add_run(text)
             if style_name:
-                style_val = _ensure_style(doc, styles, style_name)
-                try:
-                    run.style = style_val
-                except Exception:
-                    pass
+                if style_name in _ITALIC_STYLES:
+                    run.italic = True
+                else:
+                    style_val = _ensure_style(doc, styles, style_name)
+                    try:
+                        run.style = style_val
+                    except Exception:
+                        pass
         return
 
     import difflib
@@ -551,6 +567,116 @@ def _set_paragraph_text(para, text: str, doc=None, original_text: str = None, is
 
 
 # ─────────────────────────────────────────────
+# DB JOURNAL NAME QUALIFIER STRIPPER
+# ─────────────────────────────────────────────
+
+# Regex: trailing " (Place, Country)" or " (Place, Country: year)" style suffixes
+_DB_QUALIFIER_PATTERN = re.compile(
+    r'\s+\([A-Z][\w\s]+,\s+[A-Z][\w\s]+(:\s*\d{4})?\)'
+)
+
+def _strip_db_journal_qualifiers(raw_source: str, metadata: dict, final_text: str) -> tuple:
+    """
+    Remove parenthetical location qualifiers added by CrossRef/PubMed to journal names
+    (e.g. 'Children (Basel, Switzerland)', 'Radiography (London, England: 1995)')
+    when they were NOT present in the original source reference text.
+
+    Cleans:
+      - metadata['bib_journal']  → used by build_segments_apa/ama
+      - final_text               → used by _parse_gemini_output_to_segments (fallback)
+
+    Returns: (cleaned_metadata, cleaned_final_text)
+    """
+    journal = (metadata.get("bib_journal") or "").strip()
+    if not journal:
+        return metadata, final_text
+
+    # Only strip if the qualifier is NOT in the original source
+    m = _DB_QUALIFIER_PATTERN.search(journal)
+    if m and m.group(0).strip() not in raw_source:
+        clean_journal = journal[:m.start()].strip()
+        logger.info(
+            f"  [JournalFix] Stripped DB qualifier: '{journal}' → '{clean_journal}'"
+        )
+        metadata = dict(metadata)  # shallow copy — don't mutate the original dict
+        metadata["bib_journal"] = clean_journal
+        # Also strip from the Gemini formatted_output text (italic spans or plain)
+        # Replace both plain and *italic* wrapped occurrences
+        bad_suffix = m.group(0)  # e.g. ' (Basel, Switzerland)'
+        final_text = final_text.replace(journal, clean_journal)
+        # Handle markdown-italic wrapping: *Journal (qualifier)*
+        escaped = re.escape(bad_suffix.strip())
+        final_text = re.sub(r'\s*' + escaped, '', final_text)
+
+    return metadata, final_text
+
+
+# ─────────────────────────────────────────────
+# GEMINI OUTPUT PARSER  (markdown → styled segments)
+# ─────────────────────────────────────────────
+
+def _parse_gemini_output_to_segments(text: str) -> List[Tuple[str, Optional[str]]]:
+    """
+    Parse a Gemini-formatted reference string (using Markdown *italic* markers)
+    into a list of (text, style) segments suitable for _write_styled_runs.
+
+    Markdown rules recognised:
+      *word*   -> italic run (bib_journal / bib_book style)
+      **word** -> bold run
+
+    After parsing italic/bold spans, plain segments are scanned for page ranges
+    (e.g. "100-110", "e13284-e13290") and split into bib_fpage / bib_lpage runs.
+    Everything else is a plain (None-style) run.
+    """
+    raw_segs: List[Tuple[str, Optional[str]]] = []
+    # Split on **...** first, then *...*
+    pattern = re.compile(r'\*\*(.+?)\*\*|\*(.+?)\*')
+    last = 0
+    for m in pattern.finditer(text):
+        start, end = m.start(), m.end()
+        if start > last:
+            raw_segs.append((text[last:start], None))
+        if m.group(1) is not None:           # **bold**
+            raw_segs.append((m.group(1), "bib_bold"))
+        else:                                 # *italic*
+            raw_segs.append((m.group(2), "bib_journal"))
+        last = end
+    if last < len(text):
+        raw_segs.append((text[last:], None))
+
+    # Post-process plain segments: detect page ranges and assign bib_fpage/bib_lpage
+    PAGE_RANGE = re.compile(
+        r'([A-Za-z]?\d+[A-Za-z0-9]*)\s*[\u2013\u2014-]\s*([A-Za-z]?\d+[A-Za-z0-9]*)'
+    )
+    segs: List[Tuple[str, Optional[str]]] = []
+    for seg_text, seg_style in raw_segs:
+        if seg_style is not None or not seg_text:
+            segs.append((seg_text, seg_style))
+            continue
+        last_pos = 0
+        for pm in PAGE_RANGE.finditer(seg_text):
+            before = seg_text[last_pos:pm.start()]
+            if before:
+                segs.append((before, None))
+            fpage = pm.group(1)
+            lpage = pm.group(2)
+            # Preserve whatever dash character was used
+            dash_start = pm.start() + len(fpage)
+            dash_end = pm.end() - len(lpage)
+            dash = seg_text[dash_start:dash_end].strip() or '\u2013'
+            segs.append((fpage, "bib_fpage"))
+            segs.append((dash, None))
+            segs.append((lpage, "bib_lpage"))
+            last_pos = pm.end()
+        remainder = seg_text[last_pos:]
+        if remainder:
+            segs.append((remainder, None))
+
+    return segs
+
+
+
+# ─────────────────────────────────────────────
 # SEGMENT BUILDERS  (bib_ metadata → styled segments)
 # ─────────────────────────────────────────────
 
@@ -569,7 +695,16 @@ def _format_initials_ama(initial: str) -> str:
     else:
         return "".join(c.upper() for c in initial if c.isalpha())
 
-def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
+def _format_initials_apa(initial: str) -> str:
+    if not initial: return ""
+    if any(c.islower() for c in initial):
+        clean = re.sub(r'[^a-zA-Z]', ' ', initial)
+        return " ".join([p[0].upper() + "." for p in clean.split() if p])
+    else:
+        letters = [c.upper() for c in initial if c.isalpha()]
+        return " ".join([c + "." for c in letters])
+
+def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Optional[str]]]:
     """
     Build AMA 11th-edition styled segments from bib_ metadata.
     Returns list of (text, bib_style_name_or_None) tuples.
@@ -618,6 +753,9 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         if n_auth > 6:
             segs.append((", ", None))
             segs.append(("et al", "bib_etal"))
+        if is_edited_book_primary:
+            ed_label = ", ed" if n_auth == 1 else ", eds"
+            segs.append((ed_label, None))
     segs.append((". ", None))
 
     # ── Title ─────────────────────────────────────────────────────
@@ -626,11 +764,13 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
     book_title    = meta.get("bib_book") or ""
 
     if ref_type == "book_chapter" and chapter_title:
-        segs.append((chapter_title, "bib_chaptertitle"))
-        segs.append((". ", None))
+        clean_title = chapter_title.rstrip('.')
+        segs.append((clean_title, "bib_chaptertitle"))
+        segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
     elif main_title:
-        segs.append((main_title, "bib_article" if ref_type == "journal" else "bib_title"))
-        segs.append((". ", None))
+        clean_title = main_title.rstrip('.')
+        segs.append((clean_title, "bib_article" if ref_type == "journal" else "bib_title"))
+        segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
 
     # ── In: editors (book chapter) ────────────────────────────────
     if ref_type == "book_chapter":
@@ -672,11 +812,15 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         if issue:
             segs.append(("(", None))
             segs.append((issue, "bib_issue"))
-            segs.append((") ", None))
-        pages_str = f"{fpage}-{lpage}" if fpage and lpage else (fpage or lpage)
-        if pages_str:
+            segs.append((")", None))
+        if fpage:
             segs.append((":", None))
-            segs.append((pages_str, "bib_fpage"))
+            segs.append((fpage, "bib_fpage"))
+            if lpage:
+                segs.append(("-", None))
+                segs.append((lpage, "bib_lpage"))
+        elif not volume and not issue and "Published online" in gemini_text:
+            segs.append((". Published online", None))
         segs.append((".", None))
 
     elif ref_type in ("book", "edited_book", "book_chapter"):
@@ -688,7 +832,7 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         if ref_type != "book_chapter" and book_title:
             segs.append((book_title, "bib_book"))
             segs.append((". ", None))
-        if edition and edition not in ("1", "1st"):
+        if edition and _ordinal(edition) not in ("1st", "1"):
             segs.append((_ordinal(edition) + " ed. ", "bib_editionno"))
         if publisher:
             segs.append((publisher, "bib_publisher"))
@@ -699,10 +843,12 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         if ref_type == "book_chapter":
             fpage = meta.get("bib_fpage") or ""
             lpage = meta.get("bib_lpage") or ""
-            pages_str = f"{fpage}-{lpage}" if fpage and lpage else (fpage or lpage)
-            if pages_str:
+            if fpage:
                 segs.append((":", None))
-                segs.append((pages_str, "bib_fpage"))
+                segs.append((fpage, "bib_fpage"))
+                if lpage:
+                    segs.append(("-", None))
+                    segs.append((lpage, "bib_lpage"))
         segs.append((".", None))
 
     elif ref_type == "conference":
@@ -711,8 +857,9 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         confdate = meta.get("bib_confdate")    or meta.get("bib_year") or ""
 
         if title := meta.get("bib_title") or "":
-            segs.append((title, "bib_confpaper"))
-            segs.append((". ", None))
+            clean_title = title.rstrip('.')
+            segs.append((clean_title, "bib_confpaper"))
+            segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
         segs.append(("Paper presented at: ", None))
         if conf:
             segs.append((conf, "bib_conference"))
@@ -729,8 +876,17 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         year     = meta.get("bib_year") or ""
         accessed = meta.get("bib_accessed") or ""
         url      = meta.get("bib_url") or ""
+        site     = meta.get("bib_journal") or meta.get("bib_book") or ""
+        pub      = meta.get("bib_publisher") or ""
         if title:
-            segs.append((title, "bib_title"))
+            clean_title = title.rstrip('.')
+            segs.append((clean_title, "bib_title"))
+            segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
+        if site:
+            segs.append((site, "bib_journal"))
+            segs.append((". ", None))
+        if pub and pub.lower() != site.lower():
+            segs.append((pub, "bib_publisher"))
             segs.append((". ", None))
         if year:
             segs.append(("Published ", None))
@@ -752,7 +908,7 @@ def build_segments_ama(meta: Dict) -> List[Tuple[str, Optional[str]]]:
     return segs
 
 
-def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
+def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Optional[str]]]:
     """
     Build APA 7th-edition styled segments from bib_ metadata.
     Returns list of (text, bib_style_name_or_None) tuples.
@@ -764,6 +920,13 @@ def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
     surnames = _split_pipe(meta.get("bib_surname"))
     fnames   = _split_pipe(meta.get("bib_fname"))
     n_auth   = len(surnames)
+
+    is_edited_book_primary = False
+    if ref_type == "edited_book" and n_auth == 0:
+        surnames = _split_pipe(meta.get("bib_ed_surname") or meta.get("bib_ed-surname"))
+        fnames   = _split_pipe(meta.get("bib_ed_fname") or meta.get("bib_ed-fname"))
+        n_auth = len(surnames)
+        is_edited_book_primary = True
 
     if n_auth == 0:
         org = meta.get("bib_organization") or meta.get("bib_institution") or ""
@@ -778,19 +941,23 @@ def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
                     segs.append(("& ", None))
             segs.append((surname, "bib_surname"))
             initial = fnames[i] if i < len(fnames) else ""
-            # APA initials: "John A" → "J. A."
-            parts_i = [p[0].upper() + "." for p in initial.split() if p]
-            if parts_i:
+            initials_str = _format_initials_apa(initial)
+            if initials_str:
                 segs.append((", ", None))
-                segs.append((" ".join(parts_i), "bib_fname"))
+                segs.append((initials_str, "bib_fname"))
         if n_auth > 20:
             segs.append((", … ", None))
             segs.append((surnames[-1], "bib_surname"))
             last_initial = fnames[-1] if len(fnames) >= n_auth else ""
-            parts_i = [p[0].upper() + "." for p in last_initial.split() if p]
-            if parts_i:
+            initials_str = _format_initials_apa(last_initial)
+            if initials_str:
                 segs.append((", ", None))
-                segs.append((" ".join(parts_i), "bib_fname"))
+                segs.append((initials_str, "bib_fname"))
+                
+    if is_edited_book_primary and n_auth > 0:
+        ed_label = " (Ed.)" if n_auth == 1 else " (Eds.)"
+        segs.append((ed_label, None))
+
     segs.append((" (", None))
     segs.append((meta.get("bib_year") or "n.d.", "bib_year"))
     segs.append(("). ", None))
@@ -801,15 +968,18 @@ def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
     book_title    = meta.get("bib_book") or ""
 
     if ref_type == "book_chapter" and chapter_title:
-        segs.append((chapter_title, "bib_chaptertitle"))
-        segs.append((". ", None))
+        clean_title = chapter_title.rstrip('.')
+        segs.append((clean_title, "bib_chaptertitle"))
+        segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
     elif ref_type in ("book", "edited_book") and book_title:
-        segs.append((book_title, "bib_book"))
-        segs.append((". ", None))
+        clean_title = book_title.rstrip('.')
+        segs.append((clean_title, "bib_book"))
+        segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
     elif main_title:
+        clean_title = main_title.rstrip('.')
         style = "bib_article" if ref_type == "journal" else "bib_title"
-        segs.append((main_title, style))
-        segs.append((". ", None))
+        segs.append((clean_title, style))
+        segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
 
     # ── In: editors (book chapter) ────────────────────────────────
     if ref_type == "book_chapter":
@@ -821,9 +991,9 @@ def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
                 if i > 0:
                     segs.append((", ", None))
                 ei = ed_fnames[i] if i < len(ed_fnames) else ""
-                parts_i = [p[0].upper() + "." for p in ei.split() if p]
-                if parts_i:
-                    segs.append((" ".join(parts_i) + " ", "bib_ed-fname"))
+                initials_str = _format_initials_apa(ei)
+                if initials_str:
+                    segs.append((initials_str + " ", "bib_ed-fname"))
                 segs.append((es, "bib_ed-surname"))
             ed_label = "(Ed.)," if len(ed_surnames) == 1 else "(Eds.),"
             segs.append((" " + ed_label + " ", None))
@@ -832,14 +1002,30 @@ def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         edition = meta.get("bib_editionno") or ""
         fpage   = meta.get("bib_fpage") or ""
         lpage   = meta.get("bib_lpage") or ""
-        if edition and edition not in ("1", "1st"):
-            segs.append((f" ({_ordinal(edition)} ed.,", None))
-            pages_str = f"pp. {fpage}–{lpage}" if fpage and lpage else (f"pp. {fpage}" if fpage else "")
-            segs.append((" " + pages_str + ")", None))
+        clean_ord = _ordinal(edition)
+        
+        if edition and clean_ord not in ("1st", "1", "first"):
+            segs.append((f" ({clean_ord} ed.,", None))
+            if fpage:
+                segs.append((" pp. ", None))
+                segs.append((fpage, "bib_fpage"))
+                if lpage:
+                    segs.append(("–", None))
+                    segs.append((lpage, "bib_lpage"))
+            segs.append((")", None))
         elif fpage:
-            pages_str = f"pp. {fpage}–{lpage}" if lpage else f"pp. {fpage}"
-            segs.append((f" ({pages_str})", None))
+            segs.append((" (pp. ", None))
+            segs.append((fpage, "bib_fpage"))
+            if lpage:
+                segs.append(("–", None))
+                segs.append((lpage, "bib_lpage"))
+            segs.append((")", None))
         segs.append((". ", None))
+        
+        publisher = meta.get("bib_publisher") or ""
+        if publisher:
+            segs.append((publisher, "bib_publisher"))
+            segs.append((". ", None))
 
     # ── Journal section ───────────────────────────────────────────
     if ref_type == "journal":
@@ -857,18 +1043,22 @@ def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
         if issue:
             segs.append(("(", None))
             segs.append((issue, "bib_issue"))
-            segs.append((") ", None))
-        pages_str = f"{fpage}–{lpage}" if fpage and lpage else (fpage or lpage)
-        if pages_str:
-            pages_str = pages_str.replace("-", "–")
+            segs.append((")", None))
+        
+        if fpage:
             segs.append((", ", None))
-            segs.append((pages_str, "bib_fpage"))
+            segs.append((fpage, "bib_fpage"))
+            if lpage:
+                segs.append(("–", None))
+                segs.append((lpage, "bib_lpage"))
+        elif not volume and not issue and "Advance online publication" in gemini_text:
+            segs.append((". Advance online publication", None))
         segs.append((".", None))
 
     elif ref_type in ("book", "edited_book"):
         edition   = meta.get("bib_editionno") or ""
         publisher = meta.get("bib_publisher") or ""
-        if edition and edition not in ("1", "1st"):
+        if edition and _ordinal(edition) not in ("1st", "1", "first"):
             segs.append((f"({_ordinal(edition)} ed.). ", "bib_editionno"))
         if publisher:
             segs.append((publisher, "bib_publisher"))
@@ -876,10 +1066,14 @@ def build_segments_apa(meta: Dict) -> List[Tuple[str, Optional[str]]]:
 
     elif ref_type in ("website", "ereference"):
         site     = meta.get("bib_journal") or meta.get("bib_book") or ""
+        pub      = meta.get("bib_publisher") or ""
         accessed = meta.get("bib_accessed") or ""
         url      = meta.get("bib_url") or ""
         if site:
             segs.append((site, "bib_journal"))
+            segs.append((". ", None))
+        if pub and pub.lower() != site.lower():
+            segs.append((pub, "bib_publisher"))
             segs.append((". ", None))
         if accessed:
             segs.append(("Retrieved " + accessed + ", from ", None))
@@ -1169,6 +1363,9 @@ def process_conversion(
             else:
                 final_text = format_apa_from_metadata(metadata)
 
+        # ── Strip DB-added journal name qualifiers ─────────────────────
+        metadata, final_text = _strip_db_journal_qualifiers(raw_text, metadata, final_text)
+
         if not final_text.strip():
             error_count += 1
             entry = ConversionLogEntry(
@@ -1180,13 +1377,33 @@ def process_conversion(
             continue
             
         try:
-            if resolved_target == "AMA":
-                segs = build_segments_ama(metadata)
-            else:
-                segs = build_segments_apa(metadata)
+            # PRIMARY PATH: Build granular bib_* character-style segments from Gemini metadata.
+            # This applies a distinct Word character style to EVERY reference element
+            # (surname, fname, year, journal, volume, issue, fpage, lpage, doi, etc.)
+            segs = []
+            if metadata and metadata.get("bib_reftype"):
+                try:
+                    if resolved_target == "AMA":
+                        segs = build_segments_ama(metadata, gemini_out)
+                    else:
+                        segs = build_segments_apa(metadata, gemini_out)
+                    # Sanity-check: if metadata segments produce very little text, fall through
+                    segs_text = "".join(t for t, _ in segs)
+                    if len(segs_text.strip()) < 10:
+                        segs = []
+                        logger.debug(f"  [{count}] Metadata segments too short; using Gemini text path.")
+                except Exception as _meta_err:
+                    segs = []
+                    logger.warning(f"  [{count}] Metadata segment build failed ({_meta_err}); falling back to Gemini text path.")
+
+            # FALLBACK PATH: Parse Gemini's formatted_output for italic/page-range styling.
+            # Used when metadata is missing or yields too little content.
+            if not segs and final_text:
+                segs = _parse_gemini_output_to_segments(final_text)
+                logger.debug(f"  [{count}] Using Gemini text parse (fallback) for styling.")
 
             if segs:
-                _write_styled_runs(para, segs, doc=doc, is_conversion=(detected_source != target_enum))
+                _write_styled_runs(para, segs, doc=doc, is_conversion=(detected_source != task['target_enum']))
             else:
                 _set_paragraph_text(para, final_text, doc=doc)
         except Exception as _seg_err:

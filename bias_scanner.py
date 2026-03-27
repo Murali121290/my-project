@@ -234,8 +234,16 @@ def convert_to_pdf(docx_path):
     Converts DOCX to PDF using LibreOffice (soffice).
     Returns path to PDF if successful, else None.
     """
+    abs_docx_path = os.path.abspath(docx_path)
+    # OPTIMIZATION: Check if app_server.py's bulk batch processor already created the PDF next to the DOCX
+    precomputed_pdf = os.path.splitext(abs_docx_path)[0] + ".pdf"
+    if os.path.exists(precomputed_pdf):
+        print(f"DEBUG: Found pre-computed PDF at {precomputed_pdf}")
+        return precomputed_pdf
+
     pdf_out_dir = os.path.join("outputs", "pdf")
     os.makedirs(pdf_out_dir, exist_ok=True)
+
     
     # Check for soffice
     soffice_cmd = "soffice"
