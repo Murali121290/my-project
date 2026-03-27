@@ -2059,7 +2059,7 @@ def ppd():
                 lo_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe"
             
             if lo_cmd and saved:
-                update_progress({"status": "Batch converting all documents to PDF..."})
+                update_progress({"status": "Batch processing..."})
                 try:
                     cmd = [lo_cmd, "--headless", "--convert-to", "pdf", "--outdir", unique_folder] + [os.path.abspath(p) for p in saved]
                     subprocess.run(cmd, timeout=300, capture_output=True)
