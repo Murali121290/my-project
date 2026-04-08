@@ -3304,7 +3304,8 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
             return cr, 'doi_crossref', 1.0
 
     # 2. Search Fallback (Priority: PubMed -> CrossRef)
-    if style_name == 'REF-N':
+    # Accept both Word paragraph style names ('REF-N') and CitationStyle enum values ('AMA')
+    if style_name in ('REF-N', 'AMA'):
         parsed = parse_ama_reference_raw(raw_ref)
     else:
         parsed = parse_apa_reference_raw(raw_ref)

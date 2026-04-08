@@ -18,14 +18,14 @@
 </head>
 <body>
   {% if chapters_data|length > 1 %}
-  <div class="header" style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
-    <img src="data:image/png;base64,{{ logo_b64 }}" alt="" style="height:40px;">
-    <div>
+  <div class="header" style="display:flex;align-items:center;margin-bottom:1rem;position:relative;">
+    <div style="position:absolute;left:0;right:0;text-align:center;pointer-events:none;">
       <strong style="font-size:1.2rem;">S4Carlisle Combined Analysis Dashboard</strong>
       <span class="text-muted" style="font-size:.9rem; margin-left:1rem;">
         {{ chapters_data|length }} chapter(s)
       </span>
     </div>
+    <img src="data:image/png;base64,{{ logo_b64 }}" alt="" style="height:40px;flex-shrink:0;margin-left:auto;">
   </div>
   
   <div class="chapter-nav">
@@ -126,9 +126,11 @@
   {% for ch in chapters_data %}
   <div id="ch{{ loop.index0 }}" class="chapter-section" style="{% if chapters_data|length > 1 or not loop.first %}display:none;{% endif %}">
     <div class="header">
-      <div class="title">
-        <img src="data:image/png;base64,{{ logo_b64 }}" alt="" style="height:40px;vertical-align:middle;margin-right:10px;">
-        S4Carlisle Manuscript Analysis Dashboard
+      <div class="title" style="position:relative;display:flex;align-items:center;">
+        <span style="position:absolute;left:0;right:0;text-align:center;pointer-events:none;">
+          S4Carlisle Manuscript Analysis Dashboard
+        </span>
+        <img src="data:image/png;base64,{{ logo_b64 }}" alt="" style="height:40px;margin-left:auto;flex-shrink:0;position:relative;">
       </div>
       <div class="metadata">
         <div class="meta-item"><div class="meta-label">Chapter No.</div><div class="meta-value">{{ ch.chapter_number | safe }}</div></div>
@@ -140,7 +142,7 @@
             Total Word Count = {{ ch.total_words | default(ch.words) | default(0) }}<br>
             Total MS Pages = {{ ch.total_pages | default(0) }}<br>
             CE MS Pages = {{ ch.ce_pages | default('—') }}<br>
-            LWW MS Pages = {{ ch.pages | default(0) }}
+            Main Text Page Count = {{ ch.pages | default(0) }}
           </div>
         </div>
         <div class="meta-item">

@@ -217,7 +217,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['COMMON_MACRO_FOLDER'] = COMMON_MACRO_FOLDER
 app.config['REPORT_FOLDER'] = REPORT_FOLDER
 app.config['DATABASE'] = DATABASE
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 
 # Session Hardening
 app.config['SESSION_COOKIE_NAME'] = 's4c_session'
@@ -2025,11 +2025,13 @@ def ppd():
                 build_combined_dashboard_html,
                 extract_chapter_metadata,
                 count_references_and_body_wc,
+                count_total_words_via_txt,
                 count_unnumbered_elements,
                 extract_unnumbered_image_markups,
                 build_unnumbered_image_markups_html,
                 build_text_page_map,
                 _page_from_map,
+                get_xml_comments,
             )
             from docx import Document as _DocxDocument
 
@@ -2083,7 +2085,7 @@ def ppd():
                     analyzer = CitationAnalyzer()
                     doc_data = [(t, p, c) for (t, p, c, _) in paras]
                     dtypes = analyzer.analyze_document_citations(doc_data)
-                    unnumbered_counts = count_unnumbered_elements(path, dtypes)
+                    unnumbered_counts = count_unnumbered_elements(path, dtypes, paras=paras)
 
                     # Extract image markup placeholders BEFORE tags are stripped
                     img_markup_items = extract_unnumbered_image_markups(path)
@@ -2101,14 +2103,35 @@ def ppd():
                         for (t, p, c, h) in paras
                     ]
 
+                    # Rebuild dtypes with PDF page numbers now that paras is remapped.
+                    # paras still holds original text (inline markers intact from pre-tag-removal),
+                    # so analyze_document_citations produces correct labels with PDF pages.
+                    doc_data = [(t, p, c) for (t, p, c, _) in paras]
+                    dtypes = analyzer.analyze_document_citations(doc_data)
+
+                    # Update callout pages using the remapped paragraphs
+                    from word_analyzer_docx import _CALLOUT_RE, _PAGE_REF_RE
+                    callout_pages = []
+                    callouts_count = 0
+                    for t, p, c, h in paras:
+                        if _CALLOUT_RE.search(t) or _PAGE_REF_RE.search(t):
+                            callouts_count += 1
+                            if p not in callout_pages:
+                                callout_pages.append(p)
+                    unnumbered_counts["callouts"] = callouts_count
+                    unnumbered_counts["callout_pages"] = sorted(callout_pages)
+
                     # --- Step 4: load Document once for all analysis passes ---
                     _doc = _DocxDocument(path)
 
                     table_count = len(dtypes.get("Table", {}).get("Caption", {}))
 
+                    # Re-fetch comments now that we have PDF page map and remapped paras
+                    comments = get_xml_comments(_doc, text_page_map=text_page_map, paras=paras)
+
                     # --- Step 5: generate all HTML sections (reuse _doc) ---
                     fmt_html = generate_formatting_html(
-                        path, used_word=False, text_page_map=text_page_map, doc=_doc
+                        path, used_word=False, text_page_map=text_page_map, doc=_doc, paras=paras
                     )
                     # multilingual loads its own copy because it highlights+saves the doc
                     spec_html = generate_multilingual_html(path, text_page_map=text_page_map)
@@ -2116,7 +2139,12 @@ def ppd():
 
                     # Chapter metadata, reference count, body word count
                     chapter_number, chapter_title, authors = extract_chapter_metadata(path, doc=_doc)
-                    ref_count, body_wc, total_wc = count_references_and_body_wc(path, doc=_doc)
+                    ref_count, body_wc, total_wc, ref_style = count_references_and_body_wc(path, doc=_doc)
+
+                    # Override total_wc with TXT-based count (matches Word's word count within ~10 words)
+                    _txt_wc = count_total_words_via_txt(path)
+                    if _txt_wc > 0:
+                        total_wc = _txt_wc
 
                     box_linker = BoxTagLinker(chapter_number=chapter_number)
                     box_linker.scan(doc_data)
@@ -2126,6 +2154,7 @@ def ppd():
                         dtypes, imgs, table_count, foot, end,
                         fmt_html, spec_html, com_html,
                         ref_count=ref_count,
+                        ref_style=ref_style,
                         unnumbered_counts=unnumbered_counts,
                         chapter_number=chapter_number,
                         box_linker=box_linker,
@@ -2521,7 +2550,10 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     try:
                         from ReferenceConversion import process_conversion
                         # source_style="Auto" auto-detects per reference; target_style is the desired output format
-                        conv_res = process_conversion(Path(current_filepath), Path(file_output_dir), source_style="Auto", target_style=target_style if target_style in ("AMA", "APA") else "APA")
+                        # "Auto" means keep each reference in its detected style (validate, don't convert)
+                        # Only convert when user explicitly chose "AMA" or "APA" as target
+                        conv_target = target_style if target_style in ("AMA", "APA") else "Auto"
+                        conv_res = process_conversion(Path(current_filepath), Path(file_output_dir), source_style="Auto", target_style=conv_target)
                         
                         if conv_res.get('log_file') and conv_res.get('log_file').exists():
                             with open(conv_res.get('log_file'), 'r', encoding='utf-8') as lf:
@@ -3752,7 +3784,23 @@ def start_background_cleanup():
 # -----------------------
 # Error Handlers
 # -----------------------
-from werkzeug.exceptions import NotFound
+from werkzeug.exceptions import NotFound, RequestEntityTooLarge
+
+@app.errorhandler(413)
+@app.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(error):
+    limit_mb = app.config.get('MAX_CONTENT_LENGTH', 0) // (1024 * 1024)
+    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({
+            'error': f'File too large. Please upload a file smaller than {limit_mb} MB.',
+            'code': 413
+        }), 413
+    return (
+        f'<h3>File Too Large</h3>'
+        f'<p>The uploaded file exceeds the {limit_mb}&nbsp;MB limit. '
+        f'Please use a smaller file and try again.</p>'
+        f'<a href="javascript:history.back()">&#8592; Go Back</a>'
+    ), 413
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(error):

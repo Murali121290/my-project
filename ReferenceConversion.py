@@ -423,20 +423,25 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
 
     # --- Extract Prefix (Numbering like "1. ", "2.\t") ---
     import re
-    match = re.match(r'^(\d+\.[\t\s]*)', original_text)
-    prefix_text = ""
+    match = re.match(r'^(\d+)(\.?)([\t\s]*)', original_text)
+    prefix_num = ""
+    prefix_sep = ""
     if match:
-        prefix_text = match.group(1)
-        original_text = original_text[len(prefix_text):]
-    
-    # --- Add Retained Prefix ---
-    if prefix_text:
-        run = para.add_run(prefix_text)
+        prefix_num = match.group(1)                                      # e.g. "18"
+        prefix_dot_sep = match.group(2) + match.group(3)                 # e.g. ".\t" or ". "
+        prefix_sep = prefix_dot_sep
+        original_text = original_text[len(prefix_num) + len(prefix_sep):]
+
+    # --- Add Retained Prefix: only digits get bib_number style, period+tab get no style ---
+    if prefix_num:
+        run = para.add_run(prefix_num)
         style_val = _ensure_style(doc, styles, "bib_number")
         try:
             run.style = style_val
         except Exception:
             pass
+    if prefix_sep:
+        para.add_run(prefix_sep)            # period + tab/space — no character style
 
     # Track Changes Support
     try:
@@ -451,14 +456,15 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
                 continue
             run = para.add_run(text)
             if style_name:
+                # Apply character style tag for ALL bib_* styles
+                style_val = _ensure_style(doc, styles, style_name)
+                try:
+                    run.style = style_val
+                except Exception:
+                    pass
+                # Also apply italic formatting for journal/book/title elements
                 if style_name in _ITALIC_STYLES:
                     run.italic = True
-                else:
-                    style_val = _ensure_style(doc, styles, style_name)
-                    try:
-                        run.style = style_val
-                    except Exception:
-                        pass
         return
 
     import difflib
@@ -493,8 +499,10 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
                                 run.style = style_val
                             except Exception:
                                 pass
+                            if style in _ITALIC_STYLES:
+                                run.italic = True
                     chunk_start = k
-                    
+
         elif opcode == 'delete':
             deleted_chunk = original_text[i1:i2]
             add_tracked_deletion(para, deleted_chunk, doc=doc, author="S4C Reference Converter")
@@ -739,6 +747,9 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             if org:
                 segs.append((org, "bib_organization"))
     else:
+        # For AMA edited_book, editor names are already handled in the n_auth==0 branch above
+        # (with ", ed/eds" suffix). Here n_auth > 0 means actual authors — not editors.
+        is_edited_book_primary = False
         # AMA: ≤6 list all; >6 → first 6 + et al  (strict rule: >6 → first 3, but Gemini already handles this)
         subset = surnames if n_auth <= 6 else surnames[:6]
         for i, surname in enumerate(subset):
@@ -900,9 +911,10 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((url, "bib_url"))
 
     # ── DOI ────────────────────────────────────────────────────────
+    # AMA 11th edition: doi:10.xxx (not https://doi.org/)
     doi = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
     if doi and ref_type not in ("website", "ereference"):
-        segs.append((" doi:", None))
+        segs.append((" doi:", "bib_doi"))
         segs.append((doi, "bib_doi"))
 
     return segs
@@ -1094,6 +1106,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         segs.append((".", None))
 
     # ── DOI / URL ─────────────────────────────────────────────────
+    # APA 7th edition: https://doi.org/10.xxx (full URL, entire element gets bib_doi style)
     doi = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
     url = meta.get("bib_url") or ""
     if doi:
@@ -1235,11 +1248,16 @@ def process_conversion(
             continue
 
         total_count += 1
+        try:
+            para_style_name = para.style.name or ''
+        except Exception:
+            para_style_name = ''
         tasks.append({
             'doc_index': idx,
             'para_obj': para,
             'raw_text': raw_text,
-            'count': total_count
+            'count': total_count,
+            'para_style': para_style_name
         })
 
     # ── Phase 2: Parallel Conversion ────────────────────────────────
@@ -1249,7 +1267,13 @@ def process_conversion(
         logger.info(f"[{count}] Conversion API Call: {raw_text[:80]}...")
 
         if source_style.upper() == "AUTO":
-            detected_source = detect_source_style(raw_text)
+            para_style = task.get('para_style', '')
+            if para_style == 'REF-N':
+                detected_source = CitationStyle.AMA
+            elif para_style in ('REF-U', 'REF'):
+                detected_source = CitationStyle.APA
+            else:
+                detected_source = detect_source_style(raw_text)
         else:
             detected_source = CitationStyle.AMA if source_style.upper() == "AMA" else CitationStyle.APA
 
@@ -1345,10 +1369,55 @@ def process_conversion(
 
         cr_it = task.get('cr_item')
         if cr_it:
+            # ── DOI / URL ────────────────────────────────────────────
             if cr_it.get("DOI") and not metadata.get("bib_doi"):
                 metadata["bib_doi"] = str(cr_it["DOI"]).replace("https://doi.org/", "").replace("doi:", "").strip()
             if cr_it.get("URL") and not metadata.get("bib_url"):
                 metadata["bib_url"] = str(cr_it["URL"]).strip()
+
+            # ── Volume / Issue / Pages ────────────────────────────────
+            if cr_it.get("volume") and not metadata.get("bib_volume"):
+                metadata["bib_volume"] = str(cr_it["volume"]).strip()
+            if cr_it.get("issue") and not metadata.get("bib_issue"):
+                metadata["bib_issue"] = str(cr_it["issue"]).strip()
+            if cr_it.get("page") and not metadata.get("bib_fpage"):
+                raw_page = str(cr_it["page"]).strip()
+                if "-" in raw_page:
+                    parts = raw_page.split("-", 1)
+                    metadata["bib_fpage"] = parts[0].strip()
+                    if not metadata.get("bib_lpage"):
+                        metadata["bib_lpage"] = parts[1].strip()
+                else:
+                    metadata["bib_fpage"] = raw_page
+
+            # ── Year (DB is authoritative; overwrite if Gemini differs) ──
+            db_year = None
+            for date_key in ("published-print", "published-online", "issued"):
+                dp = cr_it.get(date_key, {}).get("date-parts")
+                if dp and dp[0] and dp[0][0]:
+                    db_year = str(dp[0][0])
+                    break
+            if not db_year and cr_it.get("year"):
+                db_year = str(cr_it["year"])
+            if db_year:
+                if not metadata.get("bib_year"):
+                    metadata["bib_year"] = db_year
+                elif metadata.get("bib_year", "").rstrip("abcdefghijklmnopqrstuvwxyz") != db_year:
+                    # DB year differs from Gemini year — DB wins (keeps any letter suffix from Gemini)
+                    suffix = metadata["bib_year"][len(metadata["bib_year"].rstrip("abcdefghijklmnopqrstuvwxyz")):]
+                    metadata["bib_year"] = db_year + suffix
+                    logger.info(f"  [{count}] [DB Correction] Year corrected to {db_year}{suffix} from DB")
+
+            # ── Journal name: fill from DB if Gemini left it blank ───
+            if not metadata.get("bib_journal"):
+                # Prefer abbreviated title for AMA, full title for APA
+                if resolved_target == "AMA":
+                    abbr = (cr_it.get("short-container-title") or [""])[0].strip()
+                    full = (cr_it.get("container-title") or [""])[0].strip()
+                    metadata["bib_journal"] = abbr or full
+                else:
+                    full = (cr_it.get("container-title") or [""])[0].strip()
+                    metadata["bib_journal"] = full
 
         if prefer_gemini_output and gemini_out:
             final_text = gemini_out

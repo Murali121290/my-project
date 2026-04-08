@@ -180,6 +180,18 @@
     <!-- Download Section -->
     <div id="resultSection" class="download-section" style="display:none;"></div>
 
+    <!-- Combined Dashboard Option -->
+    <div class="d-flex align-items-start gap-2 mb-3 p-3" style="background:#f8f9fa;border-radius:8px;">
+        <input type="checkbox" id="combinedDashboardChk" class="form-check-input mt-1" style="cursor:pointer;">
+        <label for="combinedDashboardChk" style="cursor:pointer;">
+            <strong>Generate Combined Dashboard</strong>
+            <div class="text-muted" style="font-size:.85rem;">
+                Produces one <code>Combined_Dashboard.html</code> with all chapters on a single page.
+                Requires 2 or more files.
+            </div>
+        </label>
+    </div>
+
     <!-- Action Buttons -->
     <div class="d-flex gap-2 justify-between">
         <button id="analyzeBtn" class="btn btn-primary px-4 py-2">
@@ -304,6 +316,8 @@
             formData.append('docfiles', file);
         }
         formData.append('run_mss', 'true'); // Always run MSS analysis
+        const combinedDashboard = document.getElementById('combinedDashboardChk')?.checked ? 'true' : 'false';
+        formData.append('combined_dashboard', combinedDashboard);
 
         // Show progress section
         progressSection.style.display = 'block';
