@@ -79,7 +79,23 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof $ !== 'undefined' && $.fn.DataTable) {
         $('table.analysis-table, table.element-table, table:not(#globalSummaryTable)').each(function() {
             if ($(this).find('td[colspan], td[rowspan]').length > 0) return;
-            try { $(this).DataTable({ pageLength:10, autoWidth:false, ordering:true, responsive:true, columnDefs:[{targets:"_all",defaultContent:""}] }); }
+            // Find Page column index (marked with dt-page-col class) for default sort
+            var pageColIdx = -1;
+            $(this).find('thead th').each(function(i) {
+                if ($(this).hasClass('dt-page-col')) { pageColIdx = i; return false; }
+            });
+            var colDefs = [{targets: '_all', defaultContent: ''}];
+            if (pageColIdx >= 0) colDefs.push({targets: pageColIdx, type: 'num'});
+            try {
+                $(this).DataTable({
+                    pageLength: 10,
+                    autoWidth: false,
+                    ordering: true,
+                    order: pageColIdx >= 0 ? [[pageColIdx, 'asc']] : [],
+                    responsive: true,
+                    columnDefs: colDefs
+                });
+            }
             catch(e) { console.warn('DataTable init failed', e); }
         });
 

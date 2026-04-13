@@ -3,18 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>S4Carlisle Analysis Dashboard</title>
-
-  <!-- CDNs -->
+  <title>S4Carlisle Dashboard — Sample Preview</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
-
   <style>
     :root {
       --primary: #4361ee;
@@ -32,6 +25,7 @@
     /* ── Topbar ── */
     .topbar { background:var(--card-bg); padding:0.85rem 1.8rem; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 4px rgba(0,0,0,0.09); position:sticky; top:0; z-index:100; }
     .topbar-left { display:flex; align-items:center; gap:1rem; }
+    .topbar-logo { height:38px; }
     .topbar-title { font-size:1rem; font-weight:700; color:#2c3e50; }
     .topbar-sub { font-size:0.8rem; color:#888; margin-top:1px; }
     .topbar-actions { display:flex; gap:0.5rem; }
@@ -135,10 +129,10 @@
 
     /* ── Print ── */
     @media print {
-      .topbar, #back-to-top, .sticky-tab-bar, .chevron, .dt-buttons, .dataTables_filter, .dataTables_length, .dataTables_paginate { display:none !important; }
+      .topbar, #back-to-top, .sticky-tab-bar, .chevron { display:none !important; }
       body { background:white; }
       .page-body { padding:0.5cm 1cm; }
-      .tab-content { display:block !important; page-break-inside:avoid; }
+      .tab-content { display:block !important; }
       .collapse-body.closed { max-height:none !important; }
       .collapse-header { background:#1e2235 !important; color:white !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
       .collapse-header-left { color:white !important; }
@@ -147,23 +141,21 @@
       @page { size:A4 landscape; margin:1.2cm 1.5cm; }
     }
   </style>
-
 </head>
 <body>
-{% set ch = chapters_data[0] %}
 
 <!-- ── Topbar ── -->
 <div class="topbar">
   <div class="topbar-left">
-    <img src="data:image/png;base64,{{ logo_b64 }}" alt="S4C Logo" style="height:38px;width:auto;border-radius:8px;object-fit:contain;flex-shrink:0;">
+    <img src="../static/images/S4c.png" alt="S4C Logo" style="height:38px;width:auto;border-radius:8px;object-fit:contain;flex-shrink:0;">
     <div>
       <div class="topbar-title">S4Carlisle Manuscript Analysis Dashboard</div>
-      <div class="topbar-sub"><strong>{{ ch.book_title|default(ch.doc_name)|safe }}</strong></div>
+      <div class="topbar-sub"><strong>Abuhamad — Ultrasound in Obstetrics &amp; Gynecology, 3e</strong></div>
     </div>
   </div>
   <div class="topbar-actions">
     <button class="btn-icon" title="Print / Save as PDF" onclick="window.print()"><i class="fas fa-print"></i></button>
-    <button class="btn-icon" title="Download Excel" onclick="if(window._dtExcelBtn)window._dtExcelBtn.trigger();"><i class="fas fa-file-excel"></i></button>
+    <button class="btn-icon" title="Download Excel"><i class="fas fa-file-excel"></i></button>
   </div>
 </div>
 
@@ -173,33 +165,33 @@
   <!-- ── Meta header card ── -->
   <div class="meta-header-card">
     <div class="meta-title-row">
-      <div class="meta-chapter-badge">{{ ch.chapter_number|default('—') }}</div>
+      <div class="meta-chapter-badge">Ch01</div>
       <div class="meta-title-block">
-        <div class="meta-chapter-title">{{ ch.chapter_title|default(ch.doc_name)|safe }}</div>
-        <div class="meta-authors"><i class="fas fa-user-edit"></i> {{ ch.authors|default('—')|safe }}</div>
+        <div class="meta-chapter-title">Physics of Diagnostic Ultrasound</div>
+        <div class="meta-authors"><i class="fas fa-user-edit"></i> Alfred Abuhamad, Rabih Chaoui</div>
       </div>
       <div class="meta-date-block">
         <div class="meta-date-label">Analysed</div>
-        <div class="meta-analyst"><i class="fas fa-user-check"></i> Analyst: {{ ch.analyst|default('—') }}</div>
-        <div class="meta-date-value">{{ ch.date|default('—') }}</div>
+        <div class="meta-analyst"><i class="fas fa-user-check"></i> Analyst: admin</div>
+        <div class="meta-date-value">10-04-2026</div>
       </div>
     </div>
     <div class="meta-stats-row">
       <div class="meta-stat-box">
         <div class="meta-stat-icon purple"><i class="fas fa-calculator"></i></div>
-        <div><div class="meta-stat-val">{{ ch.total_words|default(ch.words)|default(0) }}</div><div class="meta-stat-lbl">Total Word Count</div></div>
+        <div><div class="meta-stat-val">4,927</div><div class="meta-stat-lbl">Total Word Count</div></div>
       </div>
       <div class="meta-stat-box">
         <div class="meta-stat-icon teal"><i class="fas fa-file-alt"></i></div>
-        <div><div class="meta-stat-val">{{ ch.total_pages|default(0) }}</div><div class="meta-stat-lbl">Total MS Pages</div></div>
+        <div><div class="meta-stat-val">19</div><div class="meta-stat-lbl">Total MS Pages</div></div>
       </div>
       <div class="meta-stat-box">
         <div class="meta-stat-icon orange"><i class="fas fa-copy"></i></div>
-        <div><div class="meta-stat-val">{{ ch.ce_pages|default('—') }}</div><div class="meta-stat-lbl">CE MS Pages</div></div>
+        <div><div class="meta-stat-val">20</div><div class="meta-stat-lbl">CE MS Pages</div></div>
       </div>
       <div class="meta-stat-box">
         <div class="meta-stat-icon green"><i class="fas fa-align-left"></i></div>
-        <div><div class="meta-stat-val">{{ ch.pages|default(0) }}</div><div class="meta-stat-lbl">Main Text Page Count</div></div>
+        <div><div class="meta-stat-val">19</div><div class="meta-stat-lbl">Main Text Page Count</div></div>
       </div>
     </div>
   </div>
@@ -208,41 +200,41 @@
   <div class="stat-cards">
     <div class="stat-card blue">
       <div class="stat-icon"><i class="fas fa-link"></i></div>
-      <div class="stat-count">{{ ch.total_citations|default(0) }}</div>
+      <div class="stat-count">14</div>
       <div class="stat-label">Total Citations</div>
-      <div class="stat-sub">Fig: {{ ch.fig_total_cit|default(0) }} &bull; Tab: {{ ch.tab_total_cit|default(0) }} &bull; Box: {{ ch.box_total_cit|default(0) }}</div>
+      <div class="stat-sub">Fig: 12 &bull; Tab: 2 &bull; Box: 0</div>
     </div>
     <div class="stat-card amber">
       <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
-      <div class="stat-count">{{ ch.missing_citations|default(0) }}</div>
+      <div class="stat-count">0</div>
       <div class="stat-label">Missing Citations</div>
-      <div class="stat-sub">Fig: {{ ch.fig_missing_cit|default(0) }} &bull; Tab: {{ ch.tab_missing_cit|default(0) }} &bull; Box: {{ ch.box_missing_cit|default(0) }}</div>
+      <div class="stat-sub">All matched</div>
     </div>
     <div class="stat-card green">
       <div class="stat-icon"><i class="fas fa-image"></i></div>
-      <div class="stat-count">{{ ch.total_captions|default(0) }}</div>
+      <div class="stat-count">12</div>
       <div class="stat-label">Total Captions</div>
-      <div class="stat-sub">Fig: {{ ch.fig_total_cap|default(0) }} &bull; Tab: {{ ch.tab_total_cap|default(0) }} &bull; Box: {{ ch.box_total_cap|default(0) }}</div>
+      <div class="stat-sub">Fig: 10 &bull; Tab: 2 &bull; Box: 0</div>
     </div>
     <div class="stat-card rose">
       <div class="stat-icon"><i class="fas fa-image"></i></div>
-      <div class="stat-count">{{ ch.missing_captions|default(0) }}</div>
+      <div class="stat-count">0</div>
       <div class="stat-label">Missing Captions</div>
-      <div class="stat-sub">Fig: {{ ch.fig_missing_cap|default(0) }} &bull; Tab: {{ ch.tab_missing_cap|default(0) }} &bull; Box: {{ ch.box_missing_cap|default(0) }}</div>
+      <div class="stat-sub">All matched</div>
     </div>
     <div class="stat-card purple">
       <div class="stat-icon"><i class="fas fa-paint-brush"></i></div>
-      <div class="stat-count">{{ ch.fmt_issues|default(0) }}</div>
+      <div class="stat-count">4</div>
       <div class="stat-label">Formatting Issues</div>
     </div>
     <div class="stat-card slate">
       <div class="stat-icon"><i class="fas fa-font"></i></div>
-      <div class="stat-count">{{ ch.spec_count|default(0) }}</div>
+      <div class="stat-count">8</div>
       <div class="stat-label">Special Chars</div>
     </div>
   </div>
 
-  <!-- ── Analysis Summary (server-generated) ── -->
+  <!-- ── Analysis Summary (collapsible) ── -->
   <div class="collapse-card">
     <div class="collapse-header open" onclick="toggleCollapse('summary_body',this)">
       <div class="collapse-header-left"><i class="fas fa-chart-pie si"></i> Analysis Summary</div>
@@ -250,7 +242,95 @@
     </div>
     <div class="collapse-body" id="summary_body" style="max-height:4000px;">
       <div class="collapse-body-inner">
-        {{ ch.detailed_summary | safe }}
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Element Type</th>
+              <th>Totals</th>
+              <th>Status Overview</th>
+              <th>Citations Status</th>
+              <th>Captions Status</th>
+              <th>Recommended Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="summary-table-row" onclick="showTabFromRow('citations',this)">
+              <td><strong>Figures</strong></td>
+              <td>12</td>
+              <td>
+                <div class="progress-wrap">
+                  <div class="progress-bar-bg"><div class="progress-bar-fill" style="background:linear-gradient(90deg,#27ae60,#2ecc71);width:0%" data-w="100"></div></div>
+                  <span style="font-size:12px;color:#27ae60;">100% Complete</span>
+                </div>
+              </td>
+              <td><i class="fas fa-check-circle" style="color:#27ae60;"></i> 12 citation(s)</td>
+              <td><i class="fas fa-check-circle" style="color:#27ae60;"></i> 10 caption(s)</td>
+              <td>No action required</td>
+            </tr>
+            <tr class="summary-table-row" onclick="showTabFromRow('citations',this)">
+              <td><strong>Tables</strong></td>
+              <td>2</td>
+              <td>
+                <div class="progress-wrap">
+                  <div class="progress-bar-bg"><div class="progress-bar-fill" style="background:linear-gradient(90deg,#27ae60,#2ecc71);width:0%" data-w="100"></div></div>
+                  <span style="font-size:12px;color:#27ae60;">100% Complete</span>
+                </div>
+              </td>
+              <td><i class="fas fa-check-circle" style="color:#27ae60;"></i> 2 citation(s)</td>
+              <td><i class="fas fa-check-circle" style="color:#27ae60;"></i> 2 caption(s)</td>
+              <td>No action required</td>
+            </tr>
+            <tr class="summary-table-row" onclick="showTabFromRow('citations',this)">
+              <td><strong>Boxes</strong></td>
+              <td>0</td>
+              <td>
+                <div class="progress-wrap">
+                  <div class="progress-bar-bg"><div class="progress-bar-fill" style="background:#ccc;width:0%" data-w="0"></div></div>
+                  <span style="font-size:12px;color:#aaa;">N/A</span>
+                </div>
+              </td>
+              <td><i class="fas fa-check-circle" style="color:#27ae60;"></i> 0 citation(s)</td>
+              <td><i class="fas fa-check-circle" style="color:#27ae60;"></i> 0 caption(s)</td>
+              <td>No action required</td>
+            </tr>
+            <tr class="summary-table-row" onclick="showTabFromRow('special-chars',this)">
+              <td><strong>Non-Std characters/typesetting instructions</strong></td>
+              <td>8</td>
+              <td colspan="3"><a href="javascript:void(0);" onclick="showTab('special-chars')" style="color:var(--primary);text-decoration:underline;">Review multilingual symbols</a></td>
+              <td>Review non-standard characters and typesetting instructions</td>
+            </tr>
+            <tr class="summary-table-row" onclick="showTabFromRow('formatting',this)">
+              <td><strong>Formatting Issues</strong></td>
+              <td>4</td>
+              <td colspan="3"><a href="javascript:void(0);" onclick="showTab('formatting')" style="color:#f39c12;text-decoration:underline;">View formatting issues</a></td>
+              <td>Review formatting anomalies</td>
+            </tr>
+            <tr class="summary-table-row" onclick="showTabFromRow('comments',this)">
+              <td><strong>Comments</strong></td>
+              <td>0</td>
+              <td colspan="3"><a href="javascript:void(0);" onclick="showTab('comments')" style="color:#3498db;text-decoration:underline;">Review Comments and highlighted text</a></td>
+              <td>No action required</td>
+            </tr>
+            <tr class="summary-table-row">
+              <td><strong>Notes</strong></td>
+              <td>0</td>
+              <td colspan="3">0 Footnotes, 0 Endnotes</td>
+              <td>No action required</td>
+            </tr>
+            <tr class="summary-table-row">
+              <td><strong>Images</strong></td>
+              <td>0</td>
+              <td colspan="3"><span style="color:#e67e22;"><i class="fas fa-exclamation-triangle"></i> No images detected</span></td>
+              <td>No action required</td>
+            </tr>
+            <tr class="summary-table-row" onclick="showTabFromRow('unnumbered',this)">
+              <td><strong>Unnumbered Elements</strong></td>
+              <td>1</td>
+              <td colspan="3"><span style="color:#e67e22;"><i class="fas fa-exclamation-triangle"></i> 1 callout(s)</span></td>
+              <td>Add numbers/captions where needed</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -266,28 +346,146 @@
 
   <!-- ── Tab: Citations ── -->
   <div id="tab_citations" class="tab-content active">
-    {{ ch.msr_content | safe }}
+    <div class="collapse-card">
+      <div class="collapse-header open" onclick="toggleCollapse('cit_fig',this)">
+        <div class="collapse-header-left"><i class="fas fa-link si"></i> Figure Citation ↔ Caption Mapping</div>
+        <i class="fas fa-chevron-down chevron"></i>
+      </div>
+      <div class="collapse-body" id="cit_fig" style="max-height:4000px;">
+        <div class="collapse-body-inner">
+          <table>
+            <thead><tr><th>Figure ID</th><th>Cited in Text</th><th>Caption Found</th><th>Status</th><th>Citation Page</th><th>Caption Page</th></tr></thead>
+            <tbody>
+              <tr><td>Fig 1.1</td><td><i class="fas fa-check-circle" style="color:#27ae60;"></i> Yes</td><td><i class="fas fa-check-circle" style="color:#27ae60;"></i> Yes</td><td><span class="badge-ok">Matched</span></td><td>2</td><td>2</td></tr>
+              <tr><td>Fig 1.2</td><td><i class="fas fa-check-circle" style="color:#27ae60;"></i> Yes</td><td><i class="fas fa-check-circle" style="color:#27ae60;"></i> Yes</td><td><span class="badge-ok">Matched</span></td><td>3</td><td>3</td></tr>
+              <tr><td>Fig 1.3</td><td><i class="fas fa-check-circle" style="color:#27ae60;"></i> Yes</td><td><i class="fas fa-check-circle" style="color:#27ae60;"></i> Yes</td><td><span class="badge-ok">Matched</span></td><td>5</td><td>5</td></tr>
+              <tr><td colspan="6" style="text-align:center;color:#27ae60;padding:12px;">&#10003; No issues found — all elements matched.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="collapse-card">
+      <div class="collapse-header open" onclick="toggleCollapse('cit_tab',this)">
+        <div class="collapse-header-left"><i class="fas fa-table si"></i> Table Citation ↔ Caption Mapping</div>
+        <i class="fas fa-chevron-down chevron"></i>
+      </div>
+      <div class="collapse-body" id="cit_tab" style="max-height:4000px;">
+        <div class="collapse-body-inner">
+          <table>
+            <thead><tr><th>Table ID</th><th>Cited in Text</th><th>Caption Found</th><th>Status</th><th>Citation Page</th><th>Caption Page</th></tr></thead>
+            <tbody>
+              <tr><td colspan="6" style="text-align:center;color:#27ae60;padding:12px;">&#10003; No issues found — all elements matched.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Tab: Special Chars ── -->
   <div id="tab_special-chars" class="tab-content">
-    {{ ch.spec_content | safe }}
+    <div class="collapse-card">
+      <div class="collapse-header open" onclick="toggleCollapse('sc_kw',this)">
+        <div class="collapse-header-left"><i class="fas fa-tag si"></i> Keywords</div>
+        <i class="fas fa-chevron-down chevron"></i>
+      </div>
+      <div class="collapse-body" id="sc_kw" style="max-height:4000px;">
+        <div class="collapse-body-inner">
+          <table>
+            <thead><tr><th data-orderable="false">Type</th><th data-orderable="false">Line</th><th>Page</th></tr></thead>
+            <tbody>
+              <tr><td>Keyword: See Chapter</td><td><mark>See Chapter</mark> 5 for more details.</td><td>6</td></tr>
+              <tr><td>Keyword: See Chapter</td><td><mark>See Chapter</mark> 5 for more details.</td><td>7</td></tr>
+              <tr><td>Keyword: see Table</td><td>The TI is reported in three forms TIS, TIB and TIC (<mark>see Table</mark> 1.</td><td>8</td></tr>
+              <tr><td>Keyword: See text</td><td><mark>See text</mark> for more details.</td><td>16</td></tr>
+              <tr><td>Keyword: See text</td><td><mark>See text</mark> for details.</td><td>17</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="collapse-card">
+      <div class="collapse-header open" onclick="toggleCollapse('sc_ml',this)">
+        <div class="collapse-header-left"><i class="fas fa-language si"></i> Multilingual Characters</div>
+        <i class="fas fa-chevron-down chevron"></i>
+      </div>
+      <div class="collapse-body" id="sc_ml" style="max-height:4000px;">
+        <div class="collapse-body-inner">
+          <table>
+            <thead><tr><th data-orderable="false">Type</th><th data-orderable="false">Characters</th><th>Page</th></tr></thead>
+            <tbody>
+              <tr><td>Greek</td><td>θ</td><td>15</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Tab: Formatting ── -->
   <div id="tab_formatting" class="tab-content">
-    {{ ch.fmt_content | safe }}
+    <div class="collapse-card">
+      <div class="collapse-header open" onclick="toggleCollapse('fmt_body',this)">
+        <div class="collapse-header-left"><i class="fas fa-paint-brush si"></i> Formatting Issues</div>
+        <i class="fas fa-chevron-down chevron"></i>
+      </div>
+      <div class="collapse-body" id="fmt_body" style="max-height:4000px;">
+        <div class="collapse-body-inner">
+          <table>
+            <thead><tr><th>Category</th><th>Details</th><th>Page</th></tr></thead>
+            <tbody>
+              <tr><td>Page Break</td><td>Empty paragraph</td><td>12</td></tr>
+              <tr><td>Page Break</td><td>Empty paragraph</td><td>14</td></tr>
+              <tr><td>Page Break</td><td>Empty paragraph</td><td>17</td></tr>
+              <tr><td>Page Break</td><td>Empty paragraph</td><td>18</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Tab: Comments ── -->
   <div id="tab_comments" class="tab-content">
-    {{ ch.comment_content | safe }}
-    {{ ch.export_highlight | safe }}
+    <div class="collapse-card">
+      <div class="collapse-header open" onclick="toggleCollapse('com_body',this)">
+        <div class="collapse-header-left"><i class="fas fa-comment si"></i> Comments &amp; Highlighted Text</div>
+        <i class="fas fa-chevron-down chevron"></i>
+      </div>
+      <div class="collapse-body" id="com_body" style="max-height:4000px;">
+        <div class="collapse-body-inner">
+          <p style="text-align:center;color:#aaa;padding:2rem 0;">
+            <i class="fas fa-check-circle" style="font-size:1.8rem;display:block;margin-bottom:0.5rem;color:#27ae60;"></i>
+            No comments found. &nbsp; No highlighted text found.
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Tab: Unnumbered ── -->
   <div id="tab_unnumbered" class="tab-content">
-    {{ ch.unnumbered_content | safe }}
+    <div class="collapse-card">
+      <div class="collapse-header open" onclick="toggleCollapse('unn_body',this)">
+        <div class="collapse-header-left"><i class="fas fa-list-ol si"></i> Unnumbered Elements</div>
+        <i class="fas fa-chevron-down chevron"></i>
+      </div>
+      <div class="collapse-body" id="unn_body" style="max-height:4000px;">
+        <div class="collapse-body-inner">
+          <table>
+            <thead><tr><th>Element Type</th><th>Count</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Callouts</td>
+                <td>1</td>
+                <td>Multiple cross-references, including "see Figure X," "see table above," and page citations, appear on pages: 8</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
 </div><!-- /page-body -->
@@ -297,45 +495,16 @@
 </button>
 
 <script>
-  // ── Lazy DataTables Init ──
-  var _dtReady = new Set();
-  function _initTabDT(containerId) {
-    if (!containerId || _dtReady.has(containerId)) return;
-    _dtReady.add(containerId);
-    if (typeof $ === 'undefined' || !$.fn.DataTable) return;
-    var container = document.getElementById(containerId);
-    if (!container) return;
-    $(container).find('table').each(function() {
-      if ($(this).find('td[colspan], td[rowspan]').length > 0) return;
-      if ($.fn.DataTable.isDataTable(this)) return;
-      var pageColIdx = -1;
-      $(this).find('thead th').each(function(i) {
-        if ($(this).hasClass('dt-page-col')) { pageColIdx = i; return false; }
-      });
-      var colDefs = [{targets: '_all', defaultContent: ''}];
-      if (pageColIdx >= 0) colDefs.push({targets: pageColIdx, type: 'num'});
-      try {
-        $(this).DataTable({
-          pageLength: 10, autoWidth: false, ordering: true,
-          order: pageColIdx >= 0 ? [[pageColIdx, 'asc']] : [],
-          responsive: true, columnDefs: colDefs
-        });
-      } catch(e) {}
-    });
-  }
-
   // ── Tab switcher ──
   function showTab(tab, btn) {
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     const tgt = document.getElementById('tab_' + tab);
-    if (tgt) {
-      tgt.classList.add('active');
-      _initTabDT(tgt.id);
-    }
+    if (tgt) tgt.classList.add('active');
     document.querySelectorAll('.sticky-tab-bar .nav-tab').forEach(b => b.classList.remove('active'));
     if (btn) {
       btn.classList.add('active');
     } else {
+      // called from summary link — find matching tab button
       document.querySelectorAll('.sticky-tab-bar .nav-tab').forEach(b => {
         if (b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + tab + "'"))
           b.classList.add('active');
@@ -345,6 +514,7 @@
 
   // ── Summary row click → jump to tab ──
   function showTabFromRow(tabId, row) {
+    const allTabs = document.querySelectorAll('.tab-content');
     const tgt = document.getElementById('tab_' + tabId);
     const isOpen = tgt && tgt.classList.contains('active');
     const alreadyHighlighted = row.classList.contains('summary-row-active');
@@ -352,7 +522,8 @@
     document.querySelectorAll('.summary-table-row').forEach(r => r.classList.remove('summary-row-active'));
 
     if (isOpen && alreadyHighlighted) {
-      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      // toggle off
+      allTabs.forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.sticky-tab-bar .nav-tab').forEach(b => b.classList.remove('active'));
     } else {
       showTab(tabId, null);
@@ -375,19 +546,13 @@
     if (btn) btn.style.display = window.scrollY > 300 ? 'block' : 'none';
   });
 
-  // ── On Load ──
+  // ── Animate progress bars on load ──
   document.addEventListener('DOMContentLoaded', () => {
-    // Animate progress bars
     document.querySelectorAll('[data-w]').forEach(bar => {
       const w = bar.getAttribute('data-w');
       setTimeout(() => { bar.style.width = w + '%'; }, 200);
     });
-    // Init DataTables for active tab
-    var initTab = document.querySelector('.tab-content.active');
-    if (initTab) _initTabDT(initTab.id);
   });
 </script>
-
-
 </body>
 </html>

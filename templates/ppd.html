@@ -147,6 +147,13 @@
         <p class="text-muted">Upload one or more manuscript files to run automated analysis (citations, captions, formatting, special characters).</p>
     </div>
 
+    <!-- Book Title -->
+    <div class="mb-3">
+        <label for="bookTitle" class="form-label fw-semibold">Book Title <span class="text-danger">*</span></label>
+        <input type="text" id="bookTitle" class="form-control"
+               placeholder="Enter book title (required)" maxlength="200">
+    </div>
+
     <!-- Drop Zone -->
     <div class="form-group">
         <label class="form-label">Upload Word Files</label>
@@ -290,10 +297,11 @@
             });
         });
 
-        // Show combined option only when 2+ files selected
+        // Show combined option only when 2+ files selected; auto-check it
         const combinedOption = document.getElementById('combinedOption');
+        const combinedCheck = document.getElementById('combinedCheck');
         combinedOption.style.display = files.length >= 2 ? 'block' : 'none';
-        if (files.length < 2) document.getElementById('combinedCheck').checked = false;
+        combinedCheck.checked = files.length >= 2;
     }
 
     function formatFileSize(bytes) {
@@ -305,6 +313,11 @@
     }
 
     async function runAnalysis() {
+        const bookTitle = document.getElementById('bookTitle').value.trim();
+        if (!bookTitle) {
+            showAlert('Please enter a Book Title before running analysis.', 'error');
+            return;
+        }
         if (files.length === 0) {
             showAlert('Please select at least one Word file.', 'error');
             return;
@@ -315,6 +328,7 @@
             formData.append('docfiles', file);
         }
         formData.append('run_mss', 'true'); // Always run MSS analysis
+        formData.append('book_title', bookTitle);
         formData.append('combined_dashboard', document.getElementById('combinedCheck').checked ? 'true' : 'false');
 
         // Show progress section

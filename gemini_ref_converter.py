@@ -31,7 +31,7 @@ logger.addHandler(logging.NullHandler())
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-2.5-pro"
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 2.0  # seconds
 
@@ -219,7 +219,7 @@ RULES:
   e.g. "Springer Co., Ltd." → "Springer"
 - End with period after year, UNLESS a DOI/URL follows (no period before doi: or URL).
 - DOI: include if available. Prefix "doi:". No period after.
-  URL: include if no DOI. No period after.
+  URL: include if no DOI. No period after URL.
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -320,6 +320,13 @@ RULES:
   EDITOR LABEL: "ed." for single editor, "eds." for two or more editors.
 - AUTHORS: same format as journal.
 - TITLE: sentence case. No italics for presented paper/poster title.
+- CRITICAL FIELD MAPPING:
+  bib_title      = title of the PAPER or POSTER being presented (NOT the conference name).
+  bib_conference = the FULL conference/symposium name (e.g. "Annual Meeting of the American
+                   College of Sports Medicine"). NEVER put this in bib_title.
+  bib_confdate   = the DATE RANGE of the conference (e.g. "May 28–31, 2024").
+                   NEVER put the standalone year here — year goes in bib_year.
+  bib_conflocation = city and country/state of the conference venue.
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -374,6 +381,8 @@ RULES:
   CRITICAL: Retain EVERY initial verbatim from source. Never collapse "JA" → "J" or drop any initial.
   CRITICAL: Every initial MUST have a period: "Smith, J. A., Jones, B. C."
   CRITICAL: Do NOT remove study groups or steering committees (e.g., "International Steering Committee for...") attached to the author list. Treat them as part of the author group.
+  CRITICAL: Retain name generation suffixes exactly (Jr., Sr., II, III, IV). Format as:
+    "Collins, Jr., J. W." — suffix comes after surname, before initials, separated by commas.
   No author → start with article title directly.
 - YEAR: (Year). followed by period. CRITICAL: Retain any lowercase suffix (2022a, 2024b) — NEVER remove.
   If full date available, format as (Year, Month Day), e.g. (2025, May 28).
@@ -452,6 +461,7 @@ FORMAT (two editors):        Author, F. M. (Year). Chapter title. In F. M. Edito
 FORMAT (3+ editors):         Author, F. M. (Year). Chapter title. In F. M. Editor, F. M. Editor, & F. M. Editor (Eds.), *Book title* (pp. fpage–lpage). Publisher.
 FORMAT (no editor):          Author, F. M. (Year). Chapter title. In *Book title* (pp. fpage–lpage). Publisher.
 FORMAT (1st ed., no DOI):    Author, F. M. (Year). Chapter title. In F. M. Editor (Ed.), *Book title* (pp. fpage–lpage). Publisher.
+FORMAT (with volume):        Author, F. M. (Year). Chapter title. In F. M. Editor (Ed.), *Book title* (Vol. 1, pp. fpage–lpage). Publisher.
 RULES:
 - CHAPTER AUTHOR: first. Retain every initial with periods. Same format as journal.
   Year + letter suffix rules apply.
@@ -466,10 +476,12 @@ RULES:
   Two editors:  In A. B. Smith & C. D. Jones (Eds.),
   Three+:       In A. B. Smith, C. D. Jones, & E. F. Brown (Eds.),
 - BOOK TITLE: Sentence case AND italicised. Appears inside the parenthetical block.
-- EDITION (>1st) and PAGES in same parentheses after book title:
-  With edition:      (*Book title* (2nd ed., pp. 10–20))  → written as: *Book title* (2nd ed., pp. 10–20).
-  Without edition:   *Book title* (pp. 10–20).
-  Single page only:  *Book title* (pp. 10).
+- EDITION, VOLUME, and PAGES in same parentheses after book title:
+  With edition + vol + pages:  *Book title* (2nd ed., Vol. 1, pp. 10–20).
+  With edition + pages:        *Book title* (2nd ed., pp. 10–20).
+  With volume + pages:         *Book title* (Vol. 1, pp. 10–20).
+  Without edition:             *Book title* (pp. 10–20).
+  Single page only:            *Book title* (pp. 10).
   NEVER repeat fpage as lpage. "pp." prefix REQUIRED. En dash (–) between pages.
 - PUBLISHER: Retain name; strip corporate suffixes; omit city/location.
   If publisher = chapter author's organisation, omit per APA 7th.
@@ -486,12 +498,16 @@ FORMAT (changing content):       Author, F. M. (Year, Month Day). Title of page.
 FORMAT (org author):             Organisation Name. (Year, Month Day). Title of page. *Website Name*. URL
 RULES:
 - PAGE/ARTICLE TITLE: Sentence case (first word and proper nouns only). No italics. No quotation marks.
+  bib_title = the PAGE or ENTRY title ONLY — NOT the website name, database name, or URL.
+  The website/database name goes in bib_journal or bib_book.
 - WEBSITE/ORGANISATION NAME: Title case AND italicised (*Website Name*).
   If the author IS the website/organisation, omit the site name to avoid repetition.
 - AUTHOR: No personal author → title moves to author position.
   Organisation as author → use org name in author position.
 - YEAR: Full date in parentheses if available: (Year, Month Day). Year only if no full date.
   No date available → (n.d.).
+  CRITICAL: bib_year = publication year (or n.d.). bib_accessed = retrieval date. These are
+  ALWAYS separate fields. Never confuse them.
 - RETRIEVAL DATE: Omit for stable content. Include for content that may change (wikis, live data):
   "Retrieved Month Day, Year, from URL"
 - No period after URL.
@@ -526,6 +542,13 @@ FORMAT (symposium contribution):   Author, F. M. (Year, Month Day–Day). Title 
 FORMAT (proceedings, single ed.):  Author, F. M. (Year). Title. In F. M. Editor (Ed.), *Proceedings Title* (pp. X–X). Publisher. https://doi.org/XXXXX
 FORMAT (proceedings, multiple ed.): Author, F. M. (Year). Title. In F. M. Editor & F. M. Editor (Eds.), *Proceedings Title* (pp. X–X). Publisher.
 RULES:
+- CRITICAL FIELD MAPPING:
+  bib_title      = title of the PAPER or POSTER being presented (NOT the conference name).
+  bib_conference = the FULL conference/symposium name.
+                   NEVER put this in bib_title. NEVER put the paper title in bib_conference.
+  bib_confdate   = the DATE RANGE of the conference (e.g. "May 28–31, 2024").
+                   NEVER put the standalone conference year here — year goes in bib_year.
+  bib_conflocation = city and country/state of the venue.
 - PRESENTATION TYPE in brackets after title:
   [Paper presentation] for oral presentations.
   [Poster session] for poster presentations.
@@ -645,19 +668,36 @@ with the database title unless the input title is completely absent.
   CRITICAL: bib_fname MUST be populated verbatim from source. Never delete, suppress, or collapse initials.
   If source has "JA", store "JA". If source has "J.A.", store "J.A.". If source has "John A", store "John A".
   Never truncate multiple initials into one (e.g. "JA" must stay "JA", never become "J").
+  CRITICAL: Retain name generation suffixes (Jr., Sr., II, III, IV) in bib_fname, comma-separated
+  after the initials. e.g. bib_fname = "J. W., Jr." for "Collins, Jr., J. W."
+  CRITICAL: If the author list includes a named collaborative group, writing committee, study group,
+  or task force (e.g. "ACCORD Study Group"), include it as a pipe-separated entry in bib_surname
+  with bib_fname = "" for that entry.
+  e.g. bib_surname = "Smith|Jones|ACCORD Study Group", bib_fname = "J. A.|B. C.|"
 - bib_ed_surname / bib_ed_fname: same pipe-separated format for editors.
   For edited_book: these MUST be populated; bib_surname / bib_fname = null.
 - bib_year: Extract the FULL year string verbatim including any letter suffix (2022a, 2024b) and/or
   full date. For APA, normalise order to "Year, Month Day" (e.g. "2002a, April 30").
-  CRITICAL: NEVER strip the letter suffix — it is required APA disambiguation for ALL reference types.
+  CRITICAL: NEVER strip or add a letter suffix — it is required APA disambiguation. If the source
+  has "2022a", bib_year MUST be "2022a". If source has "2022" with no suffix, do NOT add one.
+  For APA website/conference refs with a full date in the source, store the COMPLETE date as
+  "YYYY, Month Day". Never truncate to year-only when a full date is available.
+- bib_accessed: the ACCESS/RETRIEVAL date only (format "Month DD, YYYY"). NEVER put the
+  publication year in bib_accessed, and NEVER put the access date in bib_year. These are always
+  separate fields.
+- bib_title: For website and ereference types — this is the PAGE or ENTRY title ONLY.
+  NOT the website name, database name, platform name, or URL. The website/database name goes
+  in bib_journal or bib_book.
+- bib_conference: For conference refs — the FULL conference/symposium name ONLY.
+  NEVER put the paper/poster title in bib_conference.
+- bib_confdate: For conference refs — the DATE RANGE of the conference ONLY (e.g. "May 28–31, 2024").
+  NEVER put a standalone year here; year goes in bib_year.
 - bib_volume / bib_issue: numeric string only, no labels
 - bib_fpage / bib_lpage: digits only (or article ID like e13284), no "pp.", "p.", or labels.
   CRITICAL: If source has only one page number, set bib_lpage = null — NEVER copy bib_fpage into bib_lpage.
   NEVER fabricate a last page.
 - bib_doi: raw DOI string only — strip "https://doi.org/" prefix
 - bib_url: full URL only, no trailing period
-- bib_accessed: date in "Month DD, YYYY" format
-- bib_confdate: full date range as written
 - bib_editionno: number only (e.g., "2", "3")
 - bib_deg: full degree name (e.g., "Doctoral dissertation", "Master's thesis")
 - All other string fields: extract verbatim from source
@@ -700,15 +740,17 @@ Given an input reference, validate whether it perfectly adheres to {target_label
 - bib_reftype: one of: journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report, unknown
 - bib_surname / bib_fname: ALL authors in order, pipe-separated (|) if multiple.
   CRITICAL: bib_fname MUST be populated verbatim from source. Never collapse initials.
+  Retain generation suffixes (Jr., Sr., II, III) in bib_fname comma-separated after initials.
 - bib_ed_surname / bib_ed_fname: same pipe-separated format for editors.
 - bib_year: Extract FULL year string including any letter suffix. NEVER strip it.
 - bib_volume / bib_issue: numeric string only.
 - bib_fpage / bib_lpage: digits only. If only one page, bib_lpage = null.
 - bib_doi: raw DOI string only — strip "https://doi.org/" prefix.
 - bib_url: full URL only, no trailing period.
-- bib_accessed: date in "Month DD, YYYY" format.
+- bib_accessed: date in "Month DD, YYYY" format. NEVER confuse with bib_year.
 - bib_editionno: number only.
 - bib_deg: full degree name.
+- bib_title: for website/ereference = page/entry title only, NOT the site/database name.
 - Return null for any field not present — NEVER fabricate data.
 - JOURNAL NAME: NEVER append parenthetical location qualifiers unless verbatim in source.
 - TITLES: NEVER overwrite source titles with database titles unless completely absent.
@@ -730,56 +772,44 @@ Return valid JSON matching the required validation schema exactly.
 # TEXT CLEANUP HELPERS
 # ─────────────────────────────────────────────
 
-# FIX: mid-word apostrophes (it's, don't) need a different pattern
 _DQUOTE_OPEN  = re.compile(r'(^|[\s(\[{])"')
 _SQUOTE_OPEN  = re.compile(r"(^|[\s(\[{])'")
-# Matches apostrophes that are NOT preceded by a word char (i.e. closing/neutral positions)
-# After applying open-quote conversions above, the only remaining straight quotes
-# are closing ones or mid-word apostrophes.
 
 def _to_smart_quotes(text: str) -> str:
-    """Convert straight quotes to typographic (curly) quotes.
-
-    Handles:
-      * "hello"  → "hello"
-      * 'hello'  → 'hello'
-      * it's     → it's   (mid-word apostrophe)
-    """
+    """Convert straight quotes to typographic (curly) quotes."""
     if not text:
         return text
-    # Opening double quote: straight " after whitespace/open-bracket or at start
-    text = _DQUOTE_OPEN.sub(r'\1“', text)
-    # Remaining straight double quotes are closing
-    text = text.replace('"', '”')
-    # Opening single quote / apostrophe: straight ' after whitespace/open-bracket or start
-    text = _SQUOTE_OPEN.sub(r'\1‘', text)
-    # Remaining straight single quotes → closing quote/apostrophe (covers mid-word apostrophes)
-    text = text.replace("'", '’')
+    text = _DQUOTE_OPEN.sub(r'\1\u201c', text)
+    text = text.replace('"', '\u201d')
+    text = _SQUOTE_OPEN.sub(r'\1\u2018', text)
+    text = text.replace("'", '\u2019')
     return text
 
 
-# FIX: corrected lookbehind — escape the period so it matches a literal dot
-# Previous: r'(?<![A-Z]\.)\s+([.,;:])' — the \. inside lookbehind is correct actually,
-# but the outer group is possessive which works; the real issue was the next regex.
-# FIX applied: negative lookbehind for "single uppercase letter followed by a period"
 _NBSP            = re.compile(r'\u00a0')
 _MULTI_SPACE     = re.compile(r' {2,}')
-_DOT_SPACE_DOT   = re.compile(r'(?<![A-Z])\.\s+\.')   # ". ." artefact (not in initials)
-# FIX: properly escaped lookbehind for "initial dot + space before punctuation"
+_DOT_SPACE_DOT   = re.compile(r'(?<![A-Z])\.\s+\.')
 _SPACE_BEFORE_PUNCT = re.compile(r'(?<![A-Z](?:\.\s))\s+([.,;:])')
-_DOUBLE_DOT      = re.compile(r'(?<![A-Z])\.\.+')      # double dot, not initials
+_DOUBLE_DOT      = re.compile(r'(?<![A-Z])\.\.+')
 
 
-def _clean_formatted_output(text: str) -> str:
-    """Deterministic cleanup of common LLM punctuation artefacts."""
+def _clean_formatted_output(text: str, smart_quotes: bool = False) -> str:
+    """
+    Deterministic cleanup of common LLM punctuation artefacts.
+
+    smart_quotes=False (default): leave quotes as-is. Word AutoCorrect manages
+    smart quotes itself; inserting pre-curled quotes via python-docx creates
+    unnecessary track-changes noise against straight-quote originals.
+    """
     if not text:
         return text
-    text = _NBSP.sub(' ', text)           # non-breaking space → regular space
-    text = _MULTI_SPACE.sub(' ', text)    # collapse multiple spaces
-    text = _DOT_SPACE_DOT.sub('.', text)  # ". ." → "."  (not in initials)
-    text = _SPACE_BEFORE_PUNCT.sub(r'\1', text)  # " ." → "."
-    text = _DOUBLE_DOT.sub('.', text)     # ".." → "."
-    text = _to_smart_quotes(text)
+    text = _NBSP.sub(' ', text)
+    text = _MULTI_SPACE.sub(' ', text)
+    text = _DOT_SPACE_DOT.sub('.', text)
+    text = _SPACE_BEFORE_PUNCT.sub(r'\1', text)
+    text = _DOUBLE_DOT.sub('.', text)
+    if smart_quotes:
+        text = _to_smart_quotes(text)
     return text.strip()
 
 
@@ -794,11 +824,6 @@ def _call_gemini(
     api_key: str,
     max_retries: int = _MAX_RETRIES,
 ) -> Optional[str]:
-    """
-    Call the Gemini API with structured output and exponential back-off retry.
-
-    Returns the raw JSON string on success, None on unrecoverable failure.
-    """
     from google import genai
     from google.genai import types
 
@@ -808,7 +833,6 @@ def _call_gemini(
         response_schema=schema,
         temperature=0.0,
         top_p=1.0,
-        # top_k removed — deprecated in newer SDK versions
     )
 
     last_exc: Optional[Exception] = None
@@ -845,12 +869,11 @@ def _call_gemini(
                 _backoff(attempt, max_retries)
                 continue
 
-            return raw_json  # success
+            return raw_json
 
         except Exception as exc:
             last_exc = exc
             err_str = str(exc).lower()
-            # Retry on rate-limit / server errors; propagate others immediately
             if any(kw in err_str for kw in ("rate", "quota", "503", "429", "timeout", "unavailable")):
                 logger.warning(f"[Attempt {attempt}] Transient error: {exc}. Retrying…")
                 _backoff(attempt, max_retries)
@@ -863,7 +886,6 @@ def _call_gemini(
 
 
 def _backoff(attempt: int, max_retries: int) -> None:
-    """Exponential back-off; skip sleep on the last attempt."""
     if attempt < max_retries:
         delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
         logger.debug(f"Back-off: sleeping {delay:.1f}s before retry {attempt + 1}.")
@@ -885,20 +907,6 @@ def convert_reference(
     model_name: str = DEFAULT_MODEL,
     cr_item: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Convert a bibliographic reference between AMA 11th and APA 7th edition.
-
-    Args:
-        raw_text:      Raw reference string to convert.
-        source_style:  Source citation style (CitationStyle.AMA or CitationStyle.APA).
-        target_style:  Target citation style.
-        model_name:    Gemini model to use. Defaults to DEFAULT_MODEL.
-        cr_item:       Optional CrossRef/PubMed metadata dict for enrichment.
-
-    Returns:
-        Dict with keys ``formatted_output``, ``metadata``, ``conversion_notes``,
-        or ``None`` on failure.
-    """
     if not raw_text or not raw_text.strip():
         logger.error("raw_text is empty.")
         return None
@@ -934,9 +942,12 @@ def convert_reference(
         logger.error("formatted_output is empty or not a string.")
         return None
 
-    parsed["formatted_output"] = _clean_formatted_output(parsed["formatted_output"])
+    # smart_quotes=False: Word manages its own smart quotes; pre-curling causes
+    # track-changes noise against straight-quote originals (#35)
+    parsed["formatted_output"] = _clean_formatted_output(
+        parsed["formatted_output"], smart_quotes=False
+    )
 
-    # Ensure all bib_ fields are present (null if absent)
     meta = parsed.get("metadata", {})
     for field in BIB_FIELDS:
         meta.setdefault(field, None)
@@ -956,18 +967,6 @@ def validate_reference(
     target_style: CitationStyle,
     model_name: str = DEFAULT_MODEL,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Validate a bibliographic reference against AMA 11th or APA 7th edition rules.
-
-    Args:
-        raw_text:      Raw reference string to validate.
-        target_style:  Citation style to validate against.
-        model_name:    Gemini model to use. Defaults to DEFAULT_MODEL.
-
-    Returns:
-        Dict with keys ``is_valid``, ``validation_errors``, ``corrected_reference``,
-        ``metadata``, or ``None`` on failure.
-    """
     if not raw_text or not raw_text.strip():
         logger.error("raw_text is empty.")
         return None
@@ -995,7 +994,9 @@ def validate_reference(
         logger.error(f"Missing keys in validation response: {list(parsed.keys())}")
         return None
 
-    parsed["corrected_reference"] = _clean_formatted_output(parsed["corrected_reference"])
+    parsed["corrected_reference"] = _clean_formatted_output(
+        parsed["corrected_reference"], smart_quotes=False
+    )
 
     meta = parsed.get("metadata", {})
     for field in BIB_FIELDS:
@@ -1021,20 +1022,6 @@ def convert_references_batch(
     model_name: str = DEFAULT_MODEL,
     cr_items: Optional[List[Optional[Dict[str, Any]]]] = None,
 ) -> List[Optional[Dict[str, Any]]]:
-    """
-    Convert a list of references, optionally with per-reference CrossRef payloads.
-
-    Args:
-        references:  List of raw reference strings.
-        source_style: Source citation style.
-        target_style: Target citation style.
-        model_name:  Gemini model to use.
-        cr_items:    Optional list of CrossRef/PubMed dicts aligned with ``references``.
-                     Pass ``None`` or an empty list to skip enrichment for all.
-
-    Returns:
-        List of result dicts (or ``None`` for failed conversions) in the same order.
-    """
     if cr_items and len(cr_items) != len(references):
         raise ValueError(
             f"cr_items length ({len(cr_items)}) must match references length ({len(references)})."

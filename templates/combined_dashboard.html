@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>S4Carlisle Combined Analysis Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --primary: #4361ee;
+      --primary-dark: #3a0ca3;
+      --sidebar-bg: #f5f7fa;
+      --sidebar-text: #2c3e50;
+      --page-bg: #f0f2f8;
+      --card-bg: #ffffff;
+      --shadow: 0 4px 20px rgba(0,0,0,0.08);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,0.13);
+      --radius: 14px;
+      --transition: all 0.25s ease;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:var(--page-bg); color:#2c3e50; display:flex; min-height:100vh; overflow-x:hidden; }
+
+    /* ── Sidebar ── */
+    .sidebar { width:240px; min-width:240px; background:var(--sidebar-bg); display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto; z-index:200; box-shadow:1px 0 3px rgba(0,0,0,0.08); border-right:1px solid #e8eef7; }
+    .sidebar-brand { padding:1.4rem 1.2rem 1rem; border-bottom:1px solid #e8eef7; display:flex; align-items:center; gap:0.7rem; justify-content:center; }
+    .sidebar-brand img { height:45px; max-width:100%; object-fit:contain; flex-shrink:0; }
+    .sidebar-section-label { padding:1.2rem 1.2rem 0.4rem; font-size:0.68rem; text-transform:uppercase; letter-spacing:1.5px; color:#7a8894; font-weight:600; }
+    .sidebar-nav { padding:0.5rem 0.8rem 1rem; }
+    .ch-nav-btn { display:flex; align-items:center; width:100%; gap:0.6rem; padding:0.65rem 0.9rem; border:none; border-radius:8px; cursor:pointer; background:transparent; color:#555; font-size:0.85rem; font-weight:500; text-align:left; transition:var(--transition); margin-bottom:2px; }
+    .ch-nav-btn i { font-size:0.85rem; width:16px; flex-shrink:0; }
+    .ch-nav-btn:hover { background:#e8eef7; color:#2c3e50; }
+    .ch-nav-btn.active { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; box-shadow:0 4px 12px rgba(67,97,238,0.35); }
+    .ch-nav-btn .ch-label { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ch-issue-badge { font-size:0.7rem; background:rgba(255,255,255,0.15); color:#fff; padding:1px 7px; border-radius:20px; font-weight:600; flex-shrink:0; }
+    .ch-nav-btn.active .ch-issue-badge { background:rgba(255,255,255,0.25); }
+
+    /* ── Main ── */
+    .main-content { flex:1; display:flex; flex-direction:column; min-width:0; }
+
+    /* ── Topbar ── */
+    .topbar { background:var(--card-bg); padding:0.85rem 1.8rem; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 0 rgba(0,0,0,0.07); position:sticky; top:0; z-index:100; }
+    .topbar-title { font-size:1rem; font-weight:700; color:#2c3e50; }
+    .topbar-sub   { font-size:0.8rem; color:#888; margin-top:1px; }
+    .topbar-actions { display:flex; gap:0.5rem; align-items:center; }
+    .btn-icon { background:var(--page-bg); border:none; width:36px; height:36px; border-radius:8px; cursor:pointer; color:#555; font-size:0.9rem; display:flex; align-items:center; justify-content:center; transition:var(--transition); text-decoration:none; }
+    .btn-icon:hover { background:#e2e6ff; color:var(--primary); }
+
+    /* ── Page body ── */
+    .page-body { padding:1.6rem; flex:1; }
+
+    /* ── Chapter section ── */
+    .chapter-section { display:none; }
+    .chapter-section.active { display:block; animation:fadeSlideIn 0.3s ease; }
+    @keyframes fadeSlideIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+    /* Ensure tab-content only displays inside active chapter */
+    .chapter-section:not(.active) .tab-content { display:none !important; }
+    .chapter-section.active .tab-content.active { display:block; }
+
+    /* ── Stat cards ── */
+    .stat-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; margin-bottom:1.5rem; }
+    .stat-card { background:var(--card-bg); border-radius:var(--radius); padding:1.3rem 1.4rem; box-shadow:var(--shadow); position:relative; overflow:hidden; transition:transform 0.2s,box-shadow 0.2s; }
+    .stat-card:hover { transform:translateY(-3px); box-shadow:var(--shadow-lg); }
+    .stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:4px; border-radius:var(--radius) var(--radius) 0 0; }
+    .stat-card.amber::before { background:linear-gradient(90deg,#f6d365,#fda085); }
+    .stat-card.rose::before  { background:linear-gradient(90deg,#f093fb,#f5576c); }
+    .stat-card.blue::before  { background:linear-gradient(90deg,#4facfe,#00f2fe); }
+    .stat-card.green::before { background:linear-gradient(90deg,#43e97b,#38f9d7); }
+    .stat-card.purple::before { background:linear-gradient(90deg,#a18cd1,#fbc2eb); }
+    .stat-card.teal::before { background:linear-gradient(90deg,#48c6ef,#6f86d6); }
+
+    .stat-icon { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1rem; margin-bottom:0.8rem; }
+    .stat-card.amber .stat-icon { background:#fff3e0; color:#e67e22; }
+    .stat-card.rose  .stat-icon { background:#fde8f0; color:#c0392b; }
+    .stat-card.blue  .stat-icon { background:#e3f2fd; color:#2980b9; }
+    .stat-card.green .stat-icon { background:#e8f8f5; color:#27ae60; }
+    .stat-card.purple .stat-icon { background:#f4ebf8; color:#8e44ad; }
+    .stat-card.teal .stat-icon { background:#e0f7fa; color:#00838f; }
+    .stat-count { font-size:2.2rem; font-weight:800; line-height:1; color:#2c3e50; }
+    .stat-label { font-size:0.78rem; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:0.8px; margin-top:0.3rem; }
+    .stat-sub   { font-size:0.72rem; color:#aaa; margin-top:0.4rem; }
+
+    /* ── Meta header card ── */
+    .meta-header-card { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:1.2rem; overflow:hidden; }
+    .meta-title-row { display:flex; align-items:center; gap:1rem; padding:1.1rem 1.4rem; border-bottom:1px solid #f0f2f8; background:linear-gradient(135deg,#f8f9ff 0%,#ffffff 100%); }
+    .meta-chapter-badge { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; font-size:0.85rem; font-weight:800; padding:0.45rem 0.9rem; border-radius:8px; flex-shrink:0; }
+    .meta-title-block { flex:1; min-width:0; }
+    .meta-chapter-title { font-size:1rem; font-weight:700; color:#2c3e50; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .meta-authors { font-size:0.8rem; color:#888; margin-top:2px; }
+    .meta-authors i { margin-right:4px; color:#bbb; }
+    .meta-date-block { text-align:right; flex-shrink:0; }
+    .meta-date-label  { font-size:0.68rem; text-transform:uppercase; letter-spacing:0.7px; color:#aaa; font-weight:600; }
+    .meta-date-value  { font-size:0.9rem; font-weight:700; color:#2c3e50; }
+    .meta-analyst     { font-size:0.75rem; color:#999; margin-top:1px; }
+    .meta-stats-row { display:flex; flex-wrap:wrap; gap:0; }
+    .meta-stat-box { flex:1; min-width:120px; display:flex; align-items:center; gap:0.7rem; padding:0.9rem 1rem; border-right:1px solid #f0f2f8; transition:background 0.2s; }
+    .meta-stat-box:last-child { border-right:none; }
+    .meta-stat-box:hover { background:#f8f9ff; }
+    .meta-stat-icon { width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:0.85rem; flex-shrink:0; }
+    .meta-stat-icon.purple { background:#f3e8fd; color:#8e44ad; }
+    .meta-stat-icon.teal   { background:#e0f7fa; color:#00838f; }
+    .meta-stat-icon.orange { background:#fff3e0; color:#e67e22; }
+    .meta-stat-icon.green  { background:#e8f8f5; color:#27ae60; }
+    .meta-stat-val { font-size:1.05rem; font-weight:800; color:#2c3e50; line-height:1.1; }
+    .meta-stat-lbl { font-size:0.72rem; font-weight:600; color:#888; margin-top:1px; }
+
+    /* ── Action buttons ── */
+    .action-btns { display:flex; gap:0.5rem; justify-content:flex-end; padding:0.7rem 1.4rem; border-top:1px solid #f0f2f8; }
+    .action-btn { display:inline-flex; align-items:center; gap:0.4rem; padding:0.4rem 1rem; border-radius:6px; font-size:0.82rem; font-weight:600; cursor:pointer; border:none; text-decoration:none; transition:0.2s; }
+    .print-btn { background:#1e2235; color:white; }
+    .print-btn:hover { background:#4361ee; color:white; }
+    .dl-btn    { background:#1a7a4a; color:white; }
+    .dl-btn:hover { background:#22a060; color:white; }
+
+    /* ── Collapsible panel ── */
+    .collapse-card { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:1rem; overflow:hidden; }
+    .collapse-header { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.4rem; cursor:pointer; user-select:none; transition:background 0.2s; }
+    .collapse-header:hover { background:#fafbff; }
+    .collapse-header-left { display:flex; align-items:center; gap:0.6rem; font-weight:600; font-size:0.95rem; color:#2c3e50; }
+    .collapse-header-left i.section-icon { color:var(--primary); font-size:0.9rem; }
+    .chevron { color:#aaa; font-size:0.8rem; transition:transform 0.25s; }
+    .collapse-header.open .chevron { transform:rotate(180deg); }
+    .collapse-body { max-height:4000px; overflow:hidden; transition:max-height 0.35s ease; }
+    .collapse-body.closed { max-height:0; }
+    .collapse-body-inner { padding:0 1.4rem 1.4rem; overflow-x:auto; }
+
+    /* ── Sticky tab bar ── */
+    .sticky-tab-bar { position:sticky; top:56px; z-index:90; background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); padding:0.4rem 0.5rem; display:flex; gap:0.3rem; margin-bottom:1rem; flex-wrap:wrap; }
+    .nav-tab { padding:0.5rem 1.1rem; border:none; border-radius:8px; cursor:pointer; background:transparent; color:#666; font-size:0.85rem; font-weight:500; transition:var(--transition); display:flex; align-items:center; gap:0.4rem; }
+    .nav-tab:hover { background:#f0f2f8; color:#2c3e50; }
+    .nav-tab.active { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; box-shadow:0 3px 10px rgba(67,97,238,0.3); }
+    .tab-content { display:none; }
+    .tab-content.active { display:block; animation:fadeSlideIn 0.25s ease; }
+
+    /* ── Table ── */
+    table { width:100%; border-collapse:collapse; font-size:0.88rem; }
+    th { background:#f8f9ff; color:#555; font-weight:600; font-size:0.78rem; letter-spacing:0.5px; padding:10px 12px; border-bottom:2px solid #e8eaf6; text-align:left; }
+    td { padding:10px 12px; border-bottom:1px solid #f0f2f8; color:#444; }
+    tr:hover td { background:#f8f9ff; }
+    .badge-issue { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:20px; font-size:0.78rem; font-weight:600; }
+    .badge-error { background:#fde8f0; color:#c0392b; padding:2px 8px; border-radius:20px; font-size:0.78rem; font-weight:600; }
+    .badge-ok    { background:#e8f8f5; color:#27ae60; padding:2px 8px; border-radius:20px; font-size:0.78rem; font-weight:600; }
+
+    /* ── Charts ── */
+    .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem; }
+    .chart-card { background:var(--card-bg); border-radius:var(--radius); padding:0.5rem 0.7rem; box-shadow:var(--shadow); }
+    .chart-card h4 { font-size:0.75rem; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:0.3rem; }
+    .chart-canvas-wrapper { position:relative; height:180px; }
+    .chart-canvas-wrapper.donut { height:150px; }
+
+    /* ── Back to top ── */
+    #back-to-top { display:none; position:fixed; bottom:24px; right:24px; z-index:999; background:var(--primary); color:white; border:none; border-radius:50%; width:42px; height:42px; font-size:1rem; cursor:pointer; box-shadow:0 4px 12px rgba(67,97,238,0.4); transition:var(--transition); }
+    #back-to-top:hover { background:var(--primary-dark); transform:translateY(-2px); }
+
+    /* ── Responsive ── */
+    @media (max-width:768px) {
+      body { flex-direction:column; }
+      .sidebar { width:100%; min-width:unset; height:auto; position:relative; }
+      .sidebar-brand { display:none; }
+      .sidebar-section-label { display:none; }
+      .sidebar-nav { display:flex; flex-direction:row; flex-wrap:wrap; padding:0.4rem; }
+      .ch-nav-btn { width:auto; padding:0.4rem 0.8rem; font-size:0.78rem; }
+      .chart-row { grid-template-columns:1fr; }
+    }
+
+    /* ── Print / PDF ── */
+    @media print {
+      .sidebar, .topbar, #back-to-top, .action-btns,
+      .sticky-tab-bar, .chevron, .chart-row,
+      .dataTables_filter, .dataTables_length, .dataTables_paginate, .dt-buttons,
+      canvas { display:none !important; }
+
+      body { display:block; background:white; padding:0; }
+      .main-content { display:block !important; }
+      .page-body { padding:0.5cm 1cm; }
+
+      .chapter-section { display:block !important; }
+      .tab-content { display:block !important; page-break-inside:avoid; }
+
+      .collapse-body { max-height:none !important; }
+      .collapse-body.closed { max-height:none !important; }
+
+      .collapse-header { background:#1e2235 !important; color:white !important;
+                         -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .collapse-header-left { color:white !important; }
+
+      .meta-header-card, .collapse-card { box-shadow:none !important; border:1px solid #ddd; }
+      .stat-card::before { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+
+      table { font-size:8pt; page-break-inside:auto; }
+      thead { display:table-header-group; }
+      tr    { page-break-inside:avoid; }
+      th    { background:#1e2235 !important; color:white !important;
+              -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+
+      @page { size:A4 landscape; margin:1.2cm 1.5cm; }
+    }
+
+    .empty-state { text-align:center; padding:3rem 1rem; color:#aaa; }
+    .empty-state i { font-size:2.5rem; margin-bottom:0.7rem; display:block; opacity:0.4; }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <img src="data:image/png;base64,{{ logo_b64 }}" alt="S4Carlisle">
+  </div>
+    <nav class="sidebar-nav">
+    <button class="ch-nav-btn active" id="nav-master_overview" onclick="showChapter('master_overview',this)">
+      <i class="fas fa-chart-bar"></i>
+      <span class="ch-label">Book Overview</span>
+    </button>
+    {% for ch in chapters_data %}
+    {% set total_issues = (ch.missing_citations or 0) + (ch.missing_captions or 0) %}
+    <button class="ch-nav-btn" id="nav-ch{{ loop.index0 }}" onclick="showChapter('ch{{ loop.index0 }}',this)">
+      <i class="fas fa-file-word"></i>
+      <span class="ch-label">{{ ch.chapter_number | default('—') }} — {{ ch.doc_name | default('Unnamed') }}</span>
+      {% if total_issues > 0 %}<span class="ch-issue-badge">{{ total_issues }}</span>{% endif %}
+    </button>
+    {% endfor %}
+  </nav>
+</aside>
+
+<!-- ── Main ── -->
+<div class="main-content">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">S4Carlisle Analysis Dashboard</div>
+      <div class="topbar-sub">{% if book_title %}<strong>BookTitle: {{ book_title }}</strong>{% endif %}</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn-icon" title="Print / Save as PDF" onclick="window.print()">
+        <i class="fas fa-print"></i>
+      </button>
+      <a class="btn-icon" title="Download Excel" href="Manuscript_Analysis.xlsx" download>
+        <i class="fas fa-file-excel"></i>
+      </a>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <!-- ── GLOBAL OVERVIEW ── -->
+    {% set total_cit = chapters_data | map(attribute='missing_citations') | select('number') | sum | default(0) %}
+    {% set total_cap = chapters_data | map(attribute='missing_captions')  | select('number') | sum | default(0) %}
+    {% set total_fmt = chapters_data | map(attribute='fmt_issues')        | select('number') | sum | default(0) %}
+    {% set tf_cit = chapters_data | map(attribute='fig_missing_cit') | select('number') | sum | default(0) %}
+    {% set tt_cit = chapters_data | map(attribute='tab_missing_cit') | select('number') | sum | default(0) %}
+    {% set tb_cit = chapters_data | map(attribute='box_missing_cit') | select('number') | sum | default(0) %}
+    {% set tf_cap = chapters_data | map(attribute='fig_missing_cap') | select('number') | sum | default(0) %}
+    {% set tt_cap = chapters_data | map(attribute='tab_missing_cap') | select('number') | sum | default(0) %}
+    {% set tb_cap = chapters_data | map(attribute='box_missing_cap') | select('number') | sum | default(0) %}
+    {% set total_fig_cit = chapters_data | map(attribute='fig_total_cit') | select('number') | sum | default(0) %}
+    {% set total_tab_cit = chapters_data | map(attribute='tab_total_cit') | select('number') | sum | default(0) %}
+    {% set total_box_cit = chapters_data | map(attribute='box_total_cit') | select('number') | sum | default(0) %}
+    {% set total_fig_cap = chapters_data | map(attribute='fig_total_cap') | select('number') | sum | default(0) %}
+    {% set total_tab_cap = chapters_data | map(attribute='tab_total_cap') | select('number') | sum | default(0) %}
+    {% set total_box_cap = chapters_data | map(attribute='box_total_cap') | select('number') | sum | default(0) %}
+
+    <div id="master_overview" class="chapter-section active">
+
+      <!-- Global stat cards -->
+      <div class="stat-cards">
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fas fa-file-alt"></i></div>
+          <div class="stat-count" data-target="{{ chapters_data|length }}">0</div>
+          <div class="stat-label">Chapters Analysed</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fas fa-link"></i></div>
+          <div class="stat-count" data-target="{{ chapters_data | map(attribute='total_citations') | select('number') | sum | default(0) }}">0</div>
+          <div class="stat-label">Total Citations</div>
+          <div class="stat-sub">Fig: {{ total_fig_cit }} &bull; Tab: {{ total_tab_cit }} &bull; Box: {{ total_box_cit }}</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+          <div class="stat-count" data-target="{{ total_cit }}">0</div>
+          <div class="stat-label">Missing Citations</div>
+          <div class="stat-sub">Fig: {{ tf_cit }} &bull; Tab: {{ tt_cit }} &bull; Box: {{ tb_cit }}</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fas fa-image"></i></div>
+          <div class="stat-count" data-target="{{ chapters_data | map(attribute='total_captions') | select('number') | sum | default(0) }}">0</div>
+          <div class="stat-label">Total Captions</div>
+          <div class="stat-sub">Fig: {{ total_fig_cap }} &bull; Tab: {{ total_tab_cap }} &bull; Box: {{ total_box_cap }}</div>
+        </div>
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fas fa-image"></i></div>
+          <div class="stat-count" data-target="{{ total_cap }}">0</div>
+          <div class="stat-label">Missing Captions</div>
+          <div class="stat-sub">Fig: {{ tf_cap }} &bull; Tab: {{ tt_cap }} &bull; Box: {{ tb_cap }}</div>
+        </div>
+        <div class="stat-card purple">
+          <div class="stat-icon"><i class="fas fa-paint-brush"></i></div>
+          <div class="stat-count" data-target="{{ total_fmt }}">0</div>
+          <div class="stat-label">Formatting Issues</div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="chart-row">
+        <div class="chart-card">
+          <h4><i class="fas fa-chart-bar" style="margin-right:6px;color:var(--primary)"></i>Issues per Chapter</h4>
+          <div class="chart-canvas-wrapper"><canvas id="barChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h4><i class="fas fa-chart-pie" style="margin-right:6px;color:var(--primary)"></i>Issue Breakdown</h4>
+          <div class="chart-canvas-wrapper donut"><canvas id="donutChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Chapter summary table (collapsible) -->
+      <div class="collapse-card">
+        <div class="collapse-header open" onclick="toggleCollapse('global_table',this)">
+          <div class="collapse-header-left">
+            <i class="fas fa-table section-icon"></i> Chapters Summary Table
+          </div>
+          <i class="fas fa-chevron-down chevron"></i>
+        </div>
+        <div class="collapse-body" id="global_table">
+          <div class="collapse-body-inner">
+            <table>
+              <thead>
+                <tr>
+                  <th rowspan="2">Files</th><th rowspan="2">Word Counts</th><th rowspan="2">Pages</th>
+                  <th rowspan="2">Total Citations</th><th rowspan="2">Total Captions</th>
+                  <th colspan="6" style="text-align:center;">Missing Caption/Citation</th>
+                  <th rowspan="2">Fmt</th>
+                </tr>
+                <tr>
+                  <th>Fig-Caption</th><th>Fig-Citation</th>
+                  <th>Tab-Caption</th><th>Tab-Citation</th>
+                  <th>Box-Caption</th><th>Box-Citation</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for ch in chapters_data %}
+              <tr>
+                <td>
+                  <a href="javascript:void(0)" onclick="document.getElementById('nav-ch{{ loop.index0 }}').click()"
+                     style="color:var(--primary);font-weight:600;cursor:pointer;">
+                    {{ ch.doc_name | default('—') }}
+                  </a>
+                </td>
+                <td>{{ ch.total_words | default(ch.words) | default(0) }}</td>
+                <td>{{ ch.total_pages | default(0) }}</td>
+                
+                <td><span class="badge-ok" style="background:#e3f2fd;color:#2980b9;">{{ ch.total_citations | default(0) }}</span></td>
+                <td><span class="badge-ok" style="background:#e8f8f5;color:#27ae60;">{{ ch.total_captions | default(0) }}</span></td>
+                
+                <td>{% if ch.fig_missing_cap and ch.fig_missing_cap > 0 %}<span class="badge-error">{{ ch.fig_missing_cap }}</span>{% else %}<span class="badge-ok">0</span>{% endif %}</td>
+                <td>{% if ch.fig_missing_cit and ch.fig_missing_cit > 0 %}<span class="badge-issue">{{ ch.fig_missing_cit }}</span>{% else %}<span class="badge-ok">0</span>{% endif %}</td>
+                <td>{% if ch.tab_missing_cap and ch.tab_missing_cap > 0 %}<span class="badge-error">{{ ch.tab_missing_cap }}</span>{% else %}<span class="badge-ok">0</span>{% endif %}</td>
+                <td>{% if ch.tab_missing_cit and ch.tab_missing_cit > 0 %}<span class="badge-issue">{{ ch.tab_missing_cit }}</span>{% else %}<span class="badge-ok">0</span>{% endif %}</td>
+                <td>{% if ch.box_missing_cap and ch.box_missing_cap > 0 %}<span class="badge-error">{{ ch.box_missing_cap }}</span>{% else %}<span class="badge-ok">0</span>{% endif %}</td>
+                <td>{% if ch.box_missing_cit and ch.box_missing_cit > 0 %}<span class="badge-issue">{{ ch.box_missing_cit }}</span>{% else %}<span class="badge-ok">0</span>{% endif %}</td>
+                <td>{% if ch.fmt_issues and ch.fmt_issues > 0 %}<span class="badge-issue">{{ ch.fmt_issues }}</span>{% else %}<span class="badge-ok">0</span>{% endif %}</td>
+              </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /master_overview -->
+
+    <!-- ── PER-CHAPTER SECTIONS ── -->
+    {% for ch in chapters_data %}
+    <div id="ch{{ loop.index0 }}" class="chapter-section">
+
+      <!-- Meta header card -->
+      <div class="meta-header-card">
+        <div class="meta-title-row">
+          <div class="meta-chapter-badge">{{ ch.chapter_number | default('—') }}</div>
+          <div class="meta-title-block">
+            <div class="meta-chapter-title">{{ ch.chapter_title | default('—') | safe }}</div>
+            <div class="meta-authors"><i class="fas fa-user-edit"></i> {{ ch.authors | default('—') | safe }}</div>
+          </div>
+          <div class="meta-date-block">
+            <div class="meta-date-label">Analysed</div>
+            <div class="meta-analyst"><i class="fas fa-user-check"></i> {{ ch.analyst | default('—') }}</div>
+            <div class="meta-date-value">{{ ch.date | default('—') }}</div>            
+          </div>
+        </div>
+        <div class="meta-stats-row">
+          <div class="meta-stat-box">
+            <div class="meta-stat-icon purple"><i class="fas fa-calculator"></i></div>
+            <div>
+              <div class="meta-stat-val">{{ ch.total_words | default(ch.words) | default(0) }}</div>
+              <div class="meta-stat-lbl">Total Word Count</div>
+            </div>
+          </div>
+          <div class="meta-stat-box">
+            <div class="meta-stat-icon teal"><i class="fas fa-file-alt"></i></div>
+            <div>
+              <div class="meta-stat-val">{{ ch.total_pages | default(0) }}</div>
+              <div class="meta-stat-lbl">Total MS Pages</div>
+            </div>
+          </div>
+          <div class="meta-stat-box">
+            <div class="meta-stat-icon orange"><i class="fas fa-copy"></i></div>
+            <div>
+              <div class="meta-stat-val">{{ ch.ce_pages | default('—') }}</div>
+              <div class="meta-stat-lbl">CE MS Pages</div>
+            </div>
+          </div>
+          <div class="meta-stat-box">
+            <div class="meta-stat-icon green"><i class="fas fa-align-left"></i></div>
+            <div>
+              <div class="meta-stat-val">{{ ch.pages | default(0) }}</div>
+              <div class="meta-stat-lbl">Main Text Page Count</div>
+            </div>
+          </div>
+        </div>
+        <!-- Print / Download Excel buttons -->
+         <!--<div class="action-btns no-print">
+          <a href="Manuscript_Analysis.xlsx" download class="action-btn dl-btn">
+            <i class="fas fa-file-excel"></i> Download Excel
+          </a>
+          <button class="action-btn print-btn" onclick="window.print()">
+            <i class="fas fa-print"></i> Print / PDF
+          </button>
+        </div>-->
+      </div>
+
+      <!-- Per-chapter stat cards -->
+      <div class="stat-cards">
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fas fa-link"></i></div>
+          <div class="stat-count" data-target="{{ ch.total_citations | default(0) }}">0</div>
+          <div class="stat-label">Total Citations</div>
+          <div class="stat-sub">Fig: {{ ch.fig_total_cit | default(0) }} &bull; Tab: {{ ch.tab_total_cit | default(0) }} &bull; Box: {{ ch.box_total_cit | default(0) }}</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+          <div class="stat-count" data-target="{{ ch.missing_citations | default(0) }}">0</div>
+          <div class="stat-label">Missing Citations</div>
+          <div class="stat-sub">Fig: {{ ch.fig_missing_cit | default(0) }} &bull; Tab: {{ ch.tab_missing_cit | default(0) }} &bull; Box: {{ ch.box_missing_cit | default(0) }}</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fas fa-image"></i></div>
+          <div class="stat-count" data-target="{{ ch.total_captions | default(0) }}">0</div>
+          <div class="stat-label">Total Captions</div>
+          <div class="stat-sub">Fig: {{ ch.fig_total_cap | default(0) }} &bull; Tab: {{ ch.tab_total_cap | default(0) }} &bull; Box: {{ ch.box_total_cap | default(0) }}</div>
+        </div>
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fas fa-image"></i></div>
+          <div class="stat-count" data-target="{{ ch.missing_captions | default(0) }}">0</div>
+          <div class="stat-label">Missing Captions</div>
+          <div class="stat-sub">Fig: {{ ch.fig_missing_cap | default(0) }} &bull; Tab: {{ ch.tab_missing_cap | default(0) }} &bull; Box: {{ ch.box_missing_cap | default(0) }}</div>
+        </div>
+        <div class="stat-card purple">
+          <div class="stat-icon"><i class="fas fa-paint-brush"></i></div>
+          <div class="stat-count" data-target="{{ ch.fmt_issues | default(0) }}">0</div>
+          <div class="stat-label">Formatting Issues</div>
+        </div>
+      </div>
+
+      <!-- Summary panel (collapsible) -->
+      <div class="collapse-card">
+        <div class="collapse-header open" onclick="toggleCollapse('ch{{ loop.index0 }}_summary',this)">
+          <div class="collapse-header-left"><i class="fas fa-chart-pie si"></i> Analysis Summary</div>
+
+          <i class="fas fa-chevron-down chevron"></i>
+        </div>
+        <div class="collapse-body" id="ch{{ loop.index0 }}_summary">
+          <div class="collapse-body-inner">
+            {{ ch.detailed_summary | safe }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Sticky tab bar -->
+      <div class="sticky-tab-bar no-print">
+        <button class="nav-tab active" onclick="showTab('ch{{ loop.index0 }}','citations',this)">
+          <i class="fas fa-link"></i> Citations
+        </button>
+        <button class="nav-tab" onclick="showTab('ch{{ loop.index0 }}','special-chars',this)">
+          <i class="fas fa-font"></i> Special Chars
+        </button>
+        <button class="nav-tab" onclick="showTab('ch{{ loop.index0 }}','formatting',this)">
+          <i class="fas fa-paint-brush"></i> Formatting
+        </button>
+        <button class="nav-tab" onclick="showTab('ch{{ loop.index0 }}','comments',this)">
+          <i class="fas fa-comment"></i> Comments
+        </button>
+        <button class="nav-tab" onclick="showTab('ch{{ loop.index0 }}','unnumbered',this)">
+          <i class="fas fa-list-ol"></i> Unnumbered
+        </button>
+      </div>
+
+      <!-- Tab contents -->
+      <div id="ch{{ loop.index0 }}_citations" class="tab-content active">
+        <div class="collapse-card">
+          <div class="collapse-header open" onclick="toggleCollapse('ch{{ loop.index0 }}_cit_body',this)">
+            <div class="collapse-header-left"><i class="fas fa-link section-icon"></i> Citations &amp; Captions Detail</div>
+            <i class="fas fa-chevron-down chevron"></i>
+          </div>
+          <div class="collapse-body" id="ch{{ loop.index0 }}_cit_body">
+            <div class="collapse-body-inner">{{ ch.msr_content | safe }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ch{{ loop.index0 }}_special-chars" class="tab-content">
+        <div class="collapse-card">
+          <div class="collapse-header open" onclick="toggleCollapse('ch{{ loop.index0 }}_sc_body',this)">
+            <div class="collapse-header-left"><i class="fas fa-font section-icon"></i> Non standard characters</div>
+            <i class="fas fa-chevron-down chevron"></i>
+          </div>
+          <div class="collapse-body" id="ch{{ loop.index0 }}_sc_body">
+            <div class="collapse-body-inner">{{ ch.spec_content | safe }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ch{{ loop.index0 }}_formatting" class="tab-content">
+        <div class="collapse-card">
+          <div class="collapse-header open" onclick="toggleCollapse('ch{{ loop.index0 }}_fmt_body',this)">
+            <div class="collapse-header-left"><i class="fas fa-paint-brush section-icon"></i> Formatting Issues</div>
+            <i class="fas fa-chevron-down chevron"></i>
+          </div>
+          <div class="collapse-body" id="ch{{ loop.index0 }}_fmt_body">
+            <div class="collapse-body-inner">{{ ch.fmt_content | safe }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ch{{ loop.index0 }}_comments" class="tab-content">
+        <div class="collapse-card">
+          <div class="collapse-header open" onclick="toggleCollapse('ch{{ loop.index0 }}_com_body',this)">
+            <div class="collapse-header-left"><i class="fas fa-comment section-icon"></i> Comments</div>
+            <i class="fas fa-chevron-down chevron"></i>
+          </div>
+          <div class="collapse-body" id="ch{{ loop.index0 }}_com_body">
+            <div class="collapse-body-inner">
+              {{ ch.comment_content | safe }}
+              {{ ch.export_highlight | safe }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ch{{ loop.index0 }}_unnumbered" class="tab-content">
+        <div class="collapse-card">
+          <div class="collapse-header open" onclick="toggleCollapse('ch{{ loop.index0 }}_unn_body',this)">
+            <div class="collapse-header-left"><i class="fas fa-list-ol section-icon"></i> Unnumbered Elements</div>
+            <i class="fas fa-chevron-down chevron"></i>
+          </div>
+          <div class="collapse-body" id="ch{{ loop.index0 }}_unn_body">
+            <div class="collapse-body-inner">{{ ch.unnumbered_content | safe }}</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /ch{{ loop.index0 }} -->
+    {% endfor %}
+
+  </div><!-- /page-body -->
+</div><!-- /main-content -->
+
+<button id="back-to-top" title="Back to top" onclick="window.scrollTo({behavior:'smooth',top:0})">
+  <i class="fas fa-arrow-up"></i>
+</button>
+
+<script>
+  // Lazy DataTables init — keyed by container element ID.
+  // DataTables breaks when initialised inside a display:none element (zero-width columns).
+  // We therefore init ONLY when the specific tab/container becomes visible.
+  var _dtReady = new Set();
+
+  function _initTabDT(containerId) {
+    if (!containerId || _dtReady.has(containerId)) return;
+    _dtReady.add(containerId);
+    if (typeof $ === 'undefined' || !$.fn.DataTable) return;
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    $(container).find('table').each(function() {
+      if ($(this).find('td[colspan], td[rowspan]').length > 0) return;
+      if ($.fn.DataTable.isDataTable(this)) return;
+      var pageColIdx = -1;
+      $(this).find('thead th').each(function(i) {
+        if ($(this).hasClass('dt-page-col')) { pageColIdx = i; return false; }
+      });
+      var colDefs = [{targets: '_all', defaultContent: ''}];
+      if (pageColIdx >= 0) colDefs.push({targets: pageColIdx, type: 'num'});
+      try {
+        $(this).DataTable({
+          pageLength: 10, autoWidth: false, ordering: true,
+          order: pageColIdx >= 0 ? [[pageColIdx, 'asc']] : [],
+          responsive: true, columnDefs: colDefs
+        });
+      } catch(e) {}
+    });
+  }
+
+  function showChapter(id, btn) {
+    // Remove active class from all chapter sections and tab contents
+    document.querySelectorAll('.chapter-section').forEach(function(s) {
+      s.style.display = 'none';
+      s.classList.remove('active');
+      // Remove active class from all tab-content elements in this section
+      s.querySelectorAll('.tab-content').forEach(function(t) {
+        t.classList.remove('active');
+      });
+    });
+    var target = document.getElementById(id);
+    if (target) {
+      target.style.display = 'block';
+      target.classList.add('active');
+      // Set the first tab-content as active for the new chapter
+      var firstTab = target.querySelector('.tab-content');
+      if (firstTab) {
+        firstTab.classList.add('active');
+      }
+    }
+    document.querySelectorAll('.ch-nav-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    var activeTab = target ? target.querySelector('.tab-content.active') : null;
+    _initTabDT(activeTab ? activeTab.id : id);
+    animateCounters();
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+
+  function showTab(prefix, tab, btn) {
+    const section = document.getElementById(prefix);
+    if (!section) return;
+    section.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    const tgt = document.getElementById(prefix + '_' + tab);
+    if (tgt) {
+      tgt.classList.add('active');
+      _initTabDT(tgt.id);   // lazy-init DataTables now that this tab is visible
+    }
+    section.querySelectorAll('.sticky-tab-bar .nav-tab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+  }
+
+  function toggleCollapse(id, header) {
+    const body = document.getElementById(id);
+    if (!body) return;
+    body.classList.toggle('closed');
+    if (header) header.classList.toggle('open', !body.classList.contains('closed'));
+  }
+
+  function animateCounters() {
+    const active = document.querySelector('.chapter-section.active');
+    if (!active) return;
+    active.querySelectorAll('[data-target]').forEach(function(el) {
+      const target = parseInt(el.getAttribute('data-target'), 10) || 0;
+      let current = 0;
+      const step = Math.max(1, Math.ceil(target / 25));
+      el.textContent = '0';
+      const timer = setInterval(function() {
+        current = Math.min(current + step, target);
+        el.textContent = current.toLocaleString();
+        if (current >= target) clearInterval(timer);
+      }, 22);
+    });
+  }
+
+  window.addEventListener('scroll', function() {
+    const btn = document.getElementById('back-to-top');
+    if (btn) btn.style.display = window.scrollY > 300 ? 'block' : 'none';
+  });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    // Ensure only the first tab in each chapter has the active class, except the active chapter
+    document.querySelectorAll('.chapter-section').forEach(function(section) {
+      if (!section.classList.contains('active')) {
+        // For inactive chapters, remove active class from all tabs
+        section.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      }
+    });
+    
+    animateCounters();
+
+    // Animate progress bars
+    document.querySelectorAll('[data-w]').forEach(function(bar) {
+      var w = bar.getAttribute('data-w');
+      setTimeout(function() { bar.style.width = w + '%'; }, 200);
+    });
+
+    // DataTables — lazy init: only init the initially-visible tab/section on load.
+    // All other tabs/sections are init'd on first showChapter()/showTab() call (see _initTabDT).
+    var initSection = document.querySelector('.chapter-section.active');
+    if (initSection) {
+      var initTab = initSection.querySelector('.tab-content.active');
+      _initTabDT(initTab ? initTab.id : initSection.id);
+    }
+
+    // Chart.js — Bar chart
+    const barCtx = document.getElementById('barChart');
+    if (barCtx) {
+      new Chart(barCtx, {
+        type: 'bar',
+        data: {
+          labels: [{% for ch in chapters_data %}"{{ ch.chapter_number | default(loop.index) }}"{% if not loop.last %},{% endif %}{% endfor %}],
+          datasets: [
+            { label:'Total Citations', data:[{% for ch in chapters_data %}{{ ch.total_citations | default(0) }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor:'rgba(67, 97, 238, 0.8)', borderRadius:6 },
+            { label:'Missing Citations', data:[{% for ch in chapters_data %}{{ ch.missing_citations | default(0) }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor:'rgba(246,185,59,0.8)', borderRadius:6 },
+            { label:'Total Captions', data:[{% for ch in chapters_data %}{{ ch.total_captions | default(0) }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor:'rgba(39, 174, 96, 0.8)', borderRadius:6 },
+            { label:'Missing Captions',  data:[{% for ch in chapters_data %}{{ ch.missing_captions | default(0) }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor:'rgba(235,87,87,0.8)',  borderRadius:6 },
+            { label:'Formatting',        data:[{% for ch in chapters_data %}{{ ch.fmt_issues | default(0) }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor:'rgba(79,172,254,0.8)', borderRadius:6 }
+          ]
+        },
+        options: {
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ position:'bottom', labels:{ font:{ size:11 } } } },
+          scales:{ x:{ grid:{ display:false } }, y:{ beginAtZero:true, grid:{ color:'#f0f2f8' } } }
+        }
+      });
+    }
+
+    // Chart.js — Donut chart
+    const donutCtx = document.getElementById('donutChart');
+    if (donutCtx) {
+      new Chart(donutCtx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Total Citations', 'Missing Citations', 'Total Captions', 'Missing Captions', 'Formatting'],
+          datasets: [{
+            data: [{{ chapters_data | map(attribute='total_citations') | select('number') | sum | default(0) }},
+                   {{ chapters_data | map(attribute='missing_citations') | select('number') | sum | default(0) }},
+                   {{ chapters_data | map(attribute='total_captions') | select('number') | sum | default(0) }},
+                   {{ chapters_data | map(attribute='missing_captions')  | select('number') | sum | default(0) }},
+                   {{ chapters_data | map(attribute='fmt_issues')        | select('number') | sum | default(0) }}],
+            backgroundColor: ['#4361ee', '#f6d365', '#27ae60', '#f5576c', '#4facfe'],
+            borderWidth: 0,
+            hoverOffset: 8
+          }]
+        },
+        options: {
+          responsive:true, maintainAspectRatio:false, cutout:'68%',
+          plugins:{ legend:{ position:'bottom', labels:{ font:{ size:11 }, padding:12 } } }
+        }
+      });
+    }
+  });
+</script>
+</body>
+</html>

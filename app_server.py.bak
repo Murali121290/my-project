@@ -1868,21 +1868,6 @@ def build_excel_report(chapters_data: list, output_path: str) -> bool:
         def _blank(ws, row, h=6):
             ws.row_dimensions[row].height = h
 
-        def _autofit_columns(ws, min_width=10, max_width=80):
-            """Resize each column to fit its widest cell value."""
-            from openpyxl.cell.cell import MergedCell
-            col_max: dict = {}
-            for row in ws.iter_rows():
-                for cell in row:
-                    if isinstance(cell, MergedCell) or cell.value is None:
-                        continue
-                    col = get_column_letter(cell.column)
-                    # Account for newlines inside a cell
-                    width = max(len(line) for line in str(cell.value).splitlines()) if cell.value else 0
-                    col_max[col] = max(col_max.get(col, min_width), width)
-            for col, width in col_max.items():
-                ws.column_dimensions[col].width = min(width + 2, max_width)
-
         def _parse_table(html_str):
             """Extract list-of-lists from first <table> in html_str."""
             if not html_str:
@@ -1897,72 +1882,23 @@ def build_excel_report(chapters_data: list, output_path: str) -> bool:
 
         # ── Workbook setup ────────────────────────────────────────
         wb = Workbook()
-        wb.remove(wb.active)  # Remove default sheet
+        ws = wb.active
+        ws.title = "Dashboard"
 
-        # Helper to safely sum numeric values
-        def safe_sum(key):
-            total = 0
-            for ch in chapters_data:
-                val = ch.get(key, 0)
-                try:
-                    if isinstance(val, str):
-                        val = val.replace(',', '')
-                    total += float(val)
-                except (ValueError, TypeError):
-                    pass
-            return round(total)
+        col_widths = [30, 16, 16, 16, 16, 18, 44]
+        for i, w in enumerate(col_widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
 
-        # ── 1. Optional: Main Summary Sheet (if multiple chapters) ─
-        if len(chapters_data) > 1:
-            ws_summary = wb.create_sheet(title="Overall Summary")
-            sum_cols = 6
-            col_widths_sum = [15, 45, 15, 15, 18, 18]
-            for i, w in enumerate(col_widths_sum, 1):
-                ws_summary.column_dimensions[get_column_letter(i)].width = w
-            
-            rs = 1
-            ws_summary.row_dimensions[rs].height = 30
-            _write(ws_summary, rs, 1, "S4Carlisle  —  Combined Manuscript Summary",
-                   bold=True, fg="1E2235", fc="FFFFFF", sz=13, align=_centre(), bdr=False)
-            ws_summary.merge_cells(start_row=rs, start_column=1, end_row=rs, end_column=sum_cols)
-            rs += 1; _blank(ws_summary, rs); rs += 1
+        r = 1
 
-            # Overall Metrics
-            _section(ws_summary, rs, "  OVERALL METRICS", "2C3E7A", cols=sum_cols); rs += 1
-            metrics = [
-                ("Total Chapters Processed", len(chapters_data)),
-                ("Total Word Count", safe_sum("total_words")),
-                ("Total CE MS Pages", safe_sum("ce_pages")),
-            ]
-            for lbl, val in metrics:
-                ws_summary.row_dimensions[rs].height = 16
-                _write(ws_summary, rs, 1, lbl, bold=True, fg="EEF2FF", sz=9)
-                _write(ws_summary, rs, 2, str(val), fg="FFFFFF", sz=9)
-                ws_summary.merge_cells(start_row=rs, start_column=2, end_row=rs, end_column=sum_cols)
-                rs += 1
-            _blank(ws_summary, rs); rs += 1
+        # ── Top banner ────────────────────────────────────────────
+        ws.row_dimensions[r].height = 30
+        _write(ws, r, 1, "S4Carlisle  —  Manuscript Analysis Dashboard",
+               bold=True, fg="1E2235", fc="FFFFFF", sz=13, align=_centre(), bdr=False)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NUM_COLS)
+        r += 1; _blank(ws, r); r += 1
 
-            # Chapter Breakdown Table
-            _section(ws_summary, rs, "  CHAPTER BREAKDOWN", "1A5276", cols=sum_cols); rs += 1
-            headers = ["Chapter No.", "File Name", "Total Words", "CE Pages", "Missing Cits", "Fmt Issues"]
-            _thead(ws_summary, rs, headers, bg="1A5276", cols=sum_cols); rs += 1
-            
-            for i, ch in enumerate(chapters_data):
-                row_vals = [
-                    ch.get("chapter_number", "—"),
-                    ch.get("doc_name", "—"),
-                    ch.get("total_words", "—"),
-                    ch.get("ce_pages", "—"),
-                    ch.get("missing_citations", "—"),
-                    ch.get("fmt_issues", "—")
-                ]
-                bg = "F0F2F8" if i % 2 == 0 else "FFFFFF"
-                _drow(ws_summary, rs, row_vals, bg=bg, cols=sum_cols); rs += 1
-            
-            ws_summary.freeze_panes = "A2"
-            _autofit_columns(ws_summary)
-
-        # ── 2. Loop over chapters for Individual Sheets ────────────
+        # ── Loop over chapters ────────────────────────────────────
         COLORS = {
             "chapter":    "1E2235",
             "info":       "2C3E7A",
@@ -1975,40 +1911,9 @@ def build_excel_report(chapters_data: list, output_path: str) -> bool:
             "unnumbered": "784212",
         }
 
-        import re
-        from pathlib import Path
-
         for idx, ch in enumerate(chapters_data):
-            # Generate a safe Excel sheet name
-            doc_name = str(ch.get("doc_name", f"Chapter_{idx+1}"))
-            safe_title = re.sub(r'[\\*?:/\[\]]', '', Path(doc_name).stem).strip()
-            if not safe_title: safe_title = f"Chapter_{idx+1}"
-            if len(safe_title) > 31: safe_title = safe_title[:15] + ".." + safe_title[-14:]
-            
-            orig_title = safe_title
-            counter = 1
-            while safe_title in wb.sheetnames:
-                suffix = f"_{counter}"
-                safe_title = orig_title[:31 - len(suffix)] + suffix
-                counter += 1
-
-            ws = wb.create_sheet(title=safe_title)
-
-            col_widths = [30, 16, 16, 16, 16, 18, 44]
-            for i, w in enumerate(col_widths, 1):
-                ws.column_dimensions[get_column_letter(i)].width = w
-
-            r = 1
-
-            # ── Top banner ────────────────────────────────────────────
-            ws.row_dimensions[r].height = 30
-            _write(ws, r, 1, "S4Carlisle  —  Manuscript Analysis Dashboard",
-                   bold=True, fg="1E2235", fc="FFFFFF", sz=13, align=_centre(), bdr=False)
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NUM_COLS)
-            r += 1; _blank(ws, r); r += 1
-
             # ── Chapter divider banner ────────────────────────────
-            ch_label = f"{ch.get('chapter_number','—')}  —  {ch.get('chapter_title','—')}"
+            ch_label = f"CHAPTER {ch.get('chapter_number','—')}  —  {ch.get('chapter_title','—')}"
             ws.row_dimensions[r].height = 26
             _write(ws, r, 1, ch_label, bold=True, fg="4361EE", fc="FFFFFF",
                    sz=12, align=_centre(), bdr=False)
@@ -2133,23 +2038,20 @@ def build_excel_report(chapters_data: list, output_path: str) -> bool:
 
             # ── Chapter separator gap ─────────────────────────────
             r += 1; _blank(ws, r, h=12); r += 1
+            r += 1; _blank(ws, r, h=12); r += 1
 
-            # ── Footer ────────────────────────────────────────────────
-            ws.row_dimensions[r].height = 16
-            _write(ws, r, 1, "Generated by S4Carlisle Manuscript Analysis Tool",
-                   italic=True, fg="1E2235", fc="FFFFFF", sz=8,
-                   align=_centre(), bdr=False)
-            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NUM_COLS)
+        # ── Footer ────────────────────────────────────────────────
+        ws.row_dimensions[r].height = 16
+        _write(ws, r, 1, "Generated by S4Carlisle Manuscript Analysis Tool",
+               italic=True, fg="1E2235", fc="FFFFFF", sz=8,
+               align=_centre(), bdr=False)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NUM_COLS)
 
-            ws.freeze_panes = "A2"
-            _autofit_columns(ws)
-            ws.print_area = f"A1:{get_column_letter(NUM_COLS)}{r}"
-            ws.page_setup.orientation = "landscape"
-            ws.page_setup.fitToWidth = 1
-            ws.page_setup.fitToHeight = 0
-
-        if not wb.sheetnames:
-            wb.create_sheet(title="Dashboard")
+        ws.freeze_panes = "A2"
+        ws.print_area = f"A1:{get_column_letter(NUM_COLS)}{r}"
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
 
         wb.save(output_path)
         return True
@@ -2346,12 +2248,6 @@ def ppd():
     # Combined dashboard flag — only relevant when 2+ files uploaded
     combined_dashboard = request.form.get('combined_dashboard', 'false').lower() == 'true'
 
-    # Book title — required
-    book_title = request.form.get('book_title', '').strip()
-    if not book_title:
-        return jsonify({"error": "Book Title is required"}), 400
-    safe_title = re.sub(r'[<>:"/\\|?*\s]+', '_', book_title).strip('_')
-
     # Capture username before thread starts
     username = session.get("username") or "Analyst"
 
@@ -2390,7 +2286,6 @@ def ppd():
                 build_unnumbered_tab_html,
                 build_detailed_summary_table,
                 build_combined_dashboard_html,
-                build_new_combined_dashboard_html,
                 extract_chapter_metadata,
                 count_references_and_body_wc,
                 count_total_words_via_txt,
@@ -2417,8 +2312,7 @@ def ppd():
                 except Exception as ex:
                     print(f"Progress update failed: {ex}")
 
-            per_chapter_files = []   # individual dashboard + individual Excel
-            combined_files    = []   # combined dashboard + combined Excel
+            results = []
             chapters_data = []
 
             # --- START LINUX BATCH PDF CONVERSION OPTIMIZATION ---
@@ -2555,10 +2449,8 @@ def ppd():
                     ce_pages_val = round(final_total_wc / 250) if final_total_wc > 0 else 1
 
                     # Render individual file dashboard using Jinja template
-                    _xl_link = f"{Path(path).stem}_Analysis.xlsx"
                     single_chapter_data = [{
                         "doc_name":          fname,
-                        "book_title":        book_title or "—",
                         "chapter_number":    chapter_number or "—",
                         "chapter_title":     chapter_title or "—",
                         "authors":           authors or "—",
@@ -2579,22 +2471,12 @@ def ppd():
                         "missing_citations": stats.get("missing_citations", 0),
                         "missing_captions":  stats.get("missing_captions", 0),
                         "fmt_issues":        stats.get("fmt_issues", 0),
-                        "spec_count":        stats.get("spec_count", 0),
                         "fig_missing_cit":   stats.get("fig_missing_cit", 0),
                         "fig_missing_cap":   stats.get("fig_missing_cap", 0),
                         "tab_missing_cit":   stats.get("tab_missing_cit", 0),
                         "tab_missing_cap":   stats.get("tab_missing_cap", 0),
                         "box_missing_cit":   stats.get("box_missing_cit", 0),
                         "box_missing_cap":   stats.get("box_missing_cap", 0),
-                        "total_citations":   stats.get("total_citations", 0),
-                        "total_captions":    stats.get("total_captions", 0),
-                        "fig_total_cit":     stats.get("fig_total_cit", 0),
-                        "fig_total_cap":     stats.get("fig_total_cap", 0),
-                        "tab_total_cit":     stats.get("tab_total_cit", 0),
-                        "tab_total_cap":     stats.get("tab_total_cap", 0),
-                        "box_total_cit":     stats.get("box_total_cit", 0),
-                        "box_total_cap":     stats.get("box_total_cap", 0),
-                        "excel_link":        _xl_link,
                     }]
                     html = build_combined_dashboard_html(
                         single_chapter_data,
@@ -2606,14 +2488,7 @@ def ppd():
                     with open(out_html, "w", encoding="utf-8") as f:
                         f.write(html)
 
-                    per_chapter_files.append(out_html)
-
-                    # Generate individual Excel report for this chapter alone
-                    single_xl_path = os.path.join(unique_folder, _xl_link)
-                    if build_excel_report(single_chapter_data, single_xl_path):
-                        per_chapter_files.append(single_xl_path)
-                    else:
-                        app.logger.error(f"Single Excel report failed for {fname}")
+                    results.append(out_html)
 
                     # Collect chapter data for optional combined dashboard
                     chapters_data.append({
@@ -2644,15 +2519,6 @@ def ppd():
                         "tab_missing_cap":   stats.get("tab_missing_cap", 0),
                         "box_missing_cit":   stats.get("box_missing_cit", 0),
                         "box_missing_cap":   stats.get("box_missing_cap", 0),
-                        "total_citations":   stats.get("total_citations", 0),
-                        "total_captions":    stats.get("total_captions", 0),
-                        "fig_total_cit":     stats.get("fig_total_cit", 0),
-                        "fig_total_cap":     stats.get("fig_total_cap", 0),
-                        "tab_total_cit":     stats.get("tab_total_cit", 0),
-                        "tab_total_cap":     stats.get("tab_total_cap", 0),
-                        "box_total_cit":     stats.get("box_total_cit", 0),
-                        "box_total_cap":     stats.get("box_total_cap", 0),
-                        "excel_link":        _xl_link,
                     })
 
                     # Excel is generated once after all chapters (see below)
@@ -2664,35 +2530,35 @@ def ppd():
 
             # Generate combined dashboard if requested and 2+ chapters processed
             if combined_dashboard and len(chapters_data) > 1:
-                combined_html = build_new_combined_dashboard_html(
+                combined_html = build_combined_dashboard_html(
                     chapters_data,
+                    css="", js="",
                     logo_b64=get_base64_logo(),
-                    book_title=book_title,
                 )
-                combined_path = os.path.join(unique_folder, f"{safe_title}_Combined_Dashboard.html")
+                combined_path = os.path.join(unique_folder, "Combined_Dashboard.html")
                 with open(combined_path, "w", encoding="utf-8") as f:
                     f.write(combined_html)
-                combined_files.append(combined_path)
+                results.append(combined_path)
 
             # Generate combined Excel report (all chapters, single sheet)
             if chapters_data:
-                xl_name = f"{safe_title}_Manuscript_Analysis.xlsx"
+                ch_label = chapters_data[0].get("chapter_number", "Report")
+                xl_name = (
+                    f"Combined_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                    if len(chapters_data) > 1
+                    else f"Ch{ch_label}_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                )
                 xl_path = os.path.join(unique_folder, xl_name)
                 if build_excel_report(chapters_data, xl_path):
-                    combined_files.append(xl_path)
+                    results.append(xl_path)
                 else:
                     log_errors(["Combined Excel report generation failed"])
 
-            # Create ZIP — only include the relevant output set
-            zip_path = os.path.join(unique_folder, f"{safe_title}_Manuscript_Analysis_Report.zip")
-            if combined_dashboard and len(chapters_data) > 1:
-                files_to_zip = combined_files   # Combined_Dashboard.html + Manuscript_Analysis.xlsx only
-            else:
-                files_to_zip = per_chapter_files  # {stem}_Dashboard.html + {stem}_Analysis.xlsx only
+            # Create ZIP
+            zip_path = os.path.join(unique_folder, "Manuscript_Analysis_Results.zip")
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-                for f in files_to_zip:
-                    if os.path.exists(f):
-                        z.write(f, arcname=os.path.basename(f))
+                for f in results + saved:
+                    z.write(f, arcname=os.path.basename(f))
 
             update_progress({
                 "status": "Completed",
@@ -2710,7 +2576,7 @@ def ppd():
                         (user_id,
                          token,
                          json.dumps([os.path.basename(f) for f in saved]),  # Original filenames
-                         json.dumps([os.path.basename(f) for f in per_chapter_files + combined_files]), # Processed filenames
+                         json.dumps([os.path.basename(f) for f in results]), # Processed filenames
                          json.dumps({
                              'route_type': 'ppd', 
                              'task_indices': []
@@ -2951,7 +2817,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 # 1b. Conversion (Separate Step)
                 # -------------------------------------------------
                 if run_gemini:
-                    update_progress({"status": f"Converting {filename}..."})
+                    update_progress({"status": f"⏳ Converting {filename}..."})
                     log_buffer.append("\n--- CONVERSION ---")
                     try:
                         from ReferenceConversion import process_conversion
@@ -3186,60 +3052,14 @@ def validate_file():
         original_filenames = []
         
         try:
-            file_errors = []
-            
             for file in uploaded_files:
                 filename = secure_filename(file.filename)
                 if not allowed_file(filename):
                     continue
                 filepath = os.path.join(processing_dir, filename)
                 file.save(filepath)
-                
-                # --- NEW VALIDATION LOGIC START ---
-                if filename.lower().endswith('.docx'):
-                    try:
-                        from docx import Document
-                        
-                        doc = Document(filepath)
-                        has_ref_style = False
-                        has_ref_open = False
-                        has_ref_close = False
-                        
-                        for para in doc.paragraphs:
-                            if para.style and para.style.name and para.style.name.upper() in ['REF-N', 'REF-U']:
-                                has_ref_style = True
-                            if '<ref-open>' in para.text:
-                                has_ref_open = True
-                            if '<ref-close>' in para.text:
-                                has_ref_close = True
-                                
-                            if has_ref_style and has_ref_open and has_ref_close:
-                                break
-                                
-                        missing = []
-                        if not has_ref_style:
-                            missing.append("style 'REF-N' or 'REF-U'")
-                        if not has_ref_open:
-                            missing.append("'<ref-open>' tag")
-                        if not has_ref_close:
-                            missing.append("'<ref-close>' tag")
-                            
-                        if missing:
-                            file_errors.append(f"{filename} (Missing: {', '.join(missing)})")
-                            
-                    except Exception as e:
-                        file_errors.append(f"{filename} (Error reading file: {str(e)})")
-                # --- NEW VALIDATION LOGIC END ---
-                
                 saved_paths.append(filepath)
                 original_filenames.append(file.filename)
-                
-            # If any files failed validation, abort the entire batch
-            if file_errors:
-                import shutil
-                shutil.rmtree(processing_dir, ignore_errors=True)
-                error_msg = "Please fix the following files and try again: | " + " | ".join(file_errors)
-                return jsonify({"success": False, "message": error_msg})
                 
             # Collect Options
             options = {

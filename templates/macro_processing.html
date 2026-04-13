@@ -155,6 +155,13 @@
         <p class="text-muted">Process Word documents with specialized Pre-editing Process</p>
     </div>
 
+    <!-- Book Title -->
+    <div class="mb-3">
+        <label for="bookTitle" class="form-label fw-semibold">Book Title <span class="text-danger">*</span></label>
+        <input type="text" id="bookTitle" class="form-control"
+               placeholder="Enter book title (required)" maxlength="200">
+    </div>
+
     <!-- Drop Zone -->
     <div class="form-group">
         <label class="form-label">Upload Word Files</label>
@@ -295,6 +302,10 @@
                 updateFileList();
             });
         });
+
+        // Auto-check combined dashboard when 2+ files are selected
+        const chk = document.getElementById('combinedDashboardChk');
+        if (chk) chk.checked = files.length >= 2;
     }
 
     function formatFileSize(bytes) {
@@ -306,6 +317,11 @@
     }
 
     async function runAnalysis() {
+        const bookTitle = document.getElementById('bookTitle').value.trim();
+        if (!bookTitle) {
+            showAlert('Please enter a Book Title before running analysis.', 'error');
+            return;
+        }
         if (files.length === 0) {
             showAlert('Please select at least one Word file.', 'error');
             return;
@@ -316,6 +332,7 @@
             formData.append('docfiles', file);
         }
         formData.append('run_mss', 'true'); // Always run MSS analysis
+        formData.append('book_title', bookTitle);
         const combinedDashboard = document.getElementById('combinedDashboardChk')?.checked ? 'true' : 'false';
         formData.append('combined_dashboard', combinedDashboard);
 
