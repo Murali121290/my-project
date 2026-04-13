@@ -255,7 +255,7 @@ def format_apa_from_metadata(meta: Dict) -> str:
     year = meta.get("bib_year", "n.d.")
     parts.append(f"({year}).")
     if ref_type == "journal":
-        title   = meta.get("bib_title", "")
+        title   = meta.get("bib_article", "")
         journal = _to_title_case(meta.get("bib_journal", ""))
         volume  = meta.get("bib_volume", "")
         issue   = meta.get("bib_issue", "")

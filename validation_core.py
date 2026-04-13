@@ -61,18 +61,19 @@ _YEAR_RANGE_P  = r"(?:(?:19|20)\d{2})/(?:(?:19|20)\d{2})"
 
 # ── Regex patterns ───────────────────────────────────────────────────────────
 _LOCATOR_TAIL  = r'(?:,\s*pp?\.\s*\d+(?:[\u2013\u2014\-]\d+)?)?'
+_LOCATOR_TAIL  = _LOCATOR_TAIL.replace(r'\u2013', '\u2013').replace(r'\u2014', '\u2014')
 _RE_PAREN      = re.compile(
-    r'\(([^\s\d][^()]{1,120}?' + _YEAR_ANY + _LOCATOR_TAIL + r')\)',
+    r'\(([^\s\d][^()]{1,250}?' + _YEAR_ANY + _LOCATOR_TAIL + r')\)',
     re.UNICODE | re.IGNORECASE | re.DOTALL)
 _RE_NARRATIVE  = re.compile(
     r'(?<!\()([^\s\d]+(?:\s+et\s+al\.)?)\s+\((' + _YEAR_ANY + r')\)',
-    re.UNICODE | re.IGNORECASE)
+    re.UNICODE | re.IGNORECASE | re.DOTALL)
 _RE_MULTI_Y_P  = re.compile(
-    r'\(([^\s\d][^()]{1,80}?),\s*((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
-    re.UNICODE)
+    r'\(([^\s\d;][^();]{1,150}?),\s*((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
+    re.UNICODE | re.DOTALL)
 _RE_MULTI_Y_N  = re.compile(
-    r'(?<!\()([^\s\d]+(?:\s+et\s+al\.)?)\s+\(((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
-    re.UNICODE)
+    r'(?<!\()([^\s\d;]+(?:\s+et\s+al\.)?)\s+\(((?:' + _Y + r')(?:\s*,\s*(?:' + _Y + r')){1,4})\)',
+    re.UNICODE | re.DOTALL)
 _RE_SECONDARY  = re.compile(
     r'\(([^()]+?),\s*(' + _YEAR_ANY + r')\s*,\s*as\s+cited\s+in\s+([^()]+?),\s*(' + _YEAR_ANY + r')\)',
     re.IGNORECASE)
@@ -88,7 +89,7 @@ _RE_BAD_ND     = re.compile(r'\(\s*([^\s\d][^()]{0,80}?),?\s*(nd\.?|n\.d(?!\.)|N
 _RE_BAD_INPRES = re.compile(r'\(\s*([^\s\d][^()]{0,80}?),\s*(In\s+Press|IN\s+PRESS|In\s+press)\s*\)')
 _RE_ETAL_NOPER = re.compile(r'\bet\s+al(?!\.)\b')
 _RE_ETDOT_AL   = re.compile(r'\bet\.\s*al\.?', re.IGNORECASE)
-_RE_PAREN_AND  = re.compile(r'\(\s*([^\s\d][^(),]{1,60}?)\s+and\s+([^\s\d][^(),]{1,60}?),\s*((?:19|20)\d{2}[a-z]?)\s*\)', re.IGNORECASE | re.UNICODE)
+_RE_PAREN_AND  = re.compile(r'\(\s*([^\s\d][^(),]{1,120}?)\s+and\s+([^\s\d][^(),]{1,120}?),\s*((?:19|20)\d{2}[a-z]?)\s*\)', re.IGNORECASE | re.UNICODE | re.DOTALL)
 _RE_BIB_ABBREV = re.compile(r'\[([A-Z]{2,8})\]')
 _HEADING_RE    = re.compile(r"heading\s*\d|title", re.IGNORECASE)
 _FOOTNOTE_RE   = re.compile(r"footnote|endnote", re.IGNORECASE)
@@ -124,9 +125,9 @@ def _to_smart_quotes(text: str) -> str:
     """Convert straight quotes to curly (smart) quotes."""
     if not text:
         return text
-    text = re.sub(r'(^|[\s(\[{])"', r'\1\u201c', text)
+    text = re.sub(r'(^|[\s(\[{])"', '\\1\u201c', text)
     text = text.replace('"', '\u201d')
-    text = re.sub(r"(^|[\s(\[{])'", r'\1\u2018', text)
+    text = re.sub(r"(^|[\s(\[{])'", '\\1\u2018', text)
     text = text.replace("'", '\u2019')
     return text
 
@@ -191,6 +192,10 @@ def _count_authors(full: str) -> int:
 
     has_et_al = bool(re.search(r'\bet\s+al\b', full, re.IGNORECASE))
     cleaned = re.sub(r'\bet\s+al\.?\b', '', full, flags=re.IGNORECASE).strip()
+
+    # Normalize missing comma between a single initial and the next surname,
+    # e.g. "Forde, D. Fang, M.L." → "Forde, D., Fang, M.L."
+    cleaned = re.sub(r'([A-Z]\.)\s+([A-Z][a-z])', r'\1, \2', cleaned)
 
     normalised = re.sub(r'\s*[&]\s*|\s+and\s+', ', ', cleaned, flags=re.IGNORECASE)
 
@@ -416,8 +421,8 @@ class CitationExtractor:
         for m in _RE_MULTI_Y_P.finditer(text):
             if _over(m.start(), m.end()):
                 continue
-            author = m.group(1).strip().rstrip(",")
-            years  = [y.strip() for y in m.group(2).split(",") if y.strip()]
+            author = re.sub(r'\s+', ' ', m.group(1).strip().rstrip(","))
+            years  = [re.sub(r'\s+', ' ', y.strip()) for y in m.group(2).split(",") if y.strip()]
             hits.append({
                 "raw": m.group(0), "author": author, "years": years,
                 "cite_type": "multi_year", "start": m.start(), "end": m.end(),
@@ -428,9 +433,9 @@ class CitationExtractor:
         for m in _RE_MULTI_Y_N.finditer(text):
             if _over(m.start(), m.end()):
                 continue
-            years = [y.strip() for y in m.group(2).split(",") if y.strip()]
+            years = [re.sub(r'\s+', ' ', y.strip()) for y in m.group(2).split(",") if y.strip()]
             hits.append({
-                "raw": m.group(0), "author": m.group(1).strip(), "years": years,
+                "raw": m.group(0), "author": re.sub(r'\s+', ' ', m.group(1).strip()), "years": years,
                 "cite_type": "multi_year", "start": m.start(), "end": m.end(),
             })
             occ.append((m.start(), m.end()))
@@ -439,7 +444,8 @@ class CitationExtractor:
         for m in _RE_PAREN.finditer(text):
             if _over(m.start(), m.end()):
                 continue
-            segs  = [s.strip() for s in m.group(1).split(";")]
+            # Split on semicolon or colon (some authors mistakenly use a colon to separate multiple references)
+            segs  = [s.strip() for s in re.split(r'[;:]', m.group(1))]
             auths: List[str] = []
             block: List[Dict] = []
             for seg in segs:
@@ -448,18 +454,37 @@ class CitationExtractor:
                 seg_core = seg[:lm.start()].strip() if lm else seg
                 um = _RE_CITE_UNIT.search(seg_core)
                 if um:
-                    sa = um.group(1).strip().rstrip(",")
-                    sy = um.group(2).strip()
-                    block.append({
-                        "raw": f"({seg})" if len(segs) > 1 else m.group(0),
-                        "author": sa, "year": sy,
-                        "locator": locator,
-                        "cite_type": "parenthetical",
-                        "start": m.start(), "end": m.end(),
-                        "block_raw": m.group(0), "block_size": len(segs),
-                        "block_order_ok": True,
-                    })
-                    auths.append(_first_surname(sa))
+                    sa = re.sub(r'\s+', ' ', um.group(1).strip().rstrip(","))
+                    sy = re.sub(r'\s+', ' ', um.group(2).strip())
+                    
+                    # Check if author ends with a year (multi-year citation like "Omura et al., 2019a, 2019b")
+                    # Pattern: author ends with ", YYYY" or ", YYYYa, YYYYb"
+                    year_in_author = re.search(r',\s*((?: ' + _Y + r')(?:\s*,\s*(?:' + _Y + r'))*)$', sa)
+                    if year_in_author:
+                        # Multi-year: extract all years and clean author
+                        all_years_str = year_in_author.group(1) + ', ' + sy
+                        years = [re.sub(r'\s+', ' ', y.strip()) for y in re.split(r',', all_years_str) if y.strip()]
+                        sa = sa[:year_in_author.start()].strip()
+                        block.append({
+                            "raw": f"({seg})" if len(segs) > 1 else m.group(0),
+                            "author": sa, "years": years,
+                            "cite_type": "parenthetical",
+                            "start": m.start(), "end": m.end(),
+                            "block_raw": m.group(0), "block_size": len(segs),
+                            "block_order_ok": True,
+                        })
+                        auths.append(_first_surname(sa))
+                    else:
+                        block.append({
+                            "raw": f"({seg})" if len(segs) > 1 else m.group(0),
+                            "author": sa, "year": sy,
+                            "locator": locator,
+                            "cite_type": "parenthetical",
+                            "start": m.start(), "end": m.end(),
+                            "block_raw": m.group(0), "block_size": len(segs),
+                            "block_order_ok": True,
+                        })
+                        auths.append(_first_surname(sa))
             order_ok = all(auths[i] >= auths[i - 1] for i in range(1, len(auths)))
             for bc in block:
                 bc["block_order_ok"] = order_ok
@@ -771,8 +796,8 @@ class BibliographyParser:
         return f"{sn[0]} & {sn[1]}"
 
 # ── Matcher ───────────────────────────────────────────────────────────────────
-def _score_candidate(cite_norm: str, cite_first: str, cite_year: str,
-                     ref_norm: str, ref_first: str, ref_year: str) -> float:
+def _score_candidate(cite_norm: str, cite_author: str, cite_year: str,
+                     ref_norm: str, ref: dict) -> float:
     """
     Composite match score: name similarity (0–1) + year bonus.
 
@@ -780,22 +805,41 @@ def _score_candidate(cite_norm: str, cite_first: str, cite_year: str,
       +2.0  full year match  (cite_year == ref_year)
       +0.5  base year match  (_strip_suffix equal but full years differ)
        0.0  different base year
-
-    The +0.5 partial credit ensures that when an author has multiple bib entries
-    (e.g. Smith 2020a, Smith 2020b, Smith 2019) and the cite says "Smith, 2020"
-    (no suffix), the base-year entries (2020a/2020b) score higher than the
-    different-base-year entry (2019) and win — so they are correctly classified
-    as suffix_mismatch rather than year_mismatch.  Without this, the three entries
-    all score (name_sim + 0) and dict-iteration order decides the winner, which
-    can incorrectly trigger an auto-replace of a perfectly valid year.
+       
+    Includes penalty for year distance and bonus/penalty based on 'et al.' 
+    and author counts.
     """
     name_sim   = difflib.SequenceMatcher(None, cite_norm, ref_norm).ratio()
+    # Boost if the citation heavily matches the 'display' string (e.g. "Franck et al.")
+    disp_sim   = difflib.SequenceMatcher(None, cite_norm, _norm(ref.get("display", ""))).ratio()
+    name_sim   = max(name_sim, disp_sim)
+
+    ref_year   = ref["year"]
     cb         = _strip_suffix(cite_year)
     rb         = _strip_suffix(ref_year)
     full_match = (cite_year == ref_year)
     base_match = (cb == rb) and not full_match
     year_bonus = 2.0 if full_match else (0.5 if base_match else 0.0)
-    return name_sim + year_bonus
+
+    year_penalty = 0.0
+    if not full_match and not base_match and cb.isdigit() and rb.isdigit():
+        diff = abs(int(cb) - int(rb))
+        year_penalty = min(diff * 0.1, 0.5)  # -0.1 per year, max -0.5
+
+    et_al_modifier = 0.0
+    has_et_al = bool(re.search(r'\bet\s+al\b', cite_author, re.IGNORECASE))
+    ref_authors = ref.get("author_count", 1)
+    
+    if has_et_al and ref_authors >= 3:
+        et_al_modifier = 0.5
+    elif has_et_al and ref_authors < 3:
+        et_al_modifier = -0.5
+    elif not has_et_al and ref_authors >= 3 and not ref.get("is_org"):
+        et_al_modifier = -0.5
+    elif not has_et_al and ref_authors < 3:
+        et_al_modifier = 0.2
+
+    return name_sim + year_bonus - year_penalty + et_al_modifier
 
 
 def match_citation(
@@ -827,21 +871,38 @@ def match_citation(
 
         if cn == rn:
             mt    = "exact" if year_ok else ("suffix_mismatch" if cb == rb else "year_mismatch")
-            score = _score_candidate(cn, cf, cite_year, rn, rf, ry)
+            score = _score_candidate(cn, cite_author, cite_year, rn, ref)
         elif (cf and rf and
               (cf == rf or
                (len(cf) > SHORT_NAME_MAX_LEN and
                 difflib.SequenceMatcher(None, cf, rf).ratio() >= FUZZY_THRESHOLD))):
             mt    = "smart" if year_ok else ("suffix_mismatch" if cb == rb else "year_mismatch")
-            score = _score_candidate(cn, cf, cite_year, rn, rf, ry)
+            score = _score_candidate(cn, cite_author, cite_year, rn, ref)
         elif _is_org_match(cite_author, rfull):
             mt    = "org_abbrev" if year_ok else "year_mismatch"
-            score = _score_candidate(cn, cf, cite_year, rn, rf, ry)
+            score = _score_candidate(cn, cite_author, cite_year, rn, ref)
         else:
             ratio = difflib.SequenceMatcher(None, cn, rn).ratio()
+            disp_ratio = difflib.SequenceMatcher(None, cn, _norm(ref.get("display", ""))).ratio()
+            ratio = max(ratio, disp_ratio)
+            
             if ratio >= FUZZY_THRESHOLD:
                 mt    = "spelling_mismatch"
-                score = ratio + (2.0 if year_ok else (0.5 if cb == rb else 0.0))
+                
+                # Penalty and bonuses just like in _score_candidate to match behavior
+                year_penalty = 0.0
+                if cb.isdigit() and rb.isdigit() and cb != rb:
+                    year_penalty = min(abs(int(cb) - int(rb)) * 0.1, 0.5)
+                
+                et_al_modifier = 0.0
+                has_et_al = bool(re.search(r'\bet\s+al\b', cite_author, re.IGNORECASE))
+                ref_authors = ref.get("author_count", 1)
+                if has_et_al and ref_authors >= 3:
+                    et_al_modifier = 0.5
+                elif has_et_al and ref_authors < 3:
+                    et_al_modifier = -0.5
+                    
+                score = ratio + (2.0 if year_ok else (0.5 if cb == rb else 0.0)) - year_penalty + et_al_modifier
             else:
                 continue
 
@@ -1064,14 +1125,18 @@ def _full_text(p):
     for child in p._p:
         tag = child.tag
         if tag == _qn('w:r'):
-            t = child.find(_qn('w:t'))
-            if t is not None and t.text:
-                parts.append(t.text)
+            for n in child:
+                if n.tag == _qn('w:t') and n.text:
+                    parts.append(n.text)
+                elif n.tag == _qn('w:br') or n.tag == _qn('w:cr'):
+                    parts.append('\n')
         elif tag == _qn('w:ins'):
             for r in child.findall(_qn('w:r')):
-                t = r.find(_qn('w:t'))
-                if t is not None and t.text:
-                    parts.append(t.text)
+                for n in r:
+                    if n.tag == _qn('w:t') and n.text:
+                        parts.append(n.text)
+                    elif n.tag == _qn('w:br') or n.tag == _qn('w:cr'):
+                        parts.append('\n')
     return "".join(parts)
 
 
@@ -1392,7 +1457,7 @@ def sort_citation_block(para, block_raw: str, highlight) -> tuple:
     if inner.startswith("(") and inner.endswith(")"):
         inner = inner[1:-1]
 
-    raw_segs = [s.strip() for s in inner.split(";") if s.strip()]
+    raw_segs = [s.strip() for s in re.split(r'[;:]', inner) if s.strip()]
     if len(raw_segs) < 2:
         return False, False
 
@@ -1874,11 +1939,13 @@ class CitationProcessor:
         if is_new_block:
             self._seen_blocks.add(blk_raw)
             self._stats["multi_citation_blocks"] += 1
+            
+            has_colon_separator = ':' in blk_raw.strip("()")
 
-            if not cite.get("block_order_ok", True):
-                sorted_ok, already_styled = sort_citation_block(para, blk_raw, YELLOW)
+            if not cite.get("block_order_ok", True) or has_colon_separator:
+                sorted_ok, already_styled = sort_citation_block(para, blk_raw, YELLOW if not cite.get("block_order_ok", True) else None)
                 inner = blk_raw.strip("()")
-                segs  = [s.strip() for s in inner.split(";") if s.strip()]
+                segs  = [s.strip() for s in re.split(r'[;:]', inner) if s.strip()]
                 def _sk(seg):
                     um = _RE_CITE_UNIT.search(seg)
                     if um:
@@ -1888,17 +1955,19 @@ class CitationProcessor:
                     return (seg, "")
                 sorted_inner = "; ".join(sorted(segs, key=_sk))
                 sorted_blk   = f"({sorted_inner})"
-                if sorted_ok:
+                if not cite.get("block_order_ok", True):
+                    if not sorted_ok:
+                        self._add_issue(
+                            "alphabetical_violations", para_idx, para, blk_raw,
+                            f"BLOCK ORDER: '{blk_raw}' not alphabetically sorted "
+                            "— APA requires alphabetical order.")
+                    self._stats["alphabetical_violations"] += 1
+                elif has_colon_separator and sorted_ok:
                     self._add_issue(
-                        "alphabetical_violations", para_idx, para, blk_raw,
-                        f"BLOCK ORDER AUTO-FIXED: '{blk_raw}' → '{sorted_blk}' "
-                        "— reordered alphabetically per APA 7th.")
-                else:
-                    self._add_issue(
-                        "alphabetical_violations", para_idx, para, blk_raw,
-                        f"BLOCK ORDER: '{blk_raw}' not alphabetically sorted "
-                        "— APA requires alphabetical order.")
-                self._stats["alphabetical_violations"] += 1
+                        "general_issues", para_idx, para, blk_raw,
+                        f"CITATION SEPARATOR AUTO-FIXED: '{blk_raw}' → '{sorted_blk}' "
+                        "— changed colon to semicolon per APA 7th.")
+                        
                 self._pending_blocks[sorted_blk] = {
                     "para": para, "para_idx": para_idx,
                     "all_green": True,
