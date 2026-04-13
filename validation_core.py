@@ -1410,68 +1410,41 @@ def apply_style_to_text(p, txt, hl, style_id=None):
         style_id = CITE_STYLE
     if not txt:
         return None
-    offset = 0
-    res    = None
+    res = None
     
-    # Normalize the search text: replace multiple whitespace/newlines with single space
+    # Normalize the search text
     txt_normalized = re.sub(r'\s+', ' ', txt).strip()
     
     # For multi-citation blocks, try searching for citation without outer parens
     txt_inner = txt_normalized
     if txt_normalized.startswith('(') and txt_normalized.endswith(')'):
         txt_inner = txt_normalized[1:-1]
+        
+    runs_text = "".join(r.text for r in p.runs)
     
-    while True:
-        runs_text = "".join(r.text for r in p.runs)
-        runs_text_normalized = re.sub(r'\s+', ' ', runs_text).strip()
+    # Helper to find exact offsets ignoring whitespace differences
+    def get_offsets(original_text, search_text):
+        if not search_text: return -1, -1
+        # Build regex that allows any whitespace between non-whitespace characters
+        pattern = r'\s*'.join(re.escape(char) for char in search_text if not char.isspace())
+        match = re.search(pattern, original_text, re.IGNORECASE)
+        if match:
+            return match.start(), match.end()
+        return -1, -1
+
+    # 1. Try matching the exact full text (with parens)
+    start, end = get_offsets(runs_text, txt_normalized)
+    
+    # 2. Try matching the inner text (without parens) if full match fails
+    if start == -1 and txt_inner != txt_normalized:
+        start, end = get_offsets(runs_text, txt_inner)
         
-        # Try exact match first
-        pos = runs_text.find(txt, offset)
-        if pos == -1:
-            # Try case-insensitive
-            pos = runs_text.lower().find(txt.lower(), offset)
-        if pos == -1:
-            # Try normalized match (for multiline table citations)
-            pos = runs_text_normalized.lower().find(txt_normalized.lower())
-            if pos == -1 and txt_inner != txt_normalized:
-                # Try inner text (for multi-citation blocks where parens are in different runs)
-                pos = runs_text_normalized.lower().find(txt_inner.lower())
-            if pos != -1:
-                break
-        
-        if pos == -1:
-            break
-            
-        st = safe_splice(p, pos, pos + len(txt), txt, None, None)
-        if st is not None:
-            _tc_rpr_change(st, new_highlight=hl, new_style_id=style_id)
-            res = st
-        offset = pos + max(len(txt), 1)
-
-    # Fallback methods if exact matching failed
-    if res is None and txt:
-        runs_text = "".join(r.text for r in p.runs)
-        pos = runs_text.lower().find(txt.lower())
-        if pos != -1:
-            apply_highlight_by_span(p, pos, pos + len(txt), hl, style_id)
-            res = True
-        else:
-            # Try normalized text matching
-            runs_text_normalized = re.sub(r'\s+', ' ', runs_text).strip()
-            txt_normalized = re.sub(r'\s+', ' ', txt).strip()
-            pos = runs_text_normalized.lower().find(txt_normalized.lower())
-            if pos == -1 and txt_inner != txt_normalized:
-                # Try inner text for multi-citation blocks
-                pos = runs_text_normalized.lower().find(txt_inner.lower())
-            if pos != -1:
-                # Highlight with the found position
-                search_len = len(txt_normalized) if txt_normalized.lower() in runs_text_normalized.lower() else len(txt_inner)
-                apply_highlight_by_span(p, pos, pos + search_len, hl, style_id)
-                res = True
-
-    return res
-
-
+    if start != -1:
+        # We found exactly where it is in runs_text!
+        # First try applying with apply_highlight_by_span (which sets highlight and style cleanly)
+        apply_highlight_by_span(p, start, end, hl, style_id)
+        # Return None so that insert_comment falls back to text search rather than crashing on True
+        res = None
 def tracked_replace(p, old_text, new_text, highlight=None, style_id=None):
     if style_id is None:
         style_id = CITE_STYLE
@@ -1859,7 +1832,8 @@ class CitationProcessor:
                 continue
             self._process_para(para, idx, txt)
 
-        all_seen_tc: set = set()
+        all_seen_tc_objs = []
+        all_seen_tc = set()
 
         def _iter_unique_tcs(table):
             from docx.oxml.ns import qn as _qn
@@ -1872,6 +1846,7 @@ class CitationProcessor:
             for tc in _iter_unique_tcs(table):
                 if id(tc) in all_seen_tc:
                     continue
+                all_seen_tc_objs.append(tc) # Prevent GC to ensure id(tc) stays unique
                 all_seen_tc.add(id(tc))
 
                 cell = _Cell(tc, table)
@@ -1901,6 +1876,9 @@ class CitationProcessor:
 
     def _process_para(self, para, idx: int, txt: str,
                       context_label: str = "") -> None:
+        # Always use full text to preserve line breaks, especially in tables
+        txt = _full_text(para)
+        
         if ApaFixer.needs_fix(txt):
             _, changes = ApaFixer.fix(txt)
             for ch in changes:
