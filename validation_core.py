@@ -1103,6 +1103,9 @@ def apply_highlight_by_span(para, char_start: int, char_end: int,
 
             if fully_inside:
                 _tc_rpr_change(run._r, new_highlight=highlight, new_style_id=style)
+                # Also set highlight_color property for direct access
+                if highlight is not None:
+                    run.font.highlight_color = highlight
             else:
                 inner_txt = runs_text[overlap_start:overlap_end]
                 if not inner_txt:
@@ -1409,25 +1412,62 @@ def apply_style_to_text(p, txt, hl, style_id=None):
         return None
     offset = 0
     res    = None
+    
+    # Normalize the search text: replace multiple whitespace/newlines with single space
+    txt_normalized = re.sub(r'\s+', ' ', txt).strip()
+    
+    # For multi-citation blocks, try searching for citation without outer parens
+    txt_inner = txt_normalized
+    if txt_normalized.startswith('(') and txt_normalized.endswith(')'):
+        txt_inner = txt_normalized[1:-1]
+    
     while True:
         runs_text = "".join(r.text for r in p.runs)
+        runs_text_normalized = re.sub(r'\s+', ' ', runs_text).strip()
+        
+        # Try exact match first
         pos = runs_text.find(txt, offset)
         if pos == -1:
+            # Try case-insensitive
             pos = runs_text.lower().find(txt.lower(), offset)
         if pos == -1:
+            # Try normalized match (for multiline table citations)
+            pos = runs_text_normalized.lower().find(txt_normalized.lower())
+            if pos == -1 and txt_inner != txt_normalized:
+                # Try inner text (for multi-citation blocks where parens are in different runs)
+                pos = runs_text_normalized.lower().find(txt_inner.lower())
+            if pos != -1:
+                break
+        
+        if pos == -1:
             break
+            
         st = safe_splice(p, pos, pos + len(txt), txt, None, None)
         if st is not None:
             _tc_rpr_change(st, new_highlight=hl, new_style_id=style_id)
             res = st
         offset = pos + max(len(txt), 1)
 
+    # Fallback methods if exact matching failed
     if res is None and txt:
         runs_text = "".join(r.text for r in p.runs)
         pos = runs_text.lower().find(txt.lower())
         if pos != -1:
             apply_highlight_by_span(p, pos, pos + len(txt), hl, style_id)
             res = True
+        else:
+            # Try normalized text matching
+            runs_text_normalized = re.sub(r'\s+', ' ', runs_text).strip()
+            txt_normalized = re.sub(r'\s+', ' ', txt).strip()
+            pos = runs_text_normalized.lower().find(txt_normalized.lower())
+            if pos == -1 and txt_inner != txt_normalized:
+                # Try inner text for multi-citation blocks
+                pos = runs_text_normalized.lower().find(txt_inner.lower())
+            if pos != -1:
+                # Highlight with the found position
+                search_len = len(txt_normalized) if txt_normalized.lower() in runs_text_normalized.lower() else len(txt_inner)
+                apply_highlight_by_span(p, pos, pos + search_len, hl, style_id)
+                res = True
 
     return res
 
