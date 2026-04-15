@@ -2,70 +2,108 @@
 
 {% block title %}Create New User - Admin Panel{% endblock %}
 
+{% block extra_css %}
+<style>
+    .page-header { margin-bottom: 24px; }
+    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
+
+    .content-card {
+        background: rgba(255,255,255,0.97);
+        border-radius: 14px;
+        padding: 32px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.13);
+        max-width: 680px;
+        animation: fadeIn 0.4s ease;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+    .card-title {
+        font-size: 1rem; font-weight: 700; color: #1a1f3a;
+        margin-bottom: 24px; padding-bottom: 10px;
+        border-bottom: 2px solid #f0f2f8;
+        display: flex; align-items: center; gap: 8px;
+    }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-group { margin-bottom: 18px; }
+    .form-label { display: block; font-size: 0.83rem; font-weight: 600; color: #444; margin-bottom: 6px; }
+    .form-control {
+        width: 100%; padding: 10px 14px; border: 1.5px solid #e0e4f0;
+        border-radius: 8px; font-size: 0.875rem; font-family: inherit;
+        transition: border-color 0.18s; background: #fff;
+    }
+    .form-control:focus { outline: none; border-color: #4361ee; box-shadow: 0 0 0 3px rgba(67,97,238,0.1); }
+
+    .check-row { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+    .check-row input { accent-color: #4361ee; transform: scale(1.2); }
+    .check-row label { font-size: 0.875rem; font-weight: 500; color: #444; cursor: pointer; }
+
+    .form-actions { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; }
+
+    @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container py-5">
-    <!-- Page Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3 mb-0">Create New User</h1>
-        <span class="badge bg-danger">ADMIN</span>
+<div class="fade-in">
+
+    <div class="page-header">
+        <div class="page-title">Create New User</div>
+        <div class="page-sub">Add a new user account and assign their role</div>
     </div>
 
-    <!-- Card -->
-    <div class="card shadow-sm">
-        <div class="card-body">
-            <form method="POST" action="{{ url_for('admin_create_user') }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="content-card">
+        <div class="card-title">
+            <i class="fas fa-user-plus" style="color:#4361ee"></i> New User Details
+        </div>
 
-                <!-- Username -->
-                <div class="mb-3">
-                    <label for="username" class="form-label">Username <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" id="username" name="username" required>
+        <form method="POST" action="{{ url_for('admin_create_user') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label for="username" class="form-label">Username <span style="color:#ef476f">*</span></label>
+                <input type="text" class="form-control" id="username" name="username" required placeholder="e.g. firstname.lastname">
+            </div>
+
+            <div class="form-group">
+                <label for="email" class="form-label">Email (optional)</label>
+                <input type="email" class="form-control" id="email" name="email" placeholder="user@s4carlisle.com">
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="password" class="form-label">Password <span style="color:#ef476f">*</span></label>
+                    <input type="password" class="form-control" id="password" name="password" required placeholder="Min 8 characters">
                 </div>
-
-                <!-- Email -->
-                <div class="mb-3">
-                    <label for="email" class="form-label">Email (optional)</label>
-                    <input type="email" class="form-control" id="email" name="email">
-                </div>
-
-                <!-- Password -->
-                <div class="mb-3">
-                    <label for="password" class="form-label">Password <span class="text-danger">*</span></label>
-                    <input type="password" class="form-control" id="password" name="password" required>
-                </div>
-
-                <!-- Role -->
-                <div class="mb-3">
+                <div class="form-group">
                     <label for="role" class="form-label">Role</label>
-                    <select class="form-select" id="role" name="role">
+                    <select class="form-control" id="role" name="role">
                         <option value="USER">User</option>
                         <option value="PPD">PPD</option>
                         <option value="COPYEDIT">Copyedit</option>
                         <option value="PM">Project Manager</option>
                         <option value="ADMIN">Administrator</option>
-                        <option value="PERMISSIONS">PERMISSIONS</option>
+                        <option value="PERMISSIONS">Permissions</option>
                     </select>
                 </div>
+            </div>
 
-                <!-- Admin Checkbox -->
-                <div class="form-check mb-4">
-                    <input class="form-check-input" type="checkbox" id="is_admin" name="is_admin">
-                    <label class="form-check-label" for="is_admin">
-                        Grant Admin Privileges
-                    </label>
-                </div>
+            <div class="check-row">
+                <input class="form-check-input" type="checkbox" id="is_admin" name="is_admin">
+                <label for="is_admin">Grant Admin Privileges</label>
+            </div>
 
-                <!-- Submit Button -->
-                <div class="d-flex justify-content-between align-items-center">
-                    <a href="{{ url_for('admin_users') }}" class="btn btn-outline-secondary">
-                        ← Back to User Management
-                    </a>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-user-plus"></i> Create User
-                    </button>
-                </div>
-            </form>
-        </div>
+            <div class="form-actions">
+                <a href="{{ url_for('admin_users') }}" class="btn btn-outline">
+                    <i class="fas fa-arrow-left"></i> Back to Users
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-user-plus"></i> Create User
+                </button>
+            </div>
+        </form>
     </div>
+
 </div>
 {% endblock %}

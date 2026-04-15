@@ -228,18 +228,21 @@
         gap: 1rem;
         margin-top: 1.5rem;
     }
+    .page-header { margin-bottom: 24px; }
+    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="content-card fade-in">
-    <div class="text-center mb-3">
-        <h1
-            style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">
-            Bulk DOI Finder
-        </h1>
-        <p class="text-muted">Upload and validate multiple references, receive APA and AMA formatted citations</p>
-    </div>
+<div class="fade-in">
+
+<div class="page-header">
+    <div class="page-title">Bulk DOI Finder</div>
+    <div class="page-sub">Upload and validate multiple references, receive APA and AMA formatted citations</div>
+</div>
+
+<div class="content-card">
 
     <div class="search-section">
         <h3 class="mb-2">Upload References</h3>
@@ -309,6 +312,7 @@
             </button>
         </div>
     </div>
+</div>
 </div>
 {% endblock %}
 

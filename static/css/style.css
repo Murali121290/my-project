@@ -116,8 +116,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .main-content {
-    min-height: calc(100vh - 80px);
-    padding: var(--spacing-xl) 0;
+    min-height: 100vh;
+    padding: var(--spacing-xl);
     position: relative;
 }
 
@@ -549,27 +549,12 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Responsive Design */
 @media (max-width: 768px) {
-    .header-container {
-        flex-direction: column;
-        gap: var(--spacing-md);
-    }
-
-    .nav-main {
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: var(--spacing-sm);
-    }
-
-    .nav-link {
-        padding: var(--spacing-sm);
+    .main-content {
+        padding: var(--spacing-md);
     }
 
     .content-card {
         padding: var(--spacing-lg);
-    }
-
-    .main-content {
-        padding: var(--spacing-md) 0;
     }
 
     .d-flex {

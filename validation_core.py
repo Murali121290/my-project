@@ -291,7 +291,7 @@ class ApaFixer:
     @staticmethod
     def needs_fix(text: str) -> bool:
         return bool(
-            _RE_AMA.search(text) or _RE_BAD_ETAL.search(text)
+            _RE_BAD_ETAL.search(text)
             or _RE_MISS_COMMA.search(text) or _RE_YR_RANGE.search(text)
             or _RE_BAD_ND.search(text) or _RE_BAD_INPRES.search(text)
             or _RE_ETAL_NOPER.search(text) or _RE_ETDOT_AL.search(text)
@@ -364,7 +364,6 @@ class ApaFixer:
                 "inpress_capitalisation"
             )
 
-        r = _RE_AMA.sub(_ama, r)
         r = _RE_MISS_COMMA.sub(_comma, r)
         r = _RE_BAD_ETAL.sub(_etal, r)
         r = _RE_ETAL_NOPER.sub(_etalp, r)
@@ -1215,7 +1214,7 @@ def _tc_rpr_change(run_el, new_highlight=None, new_style_id=None):
 
     if new_style_id is not None:
         rs = OxmlElement('w:rStyle')
-        actual_id = "citebib" if new_style_id == CITE_STYLE else new_style_id
+        actual_id = new_style_id
         rs.set(qn('w:val'), actual_id)
         for old in rpr.findall(qn('w:rStyle')):
             rpr.remove(old)
@@ -2248,27 +2247,28 @@ class CitationProcessor:
                 target_text=full_ref_text,
             )
 
-            highlight_run = None
-            if para is not None:
-                highlight_run = apply_style_to_text(para, full_ref_text, YELLOW, self.cite_style_id)
-
-            if self._issues:
-                self._issues[-1]["highlight_run"] = highlight_run
-
             self._stats["unused"] += 1
 
     # ── Comment insertion ─────────────────────────────────────────────────────
     def _insert_comments(self):
+        _yr_re = re.compile(_YEAR_ANY, re.IGNORECASE)
         for iss in self._issues:
-            p  = iss.get("para")
+            p = iss.get("para")
             if p is None:
                 continue
-            hr = iss.get("highlight_run")
-            if hr is not None:
-                insert_comment(self.doc, p, iss["message"], target_run=hr)
+
+            search_src = iss.get("target_text") or iss.get("raw") or ""
+            yr_m = _yr_re.search(search_src)
+            year_token = yr_m.group(0) if yr_m else None
+
+            if year_token:
+                insert_comment(self.doc, p, iss["message"], target_text=year_token)
             else:
-                tt = iss.get("target_text") or iss.get("raw")
-                insert_comment(self.doc, p, iss["message"], target_text=tt)
+                hr = iss.get("highlight_run")
+                if hr is not None:
+                    insert_comment(self.doc, p, iss["message"], target_run=hr)
+                else:
+                    insert_comment(self.doc, p, iss["message"], target_text=search_src)
 
     # ── Issue tracker ─────────────────────────────────────────────────────────
     def _add_issue(self, itype, para_idx, para, raw, message, target_text=None):

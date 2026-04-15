@@ -102,17 +102,21 @@
         text-align: center;
         margin: 1.5rem 0;
     }
+    .page-header { margin-bottom: 24px; }
+    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="content-card fade-in">
-    <div class="text-center mb-3">
-        <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-            Language Editing
-        </h1>
-        <p class="text-muted">Process Word documents with specialized Language Process</p>
-    </div>
+<div class="fade-in">
+
+<div class="page-header">
+    <div class="page-title">Language Editing</div>
+    <div class="page-sub">Process Word documents with specialized Language Process</div>
+</div>
+
+<div class="content-card">
 
     <form method="POST" enctype="multipart/form-data" id="macroForm" action="{{ url_for('language') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -174,6 +178,7 @@
             </button>
         </div>
     </form>
+</div>
 </div>
 {% endblock %}
 

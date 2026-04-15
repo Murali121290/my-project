@@ -2212,7 +2212,6 @@ def login():
                         # Let's add role to session for performance.
                         
                         log_activity(username, "LOGIN")
-                        flash("Login successful", "success")
                         return redirect(url_for('dashboard'))
                     else:
                         print(f"Login failed for {username}: Password mismatch")

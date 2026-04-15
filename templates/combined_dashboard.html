@@ -234,7 +234,7 @@
   <!-- Topbar -->
   <div class="topbar">
     <div>
-      <div class="topbar-title">S4Carlisle Analysis Dashboard</div>
+      <div class="topbar-title">S4Carlisle Manuscripts Analysis Dashboard</div>
       <div class="topbar-sub">{% if book_title %}<strong>BookTitle: {{ book_title }}</strong>{% endif %}</div>
     </div>
     <div class="topbar-actions">
@@ -486,7 +486,7 @@
           <i class="fas fa-link"></i> Citations
         </button>
         <button class="nav-tab" onclick="showTab('ch{{ loop.index0 }}','special-chars',this)">
-          <i class="fas fa-font"></i> Special Chars
+          <i class="fas fa-font"></i> Non-Std characters
         </button>
         <button class="nav-tab" onclick="showTab('ch{{ loop.index0 }}','formatting',this)">
           <i class="fas fa-paint-brush"></i> Formatting
@@ -630,6 +630,34 @@
     _initTabDT(activeTab ? activeTab.id : id);
     animateCounters();
     window.scrollTo({top:0, behavior:'smooth'});
+  }
+
+  function showTabFromRow(tab, rowEl) {
+    const section = rowEl ? rowEl.closest('.chapter-section') : null;
+    if (!section) return;
+    const prefix = section.id;  // e.g. "ch0"
+
+    const alreadyActive = rowEl && rowEl.classList.contains('summary-row-active');
+    section.querySelectorAll('.summary-table-row').forEach(r => r.classList.remove('summary-row-active'));
+
+    // Find the matching nav-tab button by its onclick text
+    let targetBtn = null;
+    section.querySelectorAll('.sticky-tab-bar .nav-tab').forEach(b => {
+      if ((b.getAttribute('onclick') || '').includes("'" + tab + "'")) targetBtn = b;
+    });
+
+    if (!targetBtn) return;  // 'media' has no tab — silently ignore
+
+    if (alreadyActive && section.querySelector('#' + prefix + '_' + tab + '.active')) {
+      // Second click on same active row → toggle off
+      section.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      section.querySelectorAll('.sticky-tab-bar .nav-tab').forEach(b => b.classList.remove('active'));
+    } else {
+      rowEl.classList.add('summary-row-active');
+      showTab(prefix, tab, targetBtn);
+      const tgt = document.getElementById(prefix + '_' + tab);
+      if (tgt) setTimeout(() => tgt.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
   }
 
   function showTab(prefix, tab, btn) {
