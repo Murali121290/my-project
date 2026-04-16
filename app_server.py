@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import warnings
+# Suppress sqlite3 datetime adapter deprecation warning (Python 3.12+)
+warnings.filterwarnings('ignore', message='.*default datetime adapter is deprecated.*', category=DeprecationWarning)
+
 import traceback
 import uuid
 import json
@@ -394,11 +398,22 @@ def credit_extractor():
             "status": "Starting"
         }
 
-        threading.Thread(
-            target=process_credit_extractor_job,
-            args=(job_id, temp_dir, saved_paths, original_filenames, session['user_id'], session['username'], extraction_method, api_key),
-            daemon=True
-        ).start()
+        batch_queue.submit(
+            job_id=job_id,
+            route_type='credit_extractor',
+            user_id=session['user_id'],
+            username=session['username'],
+            target_fn=process_credit_extractor_job,
+            fn_args=(job_id, temp_dir, saved_paths, original_filenames,
+                     session['user_id'], session['username'], extraction_method, api_key),
+            payload_dict={
+                'temp_dir': temp_dir,
+                'saved_paths': saved_paths,
+                'original_filenames': original_filenames,
+                'extraction_method': extraction_method,
+                'api_key': api_key,
+            }
+        )
 
         return jsonify({"job_id": job_id})
 
@@ -562,11 +577,20 @@ def bias_scan():
             "status": "Starting"
         }
 
-        threading.Thread(
-            target=process_bias_scan_job,
-            args=(job_id, temp_dir, saved_paths, original_filenames, session['user_id'], session['username']),
-            daemon=True
-        ).start()
+        batch_queue.submit(
+            job_id=job_id,
+            route_type='bias_scan',
+            user_id=session['user_id'],
+            username=session['username'],
+            target_fn=process_bias_scan_job,
+            fn_args=(job_id, temp_dir, saved_paths, original_filenames,
+                     session['user_id'], session['username']),
+            payload_dict={
+                'temp_dir': temp_dir,
+                'saved_paths': saved_paths,
+                'original_filenames': original_filenames,
+            }
+        )
 
         return jsonify({"job_id": job_id})
 
@@ -760,11 +784,20 @@ def word_to_xml():
             "status": "Starting"
         }
 
-        threading.Thread(
-            target=process_word_to_xml_job,
-            args=(job_id, temp_dir, saved_paths, original_filenames, session['user_id'], session['username']),
-            daemon=True
-        ).start()
+        batch_queue.submit(
+            job_id=job_id,
+            route_type='word_to_xml',
+            user_id=session['user_id'],
+            username=session['username'],
+            target_fn=process_word_to_xml_job,
+            fn_args=(job_id, temp_dir, saved_paths, original_filenames,
+                     session['user_id'], session['username']),
+            payload_dict={
+                'temp_dir': temp_dir,
+                'saved_paths': saved_paths,
+                'original_filenames': original_filenames,
+            }
+        )
 
         return jsonify({"job_id": job_id})
 
@@ -958,6 +991,256 @@ class DatabasePool:
 
 
 db_pool = DatabasePool(DATABASE)
+
+
+# -----------------------
+# Batch Queue Manager
+# -----------------------
+_ROUTE_JOB_FUNCTIONS = {
+    'credit_extractor': 'process_credit_extractor_job',
+    'bias_scan':        'process_bias_scan_job',
+    'word_to_xml':      'process_word_to_xml_job',
+    'ppd':              'process_ppd_job',
+    'validation':       'process_validation_job',
+    'technical':        'process_technical_job',
+}
+
+
+class BatchQueueManager:
+    MAX_WORKERS = 4
+
+    def __init__(self, db_pool_ref, app_ref):
+        self._db = db_pool_ref
+        self._app = app_ref
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.MAX_WORKERS, thread_name_prefix="batchworker"
+        )
+        self._active_futures = {}   # job_id → Future (None while slot is being reserved)
+        self._lock = Lock()
+
+    def submit(self, job_id, route_type, user_id, username,
+               target_fn, fn_args, payload_dict, priority=0):
+        """Enqueue a job. Runs immediately if a worker slot is free, else persists as pending."""
+        try:
+            with self._db.get_connection() as db:
+                db.execute(
+                    "INSERT INTO job_queue "
+                    "(job_id, route_type, user_id, username, status, priority, payload) "
+                    "VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+                    (job_id, route_type, user_id, username, priority, json.dumps(payload_dict))
+                )
+                db.commit()
+        except Exception as e:
+            print(f"BatchQueue submit DB error for {job_id}: {e}")
+        self._try_dispatch(job_id, target_fn, fn_args)
+
+    def _try_dispatch(self, job_id, target_fn, fn_args):
+        """Dispatch a job to the executor if a worker slot is available."""
+        with self._lock:
+            if len(self._active_futures) >= self.MAX_WORKERS:
+                return
+            self._active_futures[job_id] = None  # Reserve slot immediately
+
+        self._mark_running(job_id)
+        future = self._executor.submit(target_fn, *fn_args)
+        future.add_done_callback(lambda f, jid=job_id: self._on_complete(jid, f))
+        with self._lock:
+            self._active_futures[job_id] = future
+
+    def _on_complete(self, job_id, future):
+        """Called by executor when a job finishes (success, failure, or cancel)."""
+        with self._lock:
+            self._active_futures.pop(job_id, None)
+
+        if future.cancelled():
+            self._mark_done(job_id, 'cancelled')
+        elif future.exception():
+            self._mark_done(job_id, 'failed', str(future.exception()))
+        else:
+            self._mark_done(job_id, 'completed')
+
+        self._drain_pending()
+
+    def _drain_pending(self):
+        """Promote pending DB jobs into the executor when slots are free."""
+        with self._lock:
+            slots_free = self.MAX_WORKERS - len(self._active_futures)
+        if slots_free <= 0:
+            return
+
+        try:
+            with self._db.get_connection() as db:
+                rows = db.execute(
+                    "SELECT job_id, route_type, user_id, username, payload "
+                    "FROM job_queue WHERE status='pending' "
+                    "ORDER BY priority DESC, queued_at ASC LIMIT ?",
+                    (slots_free,)
+                ).fetchall()
+        except Exception as e:
+            print(f"BatchQueue _drain_pending DB error: {e}")
+            return
+
+        for row in rows:
+            try:
+                jid      = row['job_id']
+                rtype    = row['route_type']
+                uid      = row['user_id']
+                uname    = row['username']
+                payload  = json.loads(row['payload'])
+
+                fn_name  = _ROUTE_JOB_FUNCTIONS.get(rtype)
+                if not fn_name:
+                    continue
+                target_fn = globals().get(fn_name)
+                if not target_fn:
+                    continue
+                fn_args = self._reconstruct_fn_args(rtype, jid, uid, uname, payload)
+
+                with self._lock:
+                    if len(self._active_futures) >= self.MAX_WORKERS:
+                        break
+                    self._active_futures[jid] = None
+
+                self._mark_running(jid)
+                future = self._executor.submit(target_fn, *fn_args)
+                future.add_done_callback(lambda f, j=jid: self._on_complete(j, f))
+                with self._lock:
+                    self._active_futures[jid] = future
+
+            except Exception as e:
+                print(f"BatchQueue drain error for job {jid}: {e}")
+
+    def _reconstruct_fn_args(self, route_type, job_id, user_id, username, payload):
+        """Reconstruct fn_args tuple from stored payload for crash recovery."""
+        p = payload
+        if route_type == 'credit_extractor':
+            return (job_id, p['temp_dir'], p['saved_paths'], p['original_filenames'],
+                    user_id, username, p.get('extraction_method', 'manual'), p.get('api_key', ''))
+        elif route_type == 'bias_scan':
+            return (job_id, p['temp_dir'], p['saved_paths'], p['original_filenames'], user_id, username)
+        elif route_type == 'word_to_xml':
+            return (job_id, p['temp_dir'], p['saved_paths'], p['original_filenames'], user_id, username)
+        elif route_type == 'ppd':
+            return (job_id, p['unique_folder'], p['saved'], p['combined_dashboard'],
+                    p['book_title'], p['safe_title'], username, user_id)
+        elif route_type == 'validation':
+            return (job_id, p['processing_dir'], p['saved_paths'], p['original_filenames'],
+                    p['options'], user_id, username)
+        elif route_type == 'technical':
+            return (job_id, p['unique_folder'], p['saved_paths'], p['original_filenames'],
+                    p['run_te'], user_id, username)
+        else:
+            raise ValueError(f"Unknown route_type for reconstruction: {route_type}")
+
+    def cancel(self, job_id, requesting_user_id):
+        """Cancel a pending or running job. Returns (success, message)."""
+        try:
+            with self._db.get_connection() as db:
+                row = db.execute(
+                    "SELECT user_id, status FROM job_queue WHERE job_id=?", (job_id,)
+                ).fetchone()
+        except Exception as e:
+            return False, f"DB error: {e}"
+
+        if not row:
+            return False, "Job not found"
+
+        if int(row['user_id']) != int(requesting_user_id):
+            return False, "Forbidden"
+
+        status = row['status']
+        if status == 'pending':
+            try:
+                with self._db.get_connection() as db:
+                    db.execute(
+                        "UPDATE job_queue SET status='cancelled', completed_at=? WHERE job_id=?",
+                        (_now_utc(), job_id)
+                    )
+                    db.commit()
+            except Exception as e:
+                return False, f"DB error: {e}"
+            return True, "Cancelled"
+
+        if status == 'running':
+            with self._lock:
+                future = self._active_futures.get(job_id)
+            if future:
+                future.cancel()
+            try:
+                with self._db.get_connection() as db:
+                    db.execute(
+                        "UPDATE job_queue SET status='cancelled', completed_at=? WHERE job_id=?",
+                        (_now_utc(), job_id)
+                    )
+                    db.commit()
+            except Exception as e:
+                return False, f"DB error: {e}"
+            return True, "Cancel requested (job may already be running)"
+
+        return False, f"Cannot cancel job in status '{status}'"
+
+    def list_jobs(self, user_id, is_admin=False, limit=100):
+        """List jobs for a user (or all jobs if admin)."""
+        try:
+            with self._db.get_connection() as db:
+                if is_admin:
+                    rows = db.execute(
+                        "SELECT job_id, route_type, username, status, priority, payload, "
+                        "queued_at, started_at, completed_at, downloaded_at, error_msg "
+                        "FROM job_queue ORDER BY queued_at DESC LIMIT ?",
+                        (limit,)
+                    ).fetchall()
+                else:
+                    rows = db.execute(
+                        "SELECT job_id, route_type, username, status, priority, payload, "
+                        "queued_at, started_at, completed_at, downloaded_at, error_msg "
+                        "FROM job_queue WHERE user_id=? ORDER BY queued_at DESC LIMIT ?",
+                        (user_id, limit)
+                    ).fetchall()
+            result = []
+            for row in rows:
+                d = dict(row)
+                try:
+                    p = json.loads(d.get('payload', '{}'))
+                    d['files'] = p.get('original_filenames', p.get('saved_paths', []))
+                    if not d['files'] and 'saved' in p:
+                        d['files'] = [os.path.basename(f) for f in p.get('saved', [])]
+                except Exception:
+                    d['files'] = []
+                d.pop('payload', None)
+                for k in ['queued_at', 'started_at', 'completed_at', 'downloaded_at']:
+                    if d.get(k) and not isinstance(d[k], str):
+                        d[k] = str(d[k])
+                result.append(d)
+            return result
+        except Exception as e:
+            print(f"BatchQueue list_jobs error: {e}")
+            return []
+
+    def _mark_running(self, job_id):
+        try:
+            with self._db.get_connection() as db:
+                db.execute(
+                    "UPDATE job_queue SET status='running', started_at=? WHERE job_id=?",
+                    (_now_utc(), job_id)
+                )
+                db.commit()
+        except Exception as e:
+            print(f"BatchQueue _mark_running error for {job_id}: {e}")
+
+    def _mark_done(self, job_id, status, error_msg=None):
+        try:
+            with self._db.get_connection() as db:
+                db.execute(
+                    "UPDATE job_queue SET status=?, completed_at=?, error_msg=? WHERE job_id=?",
+                    (status, _now_utc(), error_msg, job_id)
+                )
+                db.commit()
+        except Exception as e:
+            print(f"BatchQueue _mark_done error for {job_id}: {e}")
+
+
+batch_queue = BatchQueueManager(db_pool, app)
 
 
 # -----------------------
@@ -1166,6 +1449,22 @@ def init_db():
                             route_type TEXT DEFAULT 'general',
                             FOREIGN KEY (user_id) REFERENCES users(id))''')
 
+            create_table_safe(f'''CREATE TABLE IF NOT EXISTS job_queue (
+                            id           {pk_type},
+                            job_id       TEXT UNIQUE NOT NULL,
+                            route_type   TEXT NOT NULL,
+                            user_id      INTEGER NOT NULL,
+                            username     TEXT NOT NULL,
+                            status       TEXT NOT NULL DEFAULT 'pending',
+                            priority     INTEGER NOT NULL DEFAULT 0,
+                            payload      TEXT NOT NULL,
+                            queued_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            started_at   TIMESTAMP,
+                            completed_at TIMESTAMP,
+                            downloaded_at TIMESTAMP,
+                            error_msg    TEXT,
+                            FOREIGN KEY (user_id) REFERENCES users(id))''')
+
             # --- MIGRATION: Check and Add 'route_type' to macro_processing if missing ---
             try:
                 # Check for column existence (SQLite/Postgres agnostic check)
@@ -1190,6 +1489,8 @@ def init_db():
                 db.execute("CREATE INDEX IF NOT EXISTS idx_files_upload_date ON files(upload_date)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_macro_user_id ON macro_processing(user_id)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_macro_route_type ON macro_processing(route_type)")
+                db.execute("CREATE INDEX IF NOT EXISTS idx_jq_status ON job_queue(status)")
+                db.execute("CREATE INDEX IF NOT EXISTS idx_jq_user_id ON job_queue(user_id)")
             except Exception as e:
                 # ignore specific index errors or just log
                 print(f"Index creation warning: {e}")
@@ -2298,6 +2599,353 @@ def macro_processing():
 
 from jinja2 import Template
 
+
+
+def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
+                    book_title, safe_title, username, user_id):
+    with app.app_context():
+        from word_analyzer_docx import (
+            CitationAnalyzer,
+            BoxTagLinker,
+            build_element_mapping_html,
+            extract_with_docx,
+            remove_tags_keep_formatting_docx,
+            generate_formatting_html,
+            generate_multilingual_html,
+            build_comments_html,
+            build_export_highlight_html,
+            build_unnumbered_tab_html,
+            build_detailed_summary_table,
+            build_combined_dashboard_html,
+            build_new_combined_dashboard_html,
+            extract_chapter_metadata,
+            count_references_and_body_wc,
+            count_total_words_via_txt,
+            count_unnumbered_elements,
+            extract_unnumbered_image_markups,
+            build_unnumbered_image_markups_html,
+            build_text_page_map,
+            _page_from_map,
+            get_xml_comments,
+        )
+        from docx import Document as _DocxDocument
+
+        # Helper to update progress file
+        def update_progress(updates):
+            try:
+                p_path = os.path.join(unique_folder, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current.update(updates)
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+            except Exception as ex:
+                print(f"Progress update failed: {ex}")
+
+        per_chapter_files = []   # individual dashboard + individual Excel
+        combined_files    = []   # combined dashboard + combined Excel
+        chapters_data = []
+
+        def _chapter_sort_key(raw):
+            """Return integer for sorting; chapters with no digit sort last."""
+            m = re.search(r'\d+', raw or '')
+            return int(m.group()) if m else 2**31
+
+        def _chapter_num_display(raw):
+            """Normalize any chapter_number variant to 'Chapter N'.
+            e.g. 'Chapter 1', 'chapter 2', 'CHAPTER 3', 'Ch. 4', '5' → 'Chapter N'."""
+            m = re.search(r'\d+', raw or '')
+            return f"Chapter {m.group()}" if m else raw
+
+        # --- START LINUX BATCH PDF CONVERSION OPTIMIZATION ---
+        # Pre-convert all uploaded docs to PDF simultaneously to avoid LibreOffice cold-starts
+        import subprocess
+        import shutil
+        lo_cmd = shutil.which("libreoffice") or shutil.which("soffice")
+        if not lo_cmd and os.name == "nt" and os.path.exists(r"C:\Program Files\LibreOffice\program\soffice.exe"):
+            lo_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe"
+        
+        if lo_cmd and saved:
+            update_progress({"status": "Batch processing..."})
+            try:
+                cmd = [lo_cmd, "--headless", "--convert-to", "pdf", "--outdir", unique_folder] + [os.path.abspath(p) for p in saved]
+                subprocess.run(cmd, timeout=300, capture_output=True)
+            except Exception as e:
+                app.logger.warning(f"Batch PDF conversion failed: {e}")
+        # --- END LINUX BATCH PDF CONVERSION OPTIMIZATION ---
+
+        for i, path in enumerate(saved, 1):
+            fname = os.path.basename(path)
+            update_progress({
+                "current": i,
+                "status": f"Processing {fname}"
+            })
+
+            try:
+                # --- Step 1: extract paragraphs (fallback page numbers) ---
+                paras, comments, imgs, foot, end = extract_with_docx(path)
+
+                # --- Step 1b: compute dtypes and unnumbered counts from original file ---
+                # Must happen BEFORE tag removal so inline markers like <UNFIG...> are present
+                analyzer = CitationAnalyzer()
+                doc_data = [(t, p, c) for (t, p, c, _) in paras]
+                dtypes = analyzer.analyze_document_citations(doc_data)
+                unnumbered_counts = count_unnumbered_elements(path, dtypes, paras=paras)
+
+                # Extract image markup placeholders BEFORE tags are stripped
+                img_markup_items = extract_unnumbered_image_markups(path)
+                unnumbered_counts["image_placeholders"] = len(img_markup_items)
+
+                # --- Step 2: strip inline tags from .docx on disk ---
+                remove_tags_keep_formatting_docx(path)
+
+                # --- Step 3: build PDF page map ONCE (LibreOffice/docx2pdf) ---
+                pdf_total_pages, text_page_map = build_text_page_map(path)
+
+                # Remap paragraph page numbers with real PDF values
+                paras = [
+                    (t, _page_from_map(text_page_map, t, p), c, h)
+                    for (t, p, c, h) in paras
+                ]
+
+                # Rebuild dtypes with PDF page numbers now that paras is remapped.
+                # paras still holds original text (inline markers intact from pre-tag-removal),
+                # so analyze_document_citations produces correct labels with PDF pages.
+                doc_data = [(t, p, c) for (t, p, c, _) in paras]
+                dtypes = analyzer.analyze_document_citations(doc_data)
+
+                # Update callout pages using the remapped paragraphs
+                from word_analyzer_docx import _CALLOUT_RE, _PAGE_REF_RE
+                callout_pages = []
+                callouts_count = 0
+                for t, p, c, h in paras:
+                    if _CALLOUT_RE.search(t) or _PAGE_REF_RE.search(t):
+                        callouts_count += 1
+                        if p not in callout_pages:
+                            callout_pages.append(p)
+                unnumbered_counts["callouts"] = callouts_count
+                unnumbered_counts["callout_pages"] = sorted(callout_pages)
+
+                # --- Step 4: load Document once for all analysis passes ---
+                _doc = _DocxDocument(path)
+
+                table_count = len(dtypes.get("Table", {}).get("Caption", {}))
+
+                # Re-fetch comments now that we have PDF page map and remapped paras
+                comments = get_xml_comments(_doc, text_page_map=text_page_map, paras=paras)
+
+                # --- Step 5: generate all HTML sections (reuse _doc) ---
+                fmt_html = generate_formatting_html(
+                    path, used_word=False, text_page_map=text_page_map, doc=_doc, paras=paras
+                )
+                # multilingual loads its own copy because it highlights+saves the doc
+                spec_html = generate_multilingual_html(path, text_page_map=text_page_map)
+                com_html = build_comments_html(comments)
+
+                # Chapter metadata, reference count, body word count
+                chapter_number, chapter_title, authors = extract_chapter_metadata(path, doc=_doc)
+                ref_count, body_wc, total_wc, ref_style = count_references_and_body_wc(path, doc=_doc)
+
+                # Override total_wc with TXT-based count (matches Word's word count within ~10 words)
+                _txt_wc = count_total_words_via_txt(path)
+                if _txt_wc > 0:
+                    total_wc = _txt_wc
+
+                box_linker = BoxTagLinker(chapter_number=chapter_number)
+                box_linker.scan(doc_data)
+                box_linker.validate()
+
+                summary_html, stats = build_detailed_summary_table(
+                    dtypes, imgs, table_count, foot, end,
+                    fmt_html, spec_html, com_html,
+                    ref_count=ref_count,
+                    ref_style=ref_style,
+                    unnumbered_counts=unnumbered_counts,
+                    chapter_number=chapter_number,
+                    box_linker=box_linker,
+                )
+                msr_html = build_element_mapping_html(dtypes, "Figure",     chapter_number)
+                msr_html += build_element_mapping_html(dtypes, "Table",      chapter_number)
+                msr_html += build_element_mapping_html(dtypes, "Exhibit",    chapter_number)
+                msr_html += build_element_mapping_html(dtypes, "Appendix",   chapter_number)
+                msr_html += build_element_mapping_html(dtypes, "Case Study", chapter_number)
+                msr_html += box_linker.build_html()
+                exp_html = build_export_highlight_html(paras)
+                unnumbered_html = build_unnumbered_tab_html(unnumbered_counts)
+                if img_markup_items:
+                    unnumbered_html += "<h3>Unnumbered Image Placeholders</h3>"
+                    unnumbered_html += build_unnumbered_image_markups_html(img_markup_items)
+
+                # Total words for fallback if something goes wrong
+                para_words_only = sum(len(t.split()) for (t, _, _, _) in paras)
+
+                # Original Total Page Count (from PDF; fallback to estimation)
+                actual_total_pages = pdf_total_pages if pdf_total_pages > 0 else (len(paras) // 40) + 1
+
+                # Body Words & Body Pages
+                final_body_wc = body_wc if body_wc > 0 else para_words_only
+                body_pages = round(final_body_wc / 250) if final_body_wc > 0 else 1
+
+                # CE Pages (Total document words / 250)
+                final_total_wc = total_wc if total_wc > 0 else para_words_only
+                ce_pages_val = round(final_total_wc / 250) if final_total_wc > 0 else 1
+
+                # Render individual file dashboard using Jinja template
+                _xl_link = f"{Path(path).stem}_Analysis.xlsx"
+                single_chapter_data = [{
+                    "doc_name":          fname,
+                    "book_title":        book_title or "—",
+                    "chapter_number":    chapter_number or "—",
+                    "chapter_title":     chapter_title or "—",
+                    "authors":           authors or "—",
+                    "total_pages":       actual_total_pages,
+                    "pages":             body_pages,
+                    "words":             final_body_wc,
+                    "total_words":       final_total_wc,
+                    "ce_pages":          ce_pages_val,
+                    "date":              _now_utc().strftime("%d-%m-%Y"),
+                    "analyst":           username,
+                    "detailed_summary":  summary_html,
+                    "msr_content":       msr_html,
+                    "fmt_content":       fmt_html,
+                    "spec_content":      spec_html,
+                    "comment_content":   com_html,
+                    "export_highlight":  exp_html,
+                    "unnumbered_content": unnumbered_html,
+                    "missing_citations": stats.get("missing_citations", 0),
+                    "missing_captions":  stats.get("missing_captions", 0),
+                    "fmt_issues":        stats.get("fmt_issues", 0),
+                    "spec_count":        stats.get("spec_count", 0),
+                    "fig_missing_cit":   stats.get("fig_missing_cit", 0),
+                    "fig_missing_cap":   stats.get("fig_missing_cap", 0),
+                    "tab_missing_cit":   stats.get("tab_missing_cit", 0),
+                    "tab_missing_cap":   stats.get("tab_missing_cap", 0),
+                    "box_missing_cit":   stats.get("box_missing_cit", 0),
+                    "box_missing_cap":   stats.get("box_missing_cap", 0),
+                    "total_citations":   stats.get("total_citations", 0),
+                    "total_captions":    stats.get("total_captions", 0),
+                    "fig_total_cit":     stats.get("fig_total_cit", 0),
+                    "fig_total_cap":     stats.get("fig_total_cap", 0),
+                    "tab_total_cit":     stats.get("tab_total_cit", 0),
+                    "tab_total_cap":     stats.get("tab_total_cap", 0),
+                    "box_total_cit":     stats.get("box_total_cit", 0),
+                    "box_total_cap":     stats.get("box_total_cap", 0),
+                    "excel_link":        _xl_link,
+                }]
+                html = build_combined_dashboard_html(
+                    single_chapter_data,
+                    css="", js="",
+                    logo_b64=get_base64_logo()
+                )
+
+                out_html = os.path.join(unique_folder, Path(path).stem + "_Dashboard.html")
+                with open(out_html, "w", encoding="utf-8") as f:
+                    f.write(html)
+
+                per_chapter_files.append(out_html)
+
+                # Generate individual Excel report for this chapter alone
+                single_xl_path = os.path.join(unique_folder, _xl_link)
+                if build_excel_report(single_chapter_data, single_xl_path):
+                    per_chapter_files.append(single_xl_path)
+                else:
+                    app.logger.error(f"Single Excel report failed for {fname}")
+
+                # Collect chapter data for optional combined dashboard
+                chapters_data.append({
+                    "doc_name":          fname,
+                    "chapter_number":    chapter_number or "—",
+                    "chapter_number_display": _chapter_num_display(chapter_number or ""),
+                    "chapter_title":     chapter_title or "—",
+                    "authors":           authors or "—",
+                    "total_pages":       actual_total_pages,
+                    "pages":             body_pages,
+                    "words":             final_body_wc,
+                    "total_words":       final_total_wc,
+                    "ce_pages":          ce_pages_val,
+                    "date":              _now_utc().strftime("%d-%m-%Y"),
+                    "analyst":           username,
+                    "detailed_summary":  summary_html,
+                    "msr_content":       msr_html,
+                    "fmt_content":       fmt_html,
+                    "spec_content":      spec_html,
+                    "comment_content":   com_html,
+                    "export_highlight":  exp_html,
+                    "unnumbered_content": unnumbered_html,
+                    "missing_citations": stats.get("missing_citations", 0),
+                    "missing_captions":  stats.get("missing_captions", 0),
+                    "fmt_issues":        stats.get("fmt_issues", 0),
+                    "fig_missing_cit":   stats.get("fig_missing_cit", 0),
+                    "fig_missing_cap":   stats.get("fig_missing_cap", 0),
+                    "tab_missing_cit":   stats.get("tab_missing_cit", 0),
+                    "tab_missing_cap":   stats.get("tab_missing_cap", 0),
+                    "box_missing_cit":   stats.get("box_missing_cit", 0),
+                    "box_missing_cap":   stats.get("box_missing_cap", 0),
+                    "total_citations":   stats.get("total_citations", 0),
+                    "total_captions":    stats.get("total_captions", 0),
+                    "fig_total_cit":     stats.get("fig_total_cit", 0),
+                    "fig_total_cap":     stats.get("fig_total_cap", 0),
+                    "tab_total_cit":     stats.get("tab_total_cit", 0),
+                    "tab_total_cap":     stats.get("tab_total_cap", 0),
+                    "box_total_cit":     stats.get("box_total_cit", 0),
+                    "box_total_cap":     stats.get("box_total_cap", 0),
+                    "excel_link":        _xl_link,
+                })
+
+                # Excel is generated once after all chapters (see below)
+
+            except Exception as e:
+                app.logger.error(f"Failed processing {fname}: {e}")
+                update_progress({"status": f"Failed: {e}"})
+                break
+
+        # Sort chapters into numerical order before combined dashboard
+        chapters_data.sort(key=lambda ch: _chapter_sort_key(ch.get("chapter_number", "")))
+
+        # Generate combined dashboard if requested and 2+ chapters processed
+        if combined_dashboard and len(chapters_data) > 1:
+            combined_html = build_new_combined_dashboard_html(
+                chapters_data,
+                logo_b64=get_base64_logo(),
+                book_title=book_title,
+            )
+            combined_path = os.path.join(unique_folder, f"{safe_title}_Manuscript Analysis Report.html")
+            with open(combined_path, "w", encoding="utf-8") as f:
+                f.write(combined_html)
+            combined_files.append(combined_path)
+
+        # Generate combined Excel report (all chapters, single sheet)
+        if chapters_data:
+            xl_name = f"{safe_title}_Manuscript Analysis Report.xlsx"
+            xl_path = os.path.join(unique_folder, xl_name)
+            if build_excel_report(chapters_data, xl_path):
+                combined_files.append(xl_path)
+            else:
+                log_errors(["Combined Excel report generation failed"])
+
+        # Create ZIP — only include the relevant output set
+        zip_path = os.path.join(unique_folder, f"{safe_title}_Manuscript_Analysis_Report.zip")
+        if combined_dashboard and len(chapters_data) > 1:
+            files_to_zip = combined_files   # Combined_Dashboard.html + Manuscript_Analysis.xlsx only
+        else:
+            files_to_zip = per_chapter_files  # {stem}_Dashboard.html + {stem}_Analysis.xlsx only
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in files_to_zip:
+                if os.path.exists(f):
+                    z.write(f, arcname=os.path.basename(f))
+
+        update_progress({
+            "status": "Completed",
+            "current": len(saved),
+            "zip_path": zip_path
+        })
+
+        # Job is already logged in job_queue table, no additional logging needed
+
+
+
 @app.route("/ppd", methods=["GET", "POST"])
 @csrf.exempt
 @role_required(ROUTE_PERMISSIONS.get('ppd', ['ADMIN']))
@@ -2372,357 +3020,25 @@ def ppd():
         app.logger.error(f"Failed to create progress file: {e}")
 
     # -----------------------
-    # Background thread processing
+    # Background job (batch queue)
     # -----------------------
-    def process_job(username, user_id):
-        with app.app_context():
-            from word_analyzer_docx import (
-                CitationAnalyzer,
-                BoxTagLinker,
-                build_element_mapping_html,
-                extract_with_docx,
-                remove_tags_keep_formatting_docx,
-                generate_formatting_html,
-                generate_multilingual_html,
-                build_comments_html,
-                build_export_highlight_html,
-                build_unnumbered_tab_html,
-                build_detailed_summary_table,
-                build_combined_dashboard_html,
-                build_new_combined_dashboard_html,
-                extract_chapter_metadata,
-                count_references_and_body_wc,
-                count_total_words_via_txt,
-                count_unnumbered_elements,
-                extract_unnumbered_image_markups,
-                build_unnumbered_image_markups_html,
-                build_text_page_map,
-                _page_from_map,
-                get_xml_comments,
-            )
-            from docx import Document as _DocxDocument
-
-            # Helper to update progress file
-            def update_progress(updates):
-                try:
-                    p_path = os.path.join(unique_folder, "progress.json")
-                    current = {}
-                    if os.path.exists(p_path):
-                        with open(p_path, "r") as f:
-                            current = json.load(f)
-                    current.update(updates)
-                    with open(p_path, "w") as f:
-                        json.dump(current, f)
-                except Exception as ex:
-                    print(f"Progress update failed: {ex}")
-
-            per_chapter_files = []   # individual dashboard + individual Excel
-            combined_files    = []   # combined dashboard + combined Excel
-            chapters_data = []
-
-            # --- START LINUX BATCH PDF CONVERSION OPTIMIZATION ---
-            # Pre-convert all uploaded docs to PDF simultaneously to avoid LibreOffice cold-starts
-            import subprocess
-            import shutil
-            lo_cmd = shutil.which("libreoffice") or shutil.which("soffice")
-            if not lo_cmd and os.name == "nt" and os.path.exists(r"C:\Program Files\LibreOffice\program\soffice.exe"):
-                lo_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe"
-            
-            if lo_cmd and saved:
-                update_progress({"status": "Batch processing..."})
-                try:
-                    cmd = [lo_cmd, "--headless", "--convert-to", "pdf", "--outdir", unique_folder] + [os.path.abspath(p) for p in saved]
-                    subprocess.run(cmd, timeout=300, capture_output=True)
-                except Exception as e:
-                    app.logger.warning(f"Batch PDF conversion failed: {e}")
-            # --- END LINUX BATCH PDF CONVERSION OPTIMIZATION ---
-
-            for i, path in enumerate(saved, 1):
-                fname = os.path.basename(path)
-                update_progress({
-                    "current": i,
-                    "status": f"Processing {fname}"
-                })
-
-                try:
-                    # --- Step 1: extract paragraphs (fallback page numbers) ---
-                    paras, comments, imgs, foot, end = extract_with_docx(path)
-
-                    # --- Step 1b: compute dtypes and unnumbered counts from original file ---
-                    # Must happen BEFORE tag removal so inline markers like <UNFIG...> are present
-                    analyzer = CitationAnalyzer()
-                    doc_data = [(t, p, c) for (t, p, c, _) in paras]
-                    dtypes = analyzer.analyze_document_citations(doc_data)
-                    unnumbered_counts = count_unnumbered_elements(path, dtypes, paras=paras)
-
-                    # Extract image markup placeholders BEFORE tags are stripped
-                    img_markup_items = extract_unnumbered_image_markups(path)
-                    unnumbered_counts["image_placeholders"] = len(img_markup_items)
-
-                    # --- Step 2: strip inline tags from .docx on disk ---
-                    remove_tags_keep_formatting_docx(path)
-
-                    # --- Step 3: build PDF page map ONCE (LibreOffice/docx2pdf) ---
-                    pdf_total_pages, text_page_map = build_text_page_map(path)
-
-                    # Remap paragraph page numbers with real PDF values
-                    paras = [
-                        (t, _page_from_map(text_page_map, t, p), c, h)
-                        for (t, p, c, h) in paras
-                    ]
-
-                    # Rebuild dtypes with PDF page numbers now that paras is remapped.
-                    # paras still holds original text (inline markers intact from pre-tag-removal),
-                    # so analyze_document_citations produces correct labels with PDF pages.
-                    doc_data = [(t, p, c) for (t, p, c, _) in paras]
-                    dtypes = analyzer.analyze_document_citations(doc_data)
-
-                    # Update callout pages using the remapped paragraphs
-                    from word_analyzer_docx import _CALLOUT_RE, _PAGE_REF_RE
-                    callout_pages = []
-                    callouts_count = 0
-                    for t, p, c, h in paras:
-                        if _CALLOUT_RE.search(t) or _PAGE_REF_RE.search(t):
-                            callouts_count += 1
-                            if p not in callout_pages:
-                                callout_pages.append(p)
-                    unnumbered_counts["callouts"] = callouts_count
-                    unnumbered_counts["callout_pages"] = sorted(callout_pages)
-
-                    # --- Step 4: load Document once for all analysis passes ---
-                    _doc = _DocxDocument(path)
-
-                    table_count = len(dtypes.get("Table", {}).get("Caption", {}))
-
-                    # Re-fetch comments now that we have PDF page map and remapped paras
-                    comments = get_xml_comments(_doc, text_page_map=text_page_map, paras=paras)
-
-                    # --- Step 5: generate all HTML sections (reuse _doc) ---
-                    fmt_html = generate_formatting_html(
-                        path, used_word=False, text_page_map=text_page_map, doc=_doc, paras=paras
-                    )
-                    # multilingual loads its own copy because it highlights+saves the doc
-                    spec_html = generate_multilingual_html(path, text_page_map=text_page_map)
-                    com_html = build_comments_html(comments)
-
-                    # Chapter metadata, reference count, body word count
-                    chapter_number, chapter_title, authors = extract_chapter_metadata(path, doc=_doc)
-                    ref_count, body_wc, total_wc, ref_style = count_references_and_body_wc(path, doc=_doc)
-
-                    # Override total_wc with TXT-based count (matches Word's word count within ~10 words)
-                    _txt_wc = count_total_words_via_txt(path)
-                    if _txt_wc > 0:
-                        total_wc = _txt_wc
-
-                    box_linker = BoxTagLinker(chapter_number=chapter_number)
-                    box_linker.scan(doc_data)
-                    box_linker.validate()
-
-                    summary_html, stats = build_detailed_summary_table(
-                        dtypes, imgs, table_count, foot, end,
-                        fmt_html, spec_html, com_html,
-                        ref_count=ref_count,
-                        ref_style=ref_style,
-                        unnumbered_counts=unnumbered_counts,
-                        chapter_number=chapter_number,
-                        box_linker=box_linker,
-                    )
-                    msr_html = build_element_mapping_html(dtypes, "Figure",     chapter_number)
-                    msr_html += build_element_mapping_html(dtypes, "Table",      chapter_number)
-                    msr_html += build_element_mapping_html(dtypes, "Exhibit",    chapter_number)
-                    msr_html += build_element_mapping_html(dtypes, "Appendix",   chapter_number)
-                    msr_html += build_element_mapping_html(dtypes, "Case Study", chapter_number)
-                    msr_html += box_linker.build_html()
-                    exp_html = build_export_highlight_html(paras)
-                    unnumbered_html = build_unnumbered_tab_html(unnumbered_counts)
-                    if img_markup_items:
-                        unnumbered_html += "<h3>Unnumbered Image Placeholders</h3>"
-                        unnumbered_html += build_unnumbered_image_markups_html(img_markup_items)
-
-                    # Total words for fallback if something goes wrong
-                    para_words_only = sum(len(t.split()) for (t, _, _, _) in paras)
-
-                    # Original Total Page Count (from PDF; fallback to estimation)
-                    actual_total_pages = pdf_total_pages if pdf_total_pages > 0 else (len(paras) // 40) + 1
-
-                    # Body Words & Body Pages
-                    final_body_wc = body_wc if body_wc > 0 else para_words_only
-                    body_pages = round(final_body_wc / 250) if final_body_wc > 0 else 1
-
-                    # CE Pages (Total document words / 250)
-                    final_total_wc = total_wc if total_wc > 0 else para_words_only
-                    ce_pages_val = round(final_total_wc / 250) if final_total_wc > 0 else 1
-
-                    # Render individual file dashboard using Jinja template
-                    _xl_link = f"{Path(path).stem}_Analysis.xlsx"
-                    single_chapter_data = [{
-                        "doc_name":          fname,
-                        "book_title":        book_title or "—",
-                        "chapter_number":    chapter_number or "—",
-                        "chapter_title":     chapter_title or "—",
-                        "authors":           authors or "—",
-                        "total_pages":       actual_total_pages,
-                        "pages":             body_pages,
-                        "words":             final_body_wc,
-                        "total_words":       final_total_wc,
-                        "ce_pages":          ce_pages_val,
-                        "date":              _now_utc().strftime("%d-%m-%Y"),
-                        "analyst":           username,
-                        "detailed_summary":  summary_html,
-                        "msr_content":       msr_html,
-                        "fmt_content":       fmt_html,
-                        "spec_content":      spec_html,
-                        "comment_content":   com_html,
-                        "export_highlight":  exp_html,
-                        "unnumbered_content": unnumbered_html,
-                        "missing_citations": stats.get("missing_citations", 0),
-                        "missing_captions":  stats.get("missing_captions", 0),
-                        "fmt_issues":        stats.get("fmt_issues", 0),
-                        "spec_count":        stats.get("spec_count", 0),
-                        "fig_missing_cit":   stats.get("fig_missing_cit", 0),
-                        "fig_missing_cap":   stats.get("fig_missing_cap", 0),
-                        "tab_missing_cit":   stats.get("tab_missing_cit", 0),
-                        "tab_missing_cap":   stats.get("tab_missing_cap", 0),
-                        "box_missing_cit":   stats.get("box_missing_cit", 0),
-                        "box_missing_cap":   stats.get("box_missing_cap", 0),
-                        "total_citations":   stats.get("total_citations", 0),
-                        "total_captions":    stats.get("total_captions", 0),
-                        "fig_total_cit":     stats.get("fig_total_cit", 0),
-                        "fig_total_cap":     stats.get("fig_total_cap", 0),
-                        "tab_total_cit":     stats.get("tab_total_cit", 0),
-                        "tab_total_cap":     stats.get("tab_total_cap", 0),
-                        "box_total_cit":     stats.get("box_total_cit", 0),
-                        "box_total_cap":     stats.get("box_total_cap", 0),
-                        "excel_link":        _xl_link,
-                    }]
-                    html = build_combined_dashboard_html(
-                        single_chapter_data,
-                        css="", js="",
-                        logo_b64=get_base64_logo()
-                    )
-
-                    out_html = os.path.join(unique_folder, Path(path).stem + "_Dashboard.html")
-                    with open(out_html, "w", encoding="utf-8") as f:
-                        f.write(html)
-
-                    per_chapter_files.append(out_html)
-
-                    # Generate individual Excel report for this chapter alone
-                    single_xl_path = os.path.join(unique_folder, _xl_link)
-                    if build_excel_report(single_chapter_data, single_xl_path):
-                        per_chapter_files.append(single_xl_path)
-                    else:
-                        app.logger.error(f"Single Excel report failed for {fname}")
-
-                    # Collect chapter data for optional combined dashboard
-                    chapters_data.append({
-                        "doc_name":          fname,
-                        "chapter_number":    chapter_number or "—",
-                        "chapter_title":     chapter_title or "—",
-                        "authors":           authors or "—",
-                        "total_pages":       actual_total_pages,
-                        "pages":             body_pages,
-                        "words":             final_body_wc,
-                        "total_words":       final_total_wc,
-                        "ce_pages":          ce_pages_val,
-                        "date":              _now_utc().strftime("%d-%m-%Y"),
-                        "analyst":           username,
-                        "detailed_summary":  summary_html,
-                        "msr_content":       msr_html,
-                        "fmt_content":       fmt_html,
-                        "spec_content":      spec_html,
-                        "comment_content":   com_html,
-                        "export_highlight":  exp_html,
-                        "unnumbered_content": unnumbered_html,
-                        "missing_citations": stats.get("missing_citations", 0),
-                        "missing_captions":  stats.get("missing_captions", 0),
-                        "fmt_issues":        stats.get("fmt_issues", 0),
-                        "fig_missing_cit":   stats.get("fig_missing_cit", 0),
-                        "fig_missing_cap":   stats.get("fig_missing_cap", 0),
-                        "tab_missing_cit":   stats.get("tab_missing_cit", 0),
-                        "tab_missing_cap":   stats.get("tab_missing_cap", 0),
-                        "box_missing_cit":   stats.get("box_missing_cit", 0),
-                        "box_missing_cap":   stats.get("box_missing_cap", 0),
-                        "total_citations":   stats.get("total_citations", 0),
-                        "total_captions":    stats.get("total_captions", 0),
-                        "fig_total_cit":     stats.get("fig_total_cit", 0),
-                        "fig_total_cap":     stats.get("fig_total_cap", 0),
-                        "tab_total_cit":     stats.get("tab_total_cit", 0),
-                        "tab_total_cap":     stats.get("tab_total_cap", 0),
-                        "box_total_cit":     stats.get("box_total_cit", 0),
-                        "box_total_cap":     stats.get("box_total_cap", 0),
-                        "excel_link":        _xl_link,
-                    })
-
-                    # Excel is generated once after all chapters (see below)
-
-                except Exception as e:
-                    app.logger.error(f"Failed processing {fname}: {e}")
-                    update_progress({"status": f"Failed: {e}"})
-                    break
-
-            # Generate combined dashboard if requested and 2+ chapters processed
-            if combined_dashboard and len(chapters_data) > 1:
-                combined_html = build_new_combined_dashboard_html(
-                    chapters_data,
-                    logo_b64=get_base64_logo(),
-                    book_title=book_title,
-                )
-                combined_path = os.path.join(unique_folder, f"{safe_title}_Combined_Dashboard.html")
-                with open(combined_path, "w", encoding="utf-8") as f:
-                    f.write(combined_html)
-                combined_files.append(combined_path)
-
-            # Generate combined Excel report (all chapters, single sheet)
-            if chapters_data:
-                xl_name = f"{safe_title}_Manuscript_Analysis.xlsx"
-                xl_path = os.path.join(unique_folder, xl_name)
-                if build_excel_report(chapters_data, xl_path):
-                    combined_files.append(xl_path)
-                else:
-                    log_errors(["Combined Excel report generation failed"])
-
-            # Create ZIP — only include the relevant output set
-            zip_path = os.path.join(unique_folder, f"{safe_title}_Manuscript_Analysis_Report.zip")
-            if combined_dashboard and len(chapters_data) > 1:
-                files_to_zip = combined_files   # Combined_Dashboard.html + Manuscript_Analysis.xlsx only
-            else:
-                files_to_zip = per_chapter_files  # {stem}_Dashboard.html + {stem}_Analysis.xlsx only
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-                for f in files_to_zip:
-                    if os.path.exists(f):
-                        z.write(f, arcname=os.path.basename(f))
-
-            update_progress({
-                "status": "Completed",
-                "current": len(saved),
-                "zip_path": zip_path
-            })
-
-            # --- DB LOGGING START ---
-            try:
-                with db_pool.get_connection() as db:
-                    db.execute(
-                        '''INSERT INTO macro_processing 
-                           (user_id, token, original_filenames, processed_filenames, selected_tasks, route_type)
-                           VALUES (?, ?, ?, ?, ?, ?)''',
-                        (user_id,
-                         token,
-                         json.dumps([os.path.basename(f) for f in saved]),  # Original filenames
-                         json.dumps([os.path.basename(f) for f in per_chapter_files + combined_files]), # Processed filenames
-                         json.dumps({
-                             'route_type': 'ppd', 
-                             'task_indices': []
-                         }), 
-                         'ppd')
-                    )
-                    db.commit()
-            except Exception as e:
-                print(f"DB Logging Error (PPD): {e}")
-            # --- DB LOGGING END ---
-
     current_user_id = session.get('user_id')
-    threading.Thread(target=process_job, args=(username, current_user_id), daemon=True).start()
+    batch_queue.submit(
+        job_id=job_id,
+        route_type='ppd',
+        user_id=current_user_id,
+        username=username,
+        target_fn=process_ppd_job,
+        fn_args=(job_id, unique_folder, saved, combined_dashboard,
+                 book_title, safe_title, username, current_user_id),
+        payload_dict={
+            'unique_folder': unique_folder,
+            'saved': saved,
+            'combined_dashboard': combined_dashboard,
+            'book_title': book_title,
+            'safe_title': safe_title,
+        }
+    )
     return jsonify({"job_id": job_id})
 
 @app.route("/progress/<job_id>")
@@ -2796,6 +3112,18 @@ def download_zip(job_id):
     except Exception:
         return "Failed reading zip", 500
 
+    # ----- MARK AS DOWNLOADED IN BATCH QUEUE -----
+    try:
+        with db_pool.get_connection() as db:
+            db.execute(
+                "UPDATE job_queue SET status='downloaded', downloaded_at=? WHERE job_id=?",
+                (_now_utc(), job_id)
+            )
+            db.commit()
+    except Exception:
+        pass  # non-fatal — download still proceeds
+    # -----------------------------------------------
+
     # ----- AUTO CLEANUP -----
     try:
         if folder_path and os.path.exists(folder_path):
@@ -2815,6 +3143,35 @@ def download_zip(job_id):
         as_attachment=True,
         download_name=download_filename
     )
+
+
+# -----------------------
+# Batch Queue Routes
+# -----------------------
+@app.route("/batch-queue")
+def batch_queue_view():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    is_admin = bool(session.get('is_admin'))
+    jobs = batch_queue.list_jobs(session['user_id'], is_admin)
+    return render_template("batch_queue.html", jobs=jobs, is_admin=is_admin)
+
+
+@app.route("/batch-queue/api")
+def batch_queue_api():
+    if 'user_id' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    jobs = batch_queue.list_jobs(session['user_id'], bool(session.get('is_admin')))
+    return jsonify({"jobs": jobs})
+
+
+@app.route("/batch-queue/cancel/<job_id>", methods=["POST"])
+@csrf.exempt
+def batch_queue_cancel(job_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    ok, msg = batch_queue.cancel(job_id, session['user_id'])
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
 
 # -----------------------
@@ -3254,13 +3611,23 @@ def validate_file():
             if options['is_report_only']:
                 options['run_validation'] = True
 
-            # Start Background Thread
-            threading.Thread(
-                target=process_validation_job,
-                args=(token, processing_dir, saved_paths, original_filenames, options, session['user_id'], session.get('username', 'unknown')),
-                daemon=True
-            ).start()
-            
+            # Start Background Job (batch queue)
+            batch_queue.submit(
+                job_id=token,
+                route_type='validation',
+                user_id=session['user_id'],
+                username=session.get('username', 'unknown'),
+                target_fn=process_validation_job,
+                fn_args=(token, processing_dir, saved_paths, original_filenames,
+                         options, session['user_id'], session.get('username', 'unknown')),
+                payload_dict={
+                    'processing_dir': processing_dir,
+                    'saved_paths': saved_paths,
+                    'original_filenames': original_filenames,
+                    'options': options,
+                }
+            )
+
             return jsonify({"success": True, "job_id": token, "message": "Processing started"})
 
         except Exception as e:
@@ -3554,10 +3921,10 @@ def file_history():
         # Count total records for pagination
         count_query = f"""
             SELECT COUNT(*) FROM (
-                SELECT f.id, f.user_id, 'validation' AS type
+                SELECT f.id, f.user_id, 'validation' AS type, '' AS route_type
                 FROM files f
                 UNION ALL
-                SELECT m.id, m.user_id, 'macro' AS type
+                SELECT m.id, m.user_id, 'macro' AS type, m.route_type AS route_type
                 FROM macro_processing m
             ) combined
             {filter_condition}
@@ -4224,6 +4591,12 @@ def start_background_cleanup():
         while True:
             try:
                 cleanup_expired_tokens()
+                # Audit stale futures (belt-and-suspenders)
+                with batch_queue._lock:
+                    stale = [jid for jid, f in batch_queue._active_futures.items()
+                             if f is not None and f.done()]
+                    for jid in stale:
+                        del batch_queue._active_futures[jid]
                 time.sleep(300)  # Run every 5 minutes
             except Exception as e:
                 log_errors([f"Background cleanup error: {str(e)}"])
@@ -4309,6 +4682,15 @@ def initialize_optimized_app():
     setup_logging()
     start_background_cleanup()
 
+    # Recover any jobs that were 'pending' or 'running' when server last died
+    try:
+        with db_pool.get_connection() as db:
+            db.execute("UPDATE job_queue SET status='pending' WHERE status='running'")
+            db.commit()
+        batch_queue._drain_pending()
+    except Exception as e:
+        log_errors([f"Batch queue startup recovery failed: {e}"])
+
     # populate PPD macros into route configuration on startup (safe guard in case module missing)
     try:
         if hasattr(ppd, 'macro_names') and isinstance(ppd.macro_names, (list, tuple)):
@@ -4325,6 +4707,72 @@ from datetime import datetime, timezone
 
 # Make sure _now_utc() and is_token_expired() are defined as above
 
+def process_technical_job(job_id, unique_folder, saved_paths, original_filenames,
+                          run_te, user_id, username):
+    """Background worker for technical editing."""
+    with app.app_context():
+        def update_progress(updates):
+            try:
+                p_path = os.path.join(unique_folder, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current.update(updates)
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+            except Exception as ex:
+                print(f"Progress update failed: {ex}")
+
+        update_progress({"total": len(saved_paths), "current": 0, "status": "Starting"})
+        try:
+            processed_files = []
+            for idx, input_path in enumerate(saved_paths, 1):
+                filename = original_filenames[idx - 1]
+                update_progress({"current": idx, "status": f"Processing {filename}"})
+                output_path = input_path
+                if run_te:
+                    print(f"[TECH] Processing Technical QA: {filename}")
+                    process_docx(input_path, output_path, skip_validation=True)
+                else:
+                    shutil.copy(input_path, output_path)
+                processed_files.append(filename)
+
+            # Create ZIP
+            zip_path = os.path.join(unique_folder, "Technical_Documents.zip")
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+                for fname in processed_files:
+                    fpath = os.path.join(unique_folder, fname)
+                    if os.path.exists(fpath):
+                        z.write(fpath, arcname=fname)
+
+            # Save manifest
+            with open(os.path.join(unique_folder, "manifest.txt"), "w") as mf:
+                mf.write("\n".join(processed_files))
+
+            # DB log
+            try:
+                with db_pool.get_connection() as db:
+                    db.execute(
+                        '''INSERT INTO macro_processing
+                           (user_id, token, original_filenames, processed_filenames, selected_tasks, route_type)
+                           VALUES (?, ?, ?, ?, ?, ?)''',
+                        (user_id, job_id, json.dumps(original_filenames),
+                         json.dumps(processed_files),
+                         json.dumps({'route_type': 'technical', 'run_technical_editing': run_te,
+                                     'task_indices': ['4'] if run_te else []}),
+                         'technical')
+                    )
+                    db.commit()
+            except Exception as e:
+                print(f"DB Logging Error (Technical): {e}")
+
+            update_progress({"status": "Completed", "zip_path": zip_path,
+                             "download_token": job_id})
+        except Exception as e:
+            update_progress({"status": f"Failed: {str(e)}"})
+
+
 @app.route('/technical', methods=['GET', 'POST'])
 @role_required(ROUTE_PERMISSIONS.get('technical', ['ADMIN']))
 def technical():
@@ -4335,78 +4783,50 @@ def technical():
         run_te = request.form.get("run_technical_editing") == "1"
 
         if not uploaded_files:
-            return render_template("technical_edit.html", error="No files uploaded")
+            return jsonify({"error": "No files uploaded"}), 400
 
-        # 🔹 Create ONE unique folder per job
+        # Create ONE unique folder per job
         token = uuid.uuid4().hex
         unique_folder = os.path.join(UPLOAD_FOLDER, token)
         os.makedirs(unique_folder, exist_ok=True)
 
-        processed_files = []
+        saved_paths = []
+        original_filenames = []
 
         for f in uploaded_files:
             filename = secure_filename(f.filename)
-
-            # 🔥 Save input inside unique folder
+            if not filename:
+                continue
             input_path = os.path.join(unique_folder, filename)
             f.save(input_path)
+            saved_paths.append(input_path)
+            original_filenames.append(f.filename)
 
-            # 🔥 Process output also inside the same unique folder
-            output_path = os.path.join(unique_folder, filename)
+        if not saved_paths:
+            shutil.rmtree(unique_folder, ignore_errors=True)
+            return jsonify({"error": "No valid files uploaded"}), 400
 
-            if run_te:
-                print(f"[TECH] Processing Technical QA: {filename}")
-                process_docx(input_path, output_path, skip_validation=True)
-            else:
-                shutil.copy(input_path, output_path)
-
-            processed_files.append(filename)
-
-        # Save manifest and progress file for persistence
-        with open(os.path.join(unique_folder, "manifest.txt"), "w") as mf:
-            mf.write("\n".join(processed_files))
-            
-        # Create progress.json to support multi-worker downloads
-        progress_info = {
-            "status": "Completed",
-            "zip_path": os.path.join(unique_folder, "Technical_Documents.zip"), # Zip created on demand in technical_download, but let's pre-define path
-            "folder": unique_folder
-        }
+        # Initialize progress
         with open(os.path.join(unique_folder, "progress.json"), "w") as pf:
-            json.dump(progress_info, pf)
+            json.dump({"total": len(saved_paths), "current": 0, "status": "Starting"}, pf)
 
-        # Register for download
-        download_tokens[token] = {
-            "path": unique_folder,
-            "expires": _now_utc() + TOKEN_TTL,
-            "user": session.get("username"),
-            "route_type": "technical"
-        }
+        batch_queue.submit(
+            job_id=token,
+            route_type='technical',
+            user_id=session['user_id'],
+            username=session.get('username', 'unknown'),
+            target_fn=process_technical_job,
+            fn_args=(token, unique_folder, saved_paths, original_filenames,
+                     run_te, session['user_id'], session.get('username', 'unknown')),
+            payload_dict={
+                'unique_folder': unique_folder,
+                'saved_paths': saved_paths,
+                'original_filenames': original_filenames,
+                'run_te': run_te,
+            }
+        )
 
-        # --- DB LOGGING START ---
-        try:
-            with db_pool.get_connection() as db:
-                db.execute(
-                    '''INSERT INTO macro_processing 
-                       (user_id, token, original_filenames, processed_filenames, selected_tasks, route_type)
-                       VALUES (?, ?, ?, ?, ?, ?)''',
-                    (session['user_id'],
-                     token,
-                     json.dumps([f.filename for f in uploaded_files]),  # Original filenames
-                     json.dumps(processed_files),                       # Processed filenames
-                     json.dumps({
-                         'route_type': 'technical', 
-                         'run_technical_editing': run_te,
-                         'task_indices': ['4'] if run_te else [] # '4' matches Technical QA index in template
-                     }), 
-                     'technical')
-                )
-                db.commit()
-        except Exception as e:
-            print(f"DB Logging Error (Technical): {e}")
-        # --- DB LOGGING END ---
-
-        return render_template("technical_edit.html", download_token=token)
+        return jsonify({"job_id": token})
 
     return render_template("technical_edit.html")
 

@@ -37,27 +37,28 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 1rem;
+        padding: 0.5rem 0.75rem;
         background: var(--gray-100);
         border-radius: var(--border-radius-sm);
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.25rem;
+        font-size: 0.9rem;
     }
 
     .file-info {
         display: flex;
         align-items: center;
-        gap: 1rem;
+        gap: 0.75rem;
     }
 
     .file-icon {
         color: var(--primary);
-        font-size: 1.2rem;
+        font-size: 1rem;
     }
 
     .remove-file {
         color: var(--danger);
         cursor: pointer;
-        padding: 0.5rem;
+        padding: 0.25rem;
         border-radius: 50%;
         transition: var(--transition);
     }
@@ -164,20 +165,13 @@
             </div>
         </div>
 
-        {% if download_token %}
-        <div class="download-section">
-            <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--success); margin-bottom: 1rem;"></i>
-            <h3>Processing Complete!</h3>
-            <p>Your files have been processed successfully.</p>
-            <a class="btn btn-primary" href="{{ url_for('macro_download', token=download_token) }}">Download
-                processed files</a>
-        </div>
-        {% endif %}
-
-        <div class="d-flex gap-2 justify-between">
-            <button type="submit" class="btn btn-primary"><i class="fas fa-play"></i> Process Files</button>
+        <div class="d-flex gap-2 justify-between" id="actionButtons">
+            <button type="submit" class="btn btn-primary" id="submitBtn"><i class="fas fa-play"></i> Process Files</button>
             <button type="button" id="resetBtn" class="btn btn-outline"><i class="fas fa-trash"></i> Clear All</button>
         </div>
+
+        <!-- Success Message Container -->
+        <div id="successMessageContainer" class="mt-3"></div>
     </form>
 </div>
 </div>
@@ -240,11 +234,52 @@
             }
         });
     }
-    document.getElementById('macroForm').addEventListener('submit', e => {
-        if (wordFiles.length === 0) { e.preventDefault(); showAlert('Please select at least one file', 'error'); return; }
+    let pollInterval = null;
+
+    document.getElementById('macroForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        if (wordFiles.length === 0) { showAlert('Please select at least one file', 'error'); return; }
         const dt = new DataTransfer(); wordFiles.forEach(f => dt.items.add(f)); wordFileInput.files = dt.files;
-        if (document.querySelectorAll('input[name="tasks[]"]:checked').length === 0) { e.preventDefault(); showAlert('Please select at least one processing task', 'error'); }
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+
+        const formData = new FormData(document.getElementById('macroForm'));
+        try {
+            const resp = await fetch('{{ url_for("technical") }}', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (data.error) { showAlert(data.error, 'error'); submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-play"></i> Process Files'; return; }
+            
+            // Show success message with Job Queue link
+            showSuccessMessage(data.job_id);
+            wordFiles = [];
+            updateFileList();
+            document.getElementById('macroForm').reset();
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-play"></i> Process Files';
+
+        } catch(err) {
+            showAlert('Upload failed: ' + err.message, 'error');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-play"></i> Process Files';
+        }
     });
+
+    function showSuccessMessage(jobId) {
+        const msg = document.createElement('div');
+        msg.className = 'alert alert-success alert-dismissible fade show';
+        msg.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i>
+            <strong>Job submitted!</strong>
+            <a href="/batch-queue" class="alert-link">View in Job Queue →</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        const container = document.getElementById('successMessageContainer');
+        container.innerHTML = '';
+        container.appendChild(msg);
+        setTimeout(() => msg.remove(), 8000);
+    }
 
     function showAlert(msg, type) {
         const div = document.createElement('div'); div.className = `flash ${type}`;

@@ -221,7 +221,7 @@
     {% set total_issues = (ch.missing_citations or 0) + (ch.missing_captions or 0) %}
     <button class="ch-nav-btn" id="nav-ch{{ loop.index0 }}" onclick="showChapter('ch{{ loop.index0 }}',this)">
       <i class="fas fa-file-word"></i>
-      <span class="ch-label">{{ ch.chapter_number | default('—') }} — {{ ch.doc_name | default('Unnamed') }}</span>
+      <span class="ch-label">{{ ch.chapter_number_display | default('—') }} — {{ ch.doc_name | default('Unnamed') }}</span>
       {% if total_issues > 0 %}<span class="ch-issue-badge">{{ total_issues }}</span>{% endif %}
     </button>
     {% endfor %}
@@ -381,7 +381,7 @@
       <!-- Meta header card -->
       <div class="meta-header-card">
         <div class="meta-title-row">
-          <div class="meta-chapter-badge">{{ ch.chapter_number | default('—') }}</div>
+          <div class="meta-chapter-badge">{{ ch.chapter_number_display | default('—') }}</div>
           <div class="meta-title-block">
             <div class="meta-chapter-title">{{ ch.chapter_title | default('—') | safe }}</div>
             <div class="meta-authors"><i class="fas fa-user-edit"></i> {{ ch.authors | default('—') | safe }}</div>
@@ -732,7 +732,7 @@
       new Chart(barCtx, {
         type: 'bar',
         data: {
-          labels: [{% for ch in chapters_data %}"{{ ch.chapter_number | default(loop.index) }}"{% if not loop.last %},{% endif %}{% endfor %}],
+          labels: [{% for ch in chapters_data %}"{{ ch.chapter_number_display | default(loop.index) }}"{% if not loop.last %},{% endif %}{% endfor %}],
           datasets: [
             { label:'Total Citations', data:[{% for ch in chapters_data %}{{ ch.total_citations | default(0) }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor:'rgba(67, 97, 238, 0.8)', borderRadius:6 },
             { label:'Missing Citations', data:[{% for ch in chapters_data %}{{ ch.missing_citations | default(0) }}{% if not loop.last %},{% endif %}{% endfor %}], backgroundColor:'rgba(246,185,59,0.8)', borderRadius:6 },

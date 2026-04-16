@@ -61,7 +61,8 @@ class CitationAnalyzer:
             re.IGNORECASE
         )
         patterns['tag'] = re.compile(
-            r'<(FIG|TAB|BX|CS|EX|APP)(\d+[\.\-]\d+)([A-Za-z]?)>', re.IGNORECASE
+            r'<\s*(FIG|TAB|BX|CS|EX|APP|Fig(?:ure)?|Tab(?:le)?|Box|Exhibit|App(?:endix)?|Case\s+Study)\s*(\d+[\.\-]\d+)([A-Za-z]?)\s*>',
+            re.IGNORECASE
         )
         return patterns
 
@@ -113,6 +114,7 @@ class CitationAnalyzer:
 
         t_norm_orig = self.normalize_for_regex(text.strip())
         has_title_tag = bool(re.search(r'<(TITLE|CAPTION|BX_TTL|BX-TTL|CS-TTL)>', t_norm_orig, re.IGNORECASE))
+        has_type_tag  = bool(re.search(r'^<(FIG|TAB|BX|CS|EX|APP)>', t_norm_orig.strip(), re.IGNORECASE))
 
         t_norm = re.sub(r'^(?:<[^>]*>\s*)+', '', t_norm_orig)
         if not t_norm:
@@ -122,7 +124,7 @@ class CitationAnalyzer:
 
         match = re.match(r'(?i)^(figure|fig\.|table|tab\.|box|exhibit|appendix|case\s+study)\s+([0-9]+(?:[.\-][0-9]+)*[a-zA-Z]?)(.*)', t_norm)
         if match:
-            if has_title_tag:
+            if has_title_tag or has_type_tag:
                 return True
             remainder = match.group(3).strip()
             if not re.search(r'[A-Za-z0-9]', remainder):
@@ -2354,6 +2356,7 @@ def count_unnumbered_elements(doc_path: str, dtypes: dict, doc: Optional[Any] = 
         current_page = 1
         tbl_index    = 0
         _fig_cap_re  = re.compile(r'(?i)^(figure|fig\.?)\s+\d+')
+        _tab_cap_re  = re.compile(r'(?i)^(?:<[A-Za-z]+>\s*)?(?:table|tab\.?)\s+\d+[\.\-]\d+')
         body_children = list(doc.element.body)
 
         for i, child in enumerate(body_children):
@@ -2390,19 +2393,34 @@ def count_unnumbered_elements(doc_path: str, dtypes: dict, doc: Optional[Any] = 
             elif local == 'tbl':
                 if tbl_index < len(doc.tables):
                     tbl = doc.tables[tbl_index]
-                    # Check if any cell text matches a known table caption ID
                     has_caption = False
-                    for row in tbl.rows:
-                        if has_caption:
-                            break
-                        for cell in row.cells:
-                            if has_caption:
-                                break
-                            for cp in cell.paragraphs:
-                                ct = cp.text.strip()
-                                if any(cap_id in ct or ct in cap_id for cap_id in tab_caption_ids):
+
+                    # Check adjacent body paragraphs first (covers <TAB>Table N.N format)
+                    for delta in (-2, -1, 1, 2):
+                        idx = i + delta
+                        if 0 <= idx < len(body_children):
+                            sib = body_children[idx]
+                            sib_local = sib.tag.split('}')[-1] if '}' in sib.tag else sib.tag
+                            if sib_local == 'p':
+                                sib_text = ''.join(r.text or '' for r in sib.iter(_w_t)).strip()
+                                if _tab_cap_re.match(sib_text) or any(cap_id in sib_text or sib_text in cap_id for cap_id in tab_caption_ids):
                                     has_caption = True
                                     break
+
+                    # Fallback: check inside table cells
+                    if not has_caption:
+                        for row in tbl.rows:
+                            if has_caption:
+                                break
+                            for cell in row.cells:
+                                if has_caption:
+                                    break
+                                for cp in cell.paragraphs:
+                                    ct = cp.text.strip()
+                                    if any(cap_id in ct or ct in cap_id for cap_id in tab_caption_ids):
+                                        has_caption = True
+                                        break
+
                     if not has_caption and current_page not in unnumbered_table_pages:
                         unnumbered_table_pages.append(current_page)
                 tbl_index += 1

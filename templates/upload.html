@@ -282,11 +282,8 @@
         <button class="btn-clear" id="clearAll" style="display:none;">Clear All</button>
     </div>
 
-    <div id="uploadSuccess" class="upload-success" style="display:none;">
-        <h3>Validation Complete!</h3>
-        <p>Your files have been validated successfully.</p>
-        <div id="downloadLinks"></div>
-    </div>
+    <!-- Success Message Container -->
+    <div id="successMessageContainer" class="mt-3"></div>
 </div>
 </div>
 {% endblock %}
@@ -334,8 +331,6 @@
         const fileList = document.getElementById("fileList");
         const startUpload = document.getElementById("startUpload");
         const clearAll = document.getElementById("clearAll");
-        const uploadSuccess = document.getElementById("uploadSuccess");
-        const downloadLinks = document.getElementById("downloadLinks");
 
         let selectedFiles = [];
 
@@ -381,11 +376,23 @@
                 const item = document.createElement("div");
                 item.className = "file-item";
                 item.innerHTML = `
-                <div class="file-name">${file.name}</div>
-                <div class="progress-bar-container"><div class="progress-bar" id="progress-${idx}"></div></div>
-                <div class="file-status" id="status-${idx}">Pending...</div>
-            `;
+                    <div class="file-info">
+                        <i class="fas fa-file-word file-icon"></i>
+                        <div>
+                            <div>${file.name}</div>
+                        </div>
+                    </div>
+                    <i class="fas fa-times remove-file" data-index="${idx}"></i>`;
                 fileList.appendChild(item);
+            });
+
+            // Add event listeners to remove buttons
+            document.querySelectorAll('.remove-file').forEach(btn => {
+                btn.addEventListener('click', e => {
+                    const idx = e.target.dataset.index;
+                    selectedFiles.splice(idx, 1);
+                    renderFileList();
+                });
             });
         }
 
@@ -394,13 +401,33 @@
             fileList.innerHTML = "";
             startUpload.style.display = 'none';
             clearAll.style.display = 'none';
-            uploadSuccess.style.display = 'none';
+            const container = document.getElementById('successMessageContainer');
+            if (container) container.innerHTML = '';
+        }
+
+        function showSuccessMessage() {
+            const msg = document.createElement('div');
+            msg.className = 'alert alert-success alert-dismissible fade show';
+            msg.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>Job submitted!</strong>
+                <a href="/batch-queue" class="alert-link">View in Job Queue →</a>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            const container = document.getElementById('successMessageContainer');
+            if (container) {
+                container.innerHTML = '';
+                container.appendChild(msg);
+                setTimeout(() => msg.remove(), 8000);
+            }
         }
 
         function uploadFiles() {
-            uploadSuccess.style.display = 'none';
+            const container = document.getElementById('successMessageContainer');
+            if (container) container.innerHTML = '';
+            
             startUpload.disabled = true;
-            downloadLinks.innerHTML = "";
+            startUpload.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
 
             const formData = new FormData();
             formData.append("csrf_token", "{{ csrf_token() }}");
@@ -440,116 +467,49 @@
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
             xhr.upload.onprogress = function (e) {
-                if (e.lengthComputable) {
-                    const percent = Math.round((e.loaded / e.total) * 100);
-                    selectedFiles.forEach((_, idx) => {
-                        const bar = document.getElementById(`progress-${idx}`);
-                        const status = document.getElementById(`status-${idx}`);
-                        if (bar) bar.style.width = percent + '%';
-                        if (status) status.textContent = `Uploading... ${percent}%`;
-                    });
-                }
+                // Progress handled cleanly now
             };
 
             xhr.onload = function () {
+                startUpload.disabled = false;
+                startUpload.innerHTML = '<i class="fas fa-paper-plane"></i> Start Processing';
+
                 if (xhr.status === 200) {
                     const data = JSON.parse(xhr.responseText);
 
                     if (data.success && data.job_id) {
-                        // Switch to Polling Mode
-                        selectedFiles.forEach((_, idx) => {
-                            const status = document.getElementById(`status-${idx}`);
-                            if (status) status.textContent = "Queued for processing...";
-                        });
-                        pollProgress(data.job_id);
-
+                        showSuccessMessage();
+                        selectedFiles = [];
+                        renderFileList();
                     } else if (data.success && data.redirect) {
                         setTimeout(() => {
                             window.location.href = data.redirect;
                         }, 500);
                         return;
                     } else {
-                        selectedFiles.forEach((_, idx) => {
-                            document.getElementById(`status-${idx}`).textContent = "❌ " + (data.message || "Failed");
-                        });
-                        startUpload.disabled = false;
+                        const err = document.createElement('div');
+                        err.className = 'alert alert-danger';
+                        err.textContent = "❌ " + (data.message || "Failed");
+                        document.getElementById('successMessageContainer').appendChild(err);
                     }
                 } else {
-                    selectedFiles.forEach((_, idx) => {
-                        document.getElementById(`status-${idx}`).textContent = "❌ Server error";
-                    });
-                    startUpload.disabled = false;
+                    const err = document.createElement('div');
+                    err.className = 'alert alert-danger';
+                    err.textContent = "❌ Server error";
+                    document.getElementById('successMessageContainer').appendChild(err);
                 }
             };
 
             xhr.onerror = function () {
-                selectedFiles.forEach((_, idx) => {
-                    document.getElementById(`status-${idx}`).textContent = "❌ Network error";
-                });
                 startUpload.disabled = false;
+                startUpload.innerHTML = '<i class="fas fa-paper-plane"></i> Start Processing';
+                const err = document.createElement('div');
+                err.className = 'alert alert-danger';
+                err.textContent = "❌ Network error";
+                document.getElementById('successMessageContainer').appendChild(err);
             };
 
             xhr.send(formData);
-        }
-
-        function pollProgress(jobId) {
-            const timer = setInterval(() => {
-                fetch(`/progress/${jobId}`)
-                    .then(r => r.json())
-                    .then(d => {
-                        if (d.status === 'Completed') {
-                            clearInterval(timer);
-                            selectedFiles.forEach((_, idx) => {
-                                const status = document.getElementById(`status-${idx}`);
-                                if (status) status.textContent = "✅ Processing Complete";
-
-                                // Fill bar
-                                const bar = document.getElementById(`progress-${idx}`);
-                                if (bar) bar.style.width = '100%';
-                            });
-                            showSuccess(d.download_token);
-                        } else if (d.status && d.status.startsWith('Failed')) {
-                            clearInterval(timer);
-                            selectedFiles.forEach((_, idx) => {
-                                document.getElementById(`status-${idx}`).textContent = "❌ " + d.status;
-                            });
-                            startUpload.disabled = false;
-                        } else {
-                            // Update Status
-                            if (d.status) {
-                                // If we have an index, update that specific file
-                                if (typeof d.current !== 'undefined') {
-                                    const statusEl = document.getElementById(`status-${d.current}`);
-                                    if (statusEl) statusEl.textContent = "⏳ " + d.status;
-
-                                    // Make previous files showing completed?
-                                    for (let i = 0; i < d.current; i++) {
-                                        const prevStatus = document.getElementById(`status-${i}`);
-                                        if (prevStatus && !prevStatus.textContent.includes("Completed")) {
-                                            prevStatus.textContent = "✅ Done";
-                                            document.getElementById(`progress-${i}`).style.width = '100%';
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    })
-                    .catch(e => {
-                        console.error("Polling error", e);
-                    });
-            }, 1000);
-        }
-
-        function showSuccess(token) {
-            uploadSuccess.style.display = 'block';
-            downloadLinks.innerHTML = "";
-
-            const link = document.createElement("a");
-            link.href = `/download_zip/${token}`;
-            link.className = "btn-download";
-            link.innerHTML = `<i class="fas fa-download"></i> Download Reference_Process.zip`;
-            link.target = "_blank";
-            downloadLinks.appendChild(link);
         }
     });
 </script>
