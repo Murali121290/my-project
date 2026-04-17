@@ -29,7 +29,7 @@ if not logger.handlers:
 # Document structure markers (headings that signal end-of-document sections)
 END_OF_DOCUMENT_MARKERS = re.compile(
     r'^\s*(References?|Works?\s+Cited|Bibliography|Bibliographies|Appendix|Appendices|'
-    r'Figure\s+Legends?|Table\s+Legends?|Figures?|Tables?)\s*$',
+    r'Figure\s+Legends?|Table\s+Legends?|Figures?|Tables?)\s*[:\.]?\s*$',
     re.IGNORECASE
 )
 

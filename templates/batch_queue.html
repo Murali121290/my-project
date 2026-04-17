@@ -142,9 +142,8 @@
         <table class="queue-table">
             <thead>
                 <tr>
-                    <th>Job ID</th>
                     <th>Tool</th>
-                    <th id="usernameHeader" style="display:none;">User</th>
+                    <th id="usernameHeader" style="display:{% if is_admin %}table-cell{% else %}none{% endif %};">User</th>
                     <th>Files</th>
                     <th>Submitted</th>
                     <th>Status</th>
@@ -155,9 +154,8 @@
             <tbody id="queueBody">
                 {% for job in jobs %}
                 <tr id="row-{{ job.job_id }}">
-                    <td><span class="job-id-short">{{ job.job_id[:8] }}</span></td>
                     <td><span class="route-label">{{ job.route_type | replace('_', ' ') | title }}</span></td>
-                    <td id="user-{{ job.job_id }}" style="display:none;" class="username-cell"><span class="ts">{{ job.username }}</span></td>
+                    <td id="user-{{ job.job_id }}" style="display:{% if is_admin %}table-cell{% else %}none{% endif %};" class="username-cell"><span class="ts">{{ job.username }}</span></td>
                     <td>
                         {% if job.files %}
                         <div class="file-list-small" title="{{ job.files | join(', ') }}">
@@ -277,9 +275,8 @@ function rowHtml(job) {
            <div class="mini-progress"><div class="mini-progress-bar" id="prog-bar-${job.job_id}" style="width:0%"></div></div>`
         : '<span class="ts">—</span>';
     return `
-        <td><span class="job-id-short">${job.job_id.substring(0,8)}</span></td>
         <td><span class="route-label">${label}</span></td>
-        <td id="user-${job.job_id}" class="username-cell"><span class="ts">${job.username || '—'}</span></td>
+        <td id="user-${job.job_id}" class="username-cell" style="display:${isAdmin ? 'table-cell' : 'none'};"><span class="ts">${job.username || '—'}</span></td>
         <td>${filesHtml(job.files)}</td>
         <td><span class="ts time-format" data-utc="${job.queued_at || ''}">${dt}</span></td>
         <td><span class="badge ${statusBadgeClass(job.status)}" id="badge-${job.job_id}">${job.status}</span></td>
@@ -332,7 +329,7 @@ async function refreshQueue() {
             document.getElementById('queueTableContainer').innerHTML = `
                 <table class="queue-table">
                     <thead><tr>
-                        <th>Job ID</th><th>Tool</th>
+                        <th>Tool</th>
                         <th id="usernameHeader" style="display:${isViewingAll ? 'table-cell' : 'none'};">User</th>
                         <th>Files</th>
                         <th>Submitted</th><th>Status</th><th>Progress</th><th>Actions</th>

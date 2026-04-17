@@ -2698,6 +2698,12 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
                 img_markup_items = extract_unnumbered_image_markups(path)
                 unnumbered_counts["image_placeholders"] = len(img_markup_items)
 
+                # --- Step 1c: word counts on ORIGINAL file (before tag removal) ---
+                # Must run here so <KP>, </KP>, <AU> etc. are still present in the file.
+                # Word counts these tag tokens as words; our count must match.
+                _txt_wc = count_total_words_via_txt(path)
+                ref_count, body_wc, _raw_total_wc, ref_style = count_references_and_body_wc(path)
+
                 # --- Step 2: strip inline tags from .docx on disk ---
                 remove_tags_keep_formatting_docx(path)
 
@@ -2744,14 +2750,12 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
                 spec_html = generate_multilingual_html(path, text_page_map=text_page_map)
                 com_html = build_comments_html(comments)
 
-                # Chapter metadata, reference count, body word count
+                # Chapter metadata (uses cleaned _doc for title/author extraction)
                 chapter_number, chapter_title, authors = extract_chapter_metadata(path, doc=_doc)
-                ref_count, body_wc, total_wc, ref_style = count_references_and_body_wc(path, doc=_doc)
 
-                # Override total_wc with TXT-based count (matches Word's word count within ~10 words)
-                _txt_wc = count_total_words_via_txt(path)
-                if _txt_wc > 0:
-                    total_wc = _txt_wc
+                # Word counts already computed on original file at Step 1c (before tag removal).
+                # TXT-based total is primary (includes <KP> tokens, matches Word); para-scan fallback.
+                total_wc = _txt_wc if _txt_wc > 0 else _raw_total_wc
 
                 box_linker = BoxTagLinker(chapter_number=chapter_number)
                 box_linker.scan(doc_data)
@@ -2781,8 +2785,11 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
                 # Total words for fallback if something goes wrong
                 para_words_only = sum(len(t.split()) for (t, _, _, _) in paras)
 
-                # Original Total Page Count (from PDF; fallback to estimation)
-                actual_total_pages = pdf_total_pages if pdf_total_pages > 0 else (len(paras) // 40) + 1
+                # Total page count: PDF (LibreOffice) primary; LRPB max fallback; estimate last resort
+                _lrpb_max_page = max((p for _, p, _, _ in paras), default=0) if paras else 0
+                actual_total_pages = (pdf_total_pages    if pdf_total_pages > 0
+                                      else _lrpb_max_page if _lrpb_max_page > 0
+                                      else (len(paras) // 40) + 1)
 
                 # Body Words & Body Pages
                 final_body_wc = body_wc if body_wc > 0 else para_words_only

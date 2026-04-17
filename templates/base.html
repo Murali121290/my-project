@@ -426,15 +426,14 @@
                 </a>
                 {% endif %}
 
-                <a href="{{ url_for('file_history') }}"
-                    class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
-                    <i class="fas fa-history"></i> History
-                </a>
                 <a href="{{ url_for('batch_queue_view') }}"
                     class="nav-link {% if request.endpoint == 'batch_queue_view' %}active{% endif %}">
                     <i class="fas fa-layer-group"></i> Job Queue
                 </a>
-
+                <a href="{{ url_for('file_history') }}"
+                    class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
+                    <i class="fas fa-history"></i> History
+                </a>
                 {% if current_role in ['ADMIN'] %}
                 <a href="{{ url_for('credit_extractor') }}"
                     class="nav-link {% if request.endpoint == 'credit_extractor' %}active{% endif %}">

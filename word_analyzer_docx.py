@@ -1974,7 +1974,7 @@ _REFS_HEADING_RE = re.compile(
     r'|reference\s+list'
     r'|selected\s+bibliography'
     r'|further\s+reading'
-    r')\s*:?\s*$',
+    r')\s*[:\.]?\s*$',
     re.IGNORECASE
 )
 _MARKUP_TAG_RE   = re.compile(r'<[^>]+>')
@@ -2234,7 +2234,7 @@ def count_references_and_body_wc(doc_path: str, doc: Optional[Any] = None):
             if re.match(r'^\s*(source|note[s]?|adapted\s+from|information\s+(based|from)|'
                         r'abbreviation|\*not\s+a\s+U\.S\.|IM,|IV,|PO,)', text, re.IGNORECASE):
                 continue
-            is_numbered = bool(re.match(r'^\d+[\.\)\t\s]', text))
+            is_numbered = bool(re.match(r'^\[?\d+\]?[\.\)\t\s]', text))
             # Word auto-numbered list: the "1." prefix lives in XML (w:numPr), not in p.text
             if not is_numbered:
                 try:

@@ -186,12 +186,12 @@
     </div>
     <div class="meta-stats-row">
       <div class="meta-stat-box">
-        <div class="meta-stat-icon purple"><i class="fas fa-calculator"></i></div>
-        <div><div class="meta-stat-val">{{ ch.total_words|default(ch.words)|default(0) }}</div><div class="meta-stat-lbl">Total Word Count</div></div>
-      </div>
-      <div class="meta-stat-box">
         <div class="meta-stat-icon teal"><i class="fas fa-file-alt"></i></div>
         <div><div class="meta-stat-val">{{ ch.total_pages|default(0) }}</div><div class="meta-stat-lbl">Total MS Pages</div></div>
+      </div>
+      <div class="meta-stat-box">
+        <div class="meta-stat-icon purple"><i class="fas fa-calculator"></i></div>
+        <div><div class="meta-stat-val">{{ ch.total_words|default(ch.words)|default(0) }}</div><div class="meta-stat-lbl">Total Word Count</div></div>
       </div>
       <div class="meta-stat-box">
         <div class="meta-stat-icon orange"><i class="fas fa-copy"></i></div>
