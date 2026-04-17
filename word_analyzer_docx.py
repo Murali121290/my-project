@@ -1499,7 +1499,11 @@ def extract_with_docx(doc_path: str, doc: Optional[Any] = None):
     return paragraphs, comments, img_count, footnotes, endnotes
 
 def remove_tags_keep_formatting_docx(doc_path: str, doc: Optional[Any] = None):
-    """Removes <tags> using regex on run text, preserving other formatting."""
+    """Removes <tags> using regex on run text, preserving other formatting and LRPB elements.
+
+    CRITICAL: Do NOT use run.text = ... which rebuilds the XML and destroys LRPB elements.
+    Instead, directly modify <w:t> elements to preserve sibling elements like <w:lastRenderedPageBreak/>.
+    """
     should_save = False
     if doc is None:
         if not os.path.exists(doc_path):
@@ -1508,26 +1512,31 @@ def remove_tags_keep_formatting_docx(doc_path: str, doc: Optional[Any] = None):
         should_save = True
 
     tag_cleaner = re.compile(r'<[^>]+>')
+    _w_t = qn('w:t')
     modified = False
+
+    def _clean_run_text_preserve_xml(run):
+        """Modify <w:t> elements directly without using run.text = which destroys LRPB."""
+        nonlocal modified
+        r = run._r  # Get the XML element (<w:r>)
+        for t_elem in r.findall(_w_t):
+            old_text = t_elem.text or ''
+            if '<' in old_text and '>' in old_text:
+                new_text = tag_cleaner.sub('', old_text)
+                if new_text != old_text:
+                    t_elem.text = new_text
+                    modified = True
 
     for p in doc.paragraphs:
         for run in p.runs:
-            if '<' in run.text and '>' in run.text:
-                new_text = tag_cleaner.sub('', run.text)
-                if new_text != run.text:
-                    run.text = new_text
-                    modified = True
+            _clean_run_text_preserve_xml(run)
 
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
                     for run in p.runs:
-                        if '<' in run.text:
-                            new_text = tag_cleaner.sub('', run.text)
-                            if new_text != run.text:
-                                run.text = new_text
-                                modified = True
+                        _clean_run_text_preserve_xml(run)
 
     if modified and should_save:
         doc.save(doc_path)
@@ -1685,20 +1694,31 @@ def generate_formatting_html(doc_path: str, used_word: bool = False,
             if t and t not in text_page:
                 text_page[t] = pg
 
+    has_lrpb = len(doc.element.findall('.//' + qn('w:lastRenderedPageBreak'))) > 0
+    _w_lrpb  = qn('w:lastRenderedPageBreak')
+
     current_page = 1
     body_children = list(doc.element.body)
 
     for child in body_children:
         local = child.tag.split('}')[-1] if '}' in child.tag else child.tag
 
-        if local == 'p':
-            raw_text = ''.join(r.text or '' for r in child.iter(_w_t)).strip()
-            if raw_text in text_page:
-                current_page = text_page[raw_text]
-            elif not text_page and text_page_map:
-                # fallback to text_page_map when paras not provided
-                current_page = _page_from_map(text_page_map, raw_text, current_page)
+        if local in ['p', 'tbl']:
+            if has_lrpb:
+                lrpb_count = len(child.findall('.//' + _w_lrpb))
+                if lrpb_count:
+                    current_page += lrpb_count
 
+        if local == 'p':
+            if not has_lrpb:
+                raw_text = ''.join(r.text or '' for r in child.iter(_w_t)).strip()
+                if raw_text in text_page:
+                    current_page = text_page[raw_text]
+                elif not text_page and text_page_map:
+                    # fallback to text_page_map when paras not provided
+                    current_page = _page_from_map(text_page_map, raw_text, current_page)
+
+            raw_text = ''.join(r.text or '' for r in child.iter(_w_t)).strip()
             page = str(current_page)
             para_preview = escape_html(raw_text[:60]) if raw_text else "Empty paragraph"
 
@@ -1735,10 +1755,19 @@ def generate_formatting_html(doc_path: str, used_word: bool = False,
     _w_ppr    = f"{{{WNS}}}pPr"
     _w_sectpr = f"{{{WNS}}}sectPr"
     _w_type   = f"{{{WNS}}}type"
+    sect_page = 1  # re-track pages for this second pass
     for child in body_children:
         local = child.tag.split('}')[-1] if '}' in child.tag else child.tag
         if local != 'p':
             continue
+        if has_lrpb:
+            lrpb_count = len(child.findall('.//' + _w_lrpb))
+            if lrpb_count:
+                sect_page += lrpb_count
+        else:
+            raw_text_s = ''.join(n.text or '' for n in child.iter(_w_t)).strip()
+            if raw_text_s in text_page:
+                sect_page = text_page[raw_text_s]
         ppr = child.find(_w_ppr)
         if ppr is None:
             continue
@@ -1747,12 +1776,10 @@ def generate_formatting_html(doc_path: str, used_word: bool = False,
             continue
         # Update current_page from this paragraph's text
         raw_text = ''.join(n.text or '' for n in child.iter(_w_t)).strip()
-        if raw_text in text_page:
-            current_page = text_page[raw_text]
         sect_type_el = sect_pr.find(_w_type)
         raw_val = sect_type_el.get(f"{{{WNS}}}val", "nextPage") if sect_type_el is not None else "nextPage"
         stype = stype_map.get(raw_val, raw_val)
-        rows.append((str(current_page), f"Section Break ({stype})", raw_text[:60] or "(no text)"))
+        rows.append((str(sect_page), f"Section Break ({stype})", raw_text[:60] or "(no text)"))
 
     def _safe_page(val):
         m = re.search(r'\d+', str(val))
