@@ -227,6 +227,29 @@
             font-size: 0.78rem;
         }
 
+        /* ── Nav group (collapsible) ──────────────────────── */
+        .nav-group { margin-bottom: 2px; }
+        .nav-group summary {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 14px;
+            border-radius: 8px;
+            color: #8892b0;
+            font-size: 0.83rem;
+            font-weight: 500;
+            cursor: pointer;
+            list-style: none;
+            transition: background 0.18s, color 0.18s;
+        }
+        .nav-group summary::-webkit-details-marker { display: none; }
+        .nav-group summary:hover { background: rgba(255,255,255,0.07); color: #e6f1ff; }
+        .nav-group summary i:first-child { width: 15px; text-align: center; flex-shrink: 0; font-size: 0.78rem; }
+        .nav-group-arrow { margin-left: auto; font-size: 0.65rem; transition: transform 0.2s; }
+        details[open] .nav-group-arrow { transform: rotate(180deg); }
+        .nav-group-items { padding-left: 8px; }
+        .nav-group-items .nav-link { font-size: 0.78rem; padding: 7px 14px 7px 28px; }
+
         /* ── Page wrapper (right of sidebar) ─────────────── */
         .page-wrapper {
             flex: 1;
@@ -357,9 +380,23 @@
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
                 </a>
-                <a href="/alttext/" target="_blank" class="nav-link">
-                    <i class="fas fa-image"></i> Alt Text Generator
-                </a>
+                <details class="nav-group">
+                    <summary>
+                        <i class="fas fa-image"></i> Alt Text Generator
+                        <i class="fas fa-chevron-down nav-group-arrow"></i>
+                    </summary>
+                    <div class="nav-group-items">
+                        <a href="/alttext/markup" target="_blank" class="nav-link">
+                            <i class="fas fa-draw-polygon"></i> Markup Tool
+                        </a>
+                        <a href="/alttext/batches" target="_blank" class="nav-link">
+                            <i class="fas fa-layer-group"></i> Batches
+                        </a>
+                        <a href="/alttext/upload" target="_blank" class="nav-link">
+                            <i class="fas fa-file-upload"></i> Submit Batch
+                        </a>
+                    </div>
+                </details>
                 <a href="{{ url_for('book_indexer_ui') }}"
                     class="nav-link {% if request.endpoint == 'book_indexer_ui' %}active{% endif %}">
                     <i class="fas fa-book-open"></i> Book Indexer
@@ -454,9 +491,23 @@
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
                 </a>
-                <a href="/alttext/" target="_blank" class="nav-link">
-                    <i class="fas fa-image"></i> Alt Text Generator
-                </a>
+                <details class="nav-group">
+                    <summary>
+                        <i class="fas fa-image"></i> Alt Text Generator
+                        <i class="fas fa-chevron-down nav-group-arrow"></i>
+                    </summary>
+                    <div class="nav-group-items">
+                        <a href="/alttext/markup" target="_blank" class="nav-link">
+                            <i class="fas fa-draw-polygon"></i> Markup Tool
+                        </a>
+                        <a href="/alttext/batches" target="_blank" class="nav-link">
+                            <i class="fas fa-layer-group"></i> Batches
+                        </a>
+                        <a href="/alttext/upload" target="_blank" class="nav-link">
+                            <i class="fas fa-file-upload"></i> Submit Batch
+                        </a>
+                    </div>
+                </details>
                 {% endif %}
 
                 {% else %}
