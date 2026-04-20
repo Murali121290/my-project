@@ -357,6 +357,9 @@
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
                 </a>
+                <a href="/alttext/" target="_blank" class="nav-link">
+                    <i class="fas fa-image"></i> Alt Text Generator
+                </a>
                 <a href="{{ url_for('book_indexer_ui') }}"
                     class="nav-link {% if request.endpoint == 'book_indexer_ui' %}active{% endif %}">
                     <i class="fas fa-book-open"></i> Book Indexer
@@ -450,6 +453,9 @@
                 <a href="{{ url_for('word_to_xml') }}"
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
+                </a>
+                <a href="/alttext/" target="_blank" class="nav-link">
+                    <i class="fas fa-image"></i> Alt Text Generator
                 </a>
                 {% endif %}
 
