@@ -1,0 +1,306 @@
+{% extends 'base.html' %}
+
+{% block title %}Book Indexer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 1rem 0;
+        transition: var(--transition);
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone:hover {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: var(--primary-dark);
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+        transform: scale(1.02);
+    }
+
+    .file-list {
+        margin-top: 1.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .file-icon {
+        color: var(--primary);
+        font-size: 1rem;
+    }
+
+    .remove-file {
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+
+    .remove-file:hover {
+        background: rgba(239, 71, 111, 0.1);
+    }
+
+    .page-header { margin-bottom: 24px; }
+    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
+    
+    .hint { font-size: 0.85rem; color: #0369a1; background: #f0f9ff; border: 1px solid #bae6fd; padding: 10px 14px; margin-top: 12px; border-radius: 6px; display: none; }
+    .hint.on { display: block; }
+    .banner { font-size: 0.85rem; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 10px 14px; margin-top: 12px; border-radius: 6px; display: none; font-weight: 500;}
+    .banner.on { display: block; }
+    .err { display: none; margin-top: 24px; padding: 14px 16px; background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #ef4444; font-size: 0.9rem; color: #b91c1c; white-space: pre-wrap; border-radius: 4px; }
+    .err.on { display: block; }
+
+    .file-item-drag {
+        cursor: grab;
+    }
+    .file-item-drag:active {
+        cursor: grabbing;
+    }
+    .file-item.dragging {
+        opacity: 0.5;
+        background: var(--gray-200);
+    }
+    .file-item.drag-target {
+        border: 1px dashed var(--primary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <div class="page-header">
+        <div class="page-title">Book Indexer</div>
+        <div class="page-sub">Generate A-Z index automatically using Gemini AI</div>
+    </div>
+
+    <div class="content-card">
+        <!-- Drop Zone -->
+        <div class="form-group">
+            <label class="form-label" style="font-weight: 600;">Upload Chapters / Files <span class="text-danger">*</span></label>
+            <div id="dropZone" class="drop-zone">
+                <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+                <p>Drag & drop PDF or TXT files here or click to browse</p>
+                <p class="text-muted">Multiple files · up to 300 MB total · drag rows to reorder</p>
+                <input type="file" id="fileInput" name="pdf_files" class="form-control" multiple accept=".pdf,.txt" style="display: none;">
+            </div>
+            
+            <div class="hint" id="orderHint">⚑ Drag rows to set chapter order — page numbers follow this sequence.</div>
+            <div class="banner" id="largeBanner"></div>
+            
+            <div id="flist" class="file-list"></div>
+            
+            <div id="flfoot" class="d-flex justify-content-between align-items-center mt-2" style="display:none !important;">
+                <span id="totalInfo" class="text-muted small"></span>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearAll()"><i class="fas fa-trash me-1"></i> Remove all</button>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: 600;">Model</label>
+                    <select id="model" class="form-select">
+                        <option value="gemini-2.5-pro" selected>Gemini 2.5 Pro</option>
+                        <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button type="button" class="btn btn-primary px-4 py-2 w-100" id="goBtn" onclick="submit()">
+                <i class="fas fa-cogs me-2"></i>Start Background Indexing Job
+            </button>
+        </div>
+
+        <div id="successMessageContainer" class="mt-3"></div>
+        <div class="err" id="errBox"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let queue=[], nid=1;
+
+const fi=document.getElementById('fileInput'),
+      dz=document.getElementById('dropZone'),
+      fl=document.getElementById('flist'),
+      ff=document.getElementById('flfoot'),
+      ti=document.getElementById('totalInfo'),
+      oh=document.getElementById('orderHint'),
+      lb=document.getElementById('largeBanner');
+
+dz.addEventListener('click',e=>{fi.click();});
+fi.addEventListener('change',()=>{if(fi.files&&fi.files.length){addFiles(Array.from(fi.files));fi.value='';}});
+dz.addEventListener('dragover',e=>{e.preventDefault();e.stopPropagation();dz.classList.add('highlight');});
+dz.addEventListener('dragleave',e=>{e.stopPropagation();dz.classList.remove('highlight');});
+dz.addEventListener('drop',e=>{
+  e.preventDefault();e.stopPropagation();dz.classList.remove('highlight');
+  if(e.dataTransfer.files&&e.dataTransfer.files.length)addFiles(Array.from(e.dataTransfer.files));
+});
+
+function addFiles(files){
+  let bad=[];
+  files.forEach(f=>{
+    const ext=f.name.split('.').pop().toLowerCase();
+    if(!['pdf','txt'].includes(ext)){bad.push(f.name);return;}
+    queue.push({id:nid++,file:f,name:f.name,size:f.size,ext});
+  });
+  if(bad.length)showErr('Skipped: '+bad.join(', ')+' (only .pdf and .txt)');
+  else hideErr();
+  render();
+}
+
+function render(){
+  fl.innerHTML='';
+  if(!queue.length){
+    ff.style.setProperty('display', 'none', 'important');
+    oh.classList.remove('on');lb.classList.remove('on');return;
+  }
+  ff.style.setProperty('display', 'flex', 'important');
+  oh.classList.toggle('on',queue.length>1);
+  const tb=queue.reduce((s,f)=>s+f.size,0);
+  ti.innerHTML='<strong>'+queue.length+'</strong> file'+(queue.length>1?'s':'')+' — '+fmt(tb)+' total';
+  if(tb>3*1024*1024){
+    const est=Math.round(tb/38000); 
+    lb.textContent='⚙ Large book (~'+est+' pages estimated) — chunked pipeline will run automatically for complete A–Z coverage.';
+    lb.classList.add('on');
+  } else {
+    lb.classList.remove('on');
+  }
+  queue.forEach((item,idx)=>{
+    const d=document.createElement('div');
+    d.className='file-item file-item-drag';d.dataset.id=item.id;d.draggable=true;
+    d.innerHTML='<div class="file-info"><span class="num" title="Drag to reorder">'+(idx+1)+'</span>'+
+      '<i class="fas '+(item.ext==='pdf'?'fa-file-pdf text-danger':'fa-file-alt text-primary')+' file-icon"></i>'+
+      '<div><div class="nm" title="'+esc(item.name)+'">'+esc(item.name)+'</div>'+
+      '<div class="sz">'+fmt(item.size)+'</div></div></div>'+
+      '<i class="fas fa-times remove-file rm" onclick="rm('+item.id+')"></i>';
+    d.addEventListener('dragstart',ds);d.addEventListener('dragover',dov);
+    d.addEventListener('dragleave',dl);d.addEventListener('drop',dd);d.addEventListener('dragend',de);
+    fl.appendChild(d);
+  });
+}
+
+function rm(id){queue=queue.filter(f=>f.id!==id);render();}
+function clearAll(){queue=[];render();}
+let dsid=null;
+function ds(e){dsid=parseInt(this.dataset.id);this.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.stopPropagation();}
+function dov(e){e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';this.classList.add('drag-target');}
+function dl(e){e.stopPropagation();this.classList.remove('drag-target');}
+function dd(e){
+  e.preventDefault();e.stopPropagation();this.classList.remove('drag-target');
+  const ti2=parseInt(this.dataset.id);if(dsid===ti2)return;
+  const si=queue.findIndex(f=>f.id===dsid),ti3=queue.findIndex(f=>f.id===ti2);
+  const[m]=queue.splice(si,1);queue.splice(ti3,0,m);render();
+}
+function de(){document.querySelectorAll('.file-item').forEach(el=>el.classList.remove('dragging','drag-target'));}
+
+function fmt(b){
+  if(b<1024)return b+' B';
+  if(b<1048576)return (b/1024).toFixed(0)+' KB';
+  return (b/1048576).toFixed(1)+' MB';
+}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function showErr(m){const e=document.getElementById('errBox');e.textContent=m;e.classList.add('on');}
+function hideErr(){document.getElementById('errBox').classList.remove('on');}
+
+function showSuccessMessage(jobId) {
+    const msg = document.createElement('div');
+    msg.className = 'alert alert-success alert-dismissible fade show';
+    msg.innerHTML = `
+        <i class="fas fa-check-circle me-2"></i>
+        <strong>Job submitted successfully!</strong>
+        <a href="/batch-queue" class="alert-link">View in Job Queue →</a>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    const container = document.getElementById('successMessageContainer');
+    container.innerHTML = '';
+    container.appendChild(msg);
+    setTimeout(() => msg.remove(), 8000);
+}
+
+async function submit(){
+  hideErr();
+  if(!queue.length){showErr('Please add at least one file.');return;}
+  const mdl=document.getElementById('model').value;
+  const btn=document.getElementById('goBtn');
+  btn.disabled=true;
+  btn.textContent="Submitting job...";
+  const fd=new FormData();
+  queue.forEach((item,idx)=>fd.append('pdf_files',item.file,item.name));
+  fd.append('model',mdl);
+
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+  const headers = {};
+  if (csrfToken) {
+      headers['X-CSRFToken'] = csrfToken;
+  }
+
+  try{
+    const resp=await fetch('/book-indexer/api/extract',{method:'POST',body:fd,headers:headers});
+    const data = await resp.json();
+    
+    if(!resp.ok) {
+        throw new Error(data.error||'Unknown error');
+    }
+    
+    showSuccessMessage(data.job_id);
+    clearAll();
+  }catch(err){
+    showErr('Error: '+err.message);
+  }finally{
+    btn.disabled=false;
+    btn.textContent="Start Background Indexing Job";
+  }
+}
+</script>
+{% endblock %}

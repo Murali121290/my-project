@@ -7,6 +7,10 @@ import io
 import shutil
 import zipfile
 from dotenv import load_dotenv
+import utils.url_validator
+import ReferenceConversion
+import utils.track_changes
+from ReferenceConversion import _looks_like_inline_citation
 
 load_dotenv()
 
@@ -54,11 +58,14 @@ from docx.oxml.text.paragraph import CT_P
 from docx.oxml.table import CT_Tbl
 from docx.text.paragraph import Paragraph
 from docx.table import Table
-import difflib
+
 from highlighter.core_highlighter_docx import process_docx
-from ReferencesStructing import process_docx_file, parse_ama_reference_raw, parse_apa_reference_raw, generate_fallback_citation, detect_reference_style
+import ReferencesStructing
 # APA validation now lives in validation_core (CitationProcessor)
 from validation_core import CitationProcessor, ValidationReport
+import ReferenceConversion
+import utils.track_changes
+from ReferenceConversion import _looks_like_inline_citation
 
 # Compatibility shims — keep these names alive in case any code references them
 def validate_document_multi_style(file_path, style=None):
@@ -2599,7 +2606,167 @@ def macro_processing():
 
 from jinja2 import Template
 
+def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name, output_filename, user_id, username):
+    """
+    Background worker for generating a book index using Gemini.
+    Zips the resulting DOCX so it works with the existing batch queue downloader.
+    """
+    with app.app_context():
+        import pdfplumber
+        from docx import Document
+        from docx.shared import Inches
+        from google import genai
+        from google.genai import types
+        import book_indexer_core
+        import zipfile
+        
+        def update_progress(status, pct):
+            try:
+                p_path = os.path.join(temp_dir, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current["status"] = status
+                current["progress"] = pct
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+                if job_id in app.config.get("PROGRESS_DATA", {}):
+                    app.config["PROGRESS_DATA"][job_id]["status"] = status
+            except Exception as e:
+                logging.error(f"Error updating progress: {e}")
 
+        try:
+            update_progress("Extracting text...", 10)
+            pages_text = []
+            global_page = 1
+            for path in saved_paths:
+                with pdfplumber.open(path) as pdf:
+                    for page in pdf.pages:
+                        text = page.extract_text()
+                        if text and text.strip():
+                            pages_text.append(f"[PAGE {global_page}]\n{text.strip()}")
+                        global_page += 1
+            
+            CHUNK_SIZE = 30
+            chunks = []
+            for i in range(0, len(pages_text), CHUNK_SIZE):
+                chunks.append("\n\n".join(pages_text[i:i + CHUNK_SIZE]))
+
+            client = genai.Client(api_key=api_key)
+            merged_index = {}
+            api_warnings = []
+            
+            update_progress("Querying Gemini AI...", 30)
+            for chunk_idx, chunk_text in enumerate(chunks):
+                pct = 30 + int((chunk_idx / max(1, len(chunks))) * 50)
+                update_progress(f"Processing PDF part {chunk_idx + 1}/{len(chunks)}", pct)
+                
+                prompt = book_indexer_core.PROMPT_TEMPLATE.format(text=chunk_text)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.15,
+                        max_output_tokens=65536
+                    )
+                )
+
+                partial_text = ""
+                try:
+                    if response.candidates:
+                        candidate = response.candidates[0]
+                        finish = getattr(candidate, 'finish_reason', None)
+                        finish_str = str(finish)
+                        if finish_str in ('1', 'STOP', 'FinishReason.STOP',
+                                          '2', 'MAX_TOKENS', 'FinishReason.MAX_TOKENS'):
+                            partial_text = response.text or ""
+                            if finish_str in ('2', 'MAX_TOKENS', 'FinishReason.MAX_TOKENS'):
+                                api_warnings.append(f"PDF part {chunk_idx + 1}: output truncated")
+                        else:
+                            api_warnings.append(f"PDF part {chunk_idx + 1}: skipped finish_reason={finish}")
+                    else:
+                        api_warnings.append(f"PDF part {chunk_idx + 1}: blocked")
+                except Exception as resp_err:
+                    api_warnings.append(f"PDF part {chunk_idx + 1}: error {resp_err}")
+
+                if partial_text:
+                    cleaned_text = book_indexer_core.clean_llm_response(partial_text)
+                    book_indexer_core.parse_partial_index(cleaned_text, merged_index)
+
+            if not merged_index:
+                raise Exception("No index entries generated. " + "; ".join(api_warnings))
+
+            update_progress("Generating DOCX...", 85)
+            doc = Document()
+            doc.add_heading('Index', 0)
+            
+            for term_key in sorted(merged_index.keys()):
+                entry = merged_index[term_key]
+                display = entry['display']
+                pages_str = book_indexer_core.format_pages(entry['pages'])
+                
+                see = entry.get('see')
+                see_also = entry.get('see_also', [])
+
+                if see:
+                    line = f"{display}. See {see}"
+                else:
+                    line = f"{display}, {pages_str}" if pages_str else display
+                    if see_also:
+                        line += f". See also {', '.join(see_also)}"
+                doc.add_paragraph(line)
+
+                for sub_key in sorted(entry['sub'].keys()):
+                    sub_entry = entry['sub'][sub_key]
+                    sub_display = sub_entry['display']
+                    sub_pages_str = book_indexer_core.format_pages(sub_entry['pages'])
+                    sub_line = f"{sub_display}, {sub_pages_str}" if sub_pages_str else sub_display
+                    p = doc.add_paragraph(sub_line)
+                    p.paragraph_format.left_indent = Inches(0.25)
+            
+            docx_path = os.path.join(temp_dir, output_filename)
+            doc.save(docx_path)
+            
+            update_progress("Zipping output...", 95)
+            zip_filename = "Book_Indexer_Result.zip"
+            zip_path = os.path.join(temp_dir, zip_filename)
+            
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(docx_path, arcname=output_filename)
+
+            update_progress("Completed", 100)
+            
+            try:
+                p_path = os.path.join(temp_dir, "progress.json")
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        final_p = json.load(f)
+                    final_p["status"] = "Completed"
+                    final_p["zip_path"] = zip_path
+                    with open(p_path, "w") as f:
+                        json.dump(final_p, f)
+            except:
+                pass
+
+            return True
+
+        except Exception as e:
+            error_msg = f"Failed: {str(e)}"
+            logging.error(error_msg)
+            update_progress(error_msg, 0)
+            try:
+                p_path = os.path.join(temp_dir, "progress.json")
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        final_p = json.load(f)
+                    final_p["status"] = error_msg
+                    final_p["error"] = error_msg
+                    with open(p_path, "w") as f:
+                        json.dump(final_p, f)
+            except:
+                pass
+            return False
 
 def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
                     book_title, safe_title, username, user_id):
@@ -2824,7 +2991,6 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
                     "missing_citations": stats.get("missing_citations", 0),
                     "missing_captions":  stats.get("missing_captions", 0),
                     "fmt_issues":        stats.get("fmt_issues", 0),
-                    "spec_count":        stats.get("spec_count", 0),
                     "fig_missing_cit":   stats.get("fig_missing_cit", 0),
                     "fig_missing_cap":   stats.get("fig_missing_cap", 0),
                     "tab_missing_cit":   stats.get("tab_missing_cit", 0),
@@ -3180,6 +3346,80 @@ def batch_queue_cancel(job_id):
     ok, msg = batch_queue.cancel(job_id, session['user_id'])
     return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
+
+# -----------------------
+# Book Indexer Route
+# -----------------------
+@app.route('/book-indexer', methods=['GET'])
+@role_required(ROUTE_PERMISSIONS.get('book_indexer', ['ADMIN', 'USER']))
+def book_indexer_ui():
+    return render_template('book_indexer.html')
+
+@app.route('/book-indexer/api/extract', methods=['POST'])
+@csrf.exempt
+@role_required(ROUTE_PERMISSIONS.get('book_indexer', ['ADMIN', 'USER']))
+def book_indexer_extract():
+    api_key = request.form.get('api_key') or os.getenv('GEMINI_API_KEY')
+    model_name = request.form.get('model', 'gemini-2.5-pro')
+    pdf_files = request.files.getlist('pdf_files')
+
+    if not api_key:
+        return jsonify({"error": "Missing Gemini API key in request and .env"}), 400
+
+    if not pdf_files or len(pdf_files) == 0 or pdf_files[0].filename == '':
+        return jsonify({"error": "No PDF files provided"}), 400
+
+    token = uuid.uuid4().hex
+    job_id = token 
+    
+    temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], token)
+    os.makedirs(temp_dir, exist_ok=True)
+
+    saved_paths = []
+    
+    try:
+        for f in pdf_files:
+            if f.filename:
+                safe_name = secure_filename(f.filename) or f"document_{len(saved_paths)}.pdf"
+                path = os.path.join(temp_dir, safe_name)
+                f.save(path)
+                saved_paths.append(path)
+    except Exception as e:
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+        return jsonify({"error": f"File save failed: {e}"}), 500
+
+    app.config.setdefault("PROGRESS_DATA", {})
+    app.config["PROGRESS_DATA"][job_id] = {
+        "total": len(saved_paths),
+        "current": 0,
+        "status": "Starting"
+    }
+
+    if len(pdf_files) == 1:
+        base_name = os.path.splitext(secure_filename(pdf_files[0].filename))[0]
+    else:
+        base_name = "Combined"
+    output_filename = f"{base_name}_index.docx"
+
+    batch_queue.submit(
+        job_id=job_id,
+        route_type='book_indexer',
+        user_id=session['user_id'],
+        username=session.get('username', 'unknown'),
+        target_fn=process_book_indexer_job,
+        fn_args=(job_id, temp_dir, saved_paths, api_key, model_name, output_filename,
+                 session['user_id'], session.get('username', 'unknown')),
+        payload_dict={
+            'temp_dir': temp_dir,
+            'saved_paths': saved_paths,
+            'model': model_name
+        }
+    )
+
+    return jsonify({"job_id": job_id})
 
 # -----------------------
 # File Validation Route
@@ -3889,8 +4129,6 @@ def file_history():
                        u.username,
                        'validation' AS type,
                        '' AS route_type,
-                       '' AS token,
-                       '' AS selected_tasks,
                        '' AS original_filenames,
                        f.user_id
                 FROM files f
@@ -4778,7 +5016,7 @@ def process_technical_job(job_id, unique_folder, saved_paths, original_filenames
                              "download_token": job_id})
         except Exception as e:
             update_progress({"status": f"Failed: {str(e)}"})
-
+            log_errors([f"Job {job_id} failed: {e}"])
 
 @app.route('/technical', methods=['GET', 'POST'])
 @role_required(ROUTE_PERMISSIONS.get('technical', ['ADMIN']))

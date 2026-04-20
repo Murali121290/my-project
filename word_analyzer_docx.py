@@ -838,7 +838,7 @@ def build_detailed_summary_table(
             f"      <div style='width:100px;height:20px;background:#f0f0f0;border-radius:10px;overflow:hidden;'>\n"
             f"        <div style='width:0%;height:100%;background:linear-gradient(90deg,#27ae60,#2ecc71);transition:width 1s ease-in-out;' data-w='{complete_pct}'></div>\n"
             f"      </div>\n"
-            f"      <span style='font-size:12px;color:#27ae60;'>{complete_pct}% Complete</span>\n"
+            f"      <a href='javascript:void(0);' onclick=\"showTab('{tab_target}');\" style='font-size:12px;color:#27ae60;text-decoration:none;'>{complete_pct}% Complete</a>\n"
             f"    </div>\n"
             f"  </td>\n"
             f"  <td><i class='fas fa-check-circle' style='color:#27ae60;'></i> {cit_cnt} citation(s)</td>\n"
@@ -1033,17 +1033,17 @@ def build_detailed_summary_table(
     html += f"""
     <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('special-chars', this.closest('tr'))"><strong>Non-Std characters/typesetting instructions</strong></td><td>{spec_count}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('special-chars');"
-        style='color:#667eea;text-decoration:underline;'>Review non-standard characters</a></td>
+        style='color:#667eea;text-decoration:none;'>Review non-standard characters</a></td>
         <td>Review non-standard characters and typesetting instructions</td></tr>
 
     <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('formatting', this.closest('tr'))"><strong>Formatting Issues</strong></td><td>{fmt_count}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('formatting');"
-        style='color:#f39c12;text-decoration:underline;'>View formatting issues</a></td>
+        style='color:#f39c12;text-decoration:none;'>View formatting issues</a></td>
         <td>Review formatting anomalies</td></tr>
 
     <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('comments', this.closest('tr'))"><strong>Comments</strong></td><td>{comment_count_val}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('comments');"
-        style='color:#3498db;text-decoration:underline;'>Review Comments and highlighted text</a></td>
+        style='color:#3498db;text-decoration:none;'>Review Comments and highlighted text</a></td>
         <td>No action required</td></tr>
 
     <tr class='summary-table-row'><td><strong>Notes</strong></td><td>{footnote_count + endnote_count}</td>
@@ -1055,7 +1055,7 @@ def build_detailed_summary_table(
         html += f"""
         <tr class='summary-table-row'><td style='cursor:pointer;' onclick="showTabFromRow('media', this.closest('tr'))"><strong>Images</strong></td><td>{figure_count}</td>
         <td colspan='3'><a href='javascript:void(0);' onclick="showTab('media');"
-        style='color:#27ae60;text-decoration:underline;'><i class='fas fa-check-circle'></i> {figure_count} image(s) detected</a></td>
+        style='color:#27ae60;text-decoration:none;'><i class='fas fa-check-circle'></i> {figure_count} image(s) detected</a></td>
         <td>No action required</td></tr>
         """
     else:

@@ -310,7 +310,7 @@
 
         if (numVal && numVal.checked) steps.push('① Number Validation');
         if (nyVal && nyVal.checked) steps.push('② Name & Year Validation (APA)');
-        if (gemini && gemini.checked) steps.push('③ Structuring & Conversion');
+        if (gemini && gemini.checked) steps.push('③ Structuring & Conversion (with URL validation & Track Changes)');
 
         // Show Target Style only when Step 3 is selected
         if (tsRow) tsRow.style.display = (gemini && gemini.checked) ? 'block' : 'none';

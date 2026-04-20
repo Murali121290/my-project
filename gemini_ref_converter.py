@@ -32,8 +32,8 @@ logger.addHandler(logging.NullHandler())
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_MODEL = "gemini-2.5-pro"
-_MAX_RETRIES = 3
-_RETRY_BASE_DELAY = 2.0  # seconds
+_MAX_RETRIES = 5
+_RETRY_BASE_DELAY = 5.0  # seconds
 
 
 # ─────────────────────────────────────────────
@@ -180,6 +180,8 @@ RULES:
   any initial. bib_fname MUST be populated.
   CRITICAL: Do NOT remove study groups or steering committees (e.g., "International Steering Committee for...") attached to the author list. Treat them as part of the author group.
   No author → start with article title directly.
+  NAME PREFIXES: Retain lowercase particles (van, von, de, la, du, etc.) exactly as in source.
+  Do NOT capitalise them. Store as part of bib_surname. Example: "van der Berg JA" (NOT "Van Der Berg JA").
 - ARTICLE TITLE: sentence case — only the first word, first word after a colon or em-dash,
   and proper nouns capitalised. All other words lowercase. No italics. No quotation marks.
   Do NOT overwrite with PubMed/CrossRef title unless the source title is completely absent.
@@ -196,8 +198,12 @@ RULES:
   If only one page number exists in source, output that single page only —
   NEVER repeat fpage as lpage. Set bib_lpage = null in metadata when absent.
   Each page element appears exactly ONCE — never duplicate.
-- DOI: prefix with "doi:" (lowercase, no space). No period after doi string.
-  If no DOI available, provide full URL. No period after URL.
+- NO DATE: If publication year is unavailable, omit bib_year entirely (store as null).
+  Do NOT use "n.d." in AMA — that is APA-only. Simply omit the year element.
+- DOI vs URL: If DOI exists, output DOI only (doi:XXXXX). If no DOI but URL exists, output URL only.
+  NEVER output both. If neither exists, end reference with a period.
+- RETRACTED PAPERS: If the source indicates the paper is retracted, append "[Retracted]" after the
+  article title (before the period). Example: "Smith JA. Title [Retracted]. Journal. 2020;12(3):45."
 - Strip any non-breaking spaces (U+00A0) silently — never output a dot in their place.
 - COMPLETENESS: Output the FULL reference. Never truncate, omit, or paraphrase any element.
 """,
@@ -251,6 +257,9 @@ FORMAT (with edition):     Author FM. Chapter title. In: Editor FM, ed. Book tit
 FORMAT (no editor listed): Author FM. Chapter title. In: Book title. Publisher; Year:fpage-lpage.
 FORMAT (with DOI):         Author FM. Chapter title. In: Editor FM, ed. Book title. Publisher; Year:fpage-lpage. doi:XXXXX
 RULES:
+- CRITICAL FIELD MAPPING:
+  bib_chaptertitle = the title of the chapter. NEVER put the chapter title in bib_title.
+  bib_book = the title of the book.
 - CHAPTER AUTHOR: comes first. Retain every initial. Same format as journal authors.
   Up to 6 authors; 7+ → first 6 + ", et al."
 - CHAPTER TITLE: sentence case (same rules as article title). No italics. No quotation marks.
@@ -378,20 +387,29 @@ RULES:
 - AUTHORS: Surname, F. M. format. Initials each followed by a period and space (e.g. Smith, J. A.).
   Comma-space between authors. Use "&" before the last author (never "and").
   Up to 20 authors list all; if >20, list first 19, then "…", then last author.
+  CRITICAL ELLIPSIS RULE: If the source contains an ellipsis (… or ...) in the author list, DO NOT carry it forward blindly.
+  Only use "…" if the total number of authors is 21 or more. If the total number of authors is 20 or fewer, list ALL of them normally and use an ampersand "&" before the last author. NEVER use "…" for 20 or fewer authors.
   CRITICAL: Retain EVERY initial verbatim from source. Never collapse "JA" → "J" or drop any initial.
   CRITICAL: Every initial MUST have a period: "Smith, J. A., Jones, B. C."
-  CRITICAL: Do NOT remove study groups or steering committees (e.g., "International Steering Committee for...") attached to the author list. Treat them as part of the author group.
+  CRITICAL ORGANISATION RULE: Do NOT remove study groups or steering committees. If an organisation, study group, advisory team, or working group is mixed in with personal authors, MOVE it to the very end of the author list. When an organisation is the last author in the group, it must be preceded by "&" (e.g., "Smith, J. A., & Sense Advisory Team Working Group."). DO NOT add any extra authors or labels after the organisation.
   CRITICAL: Retain name generation suffixes exactly (Jr., Sr., II, III, IV). Format as:
     "Collins, Jr., J. W." — suffix comes after surname, before initials, separated by commas.
   No author → start with article title directly.
+  NAME PREFIXES: For names with lowercase particles (van, von, de, la, du, der, etc.), retain the
+  prefix exactly as in the source. Do NOT capitalise particles. Store as part of bib_surname.
+  Example: bib_surname = "van der Berg" → formatted as "van der Berg, A. J." (NOT "Van Der Berg").
 - YEAR: (Year). followed by period. CRITICAL: Retain any lowercase suffix (2022a, 2024b) — NEVER remove.
   If full date available, format as (Year, Month Day), e.g. (2025, May 28).
 - ARTICLE TITLE: Sentence case ONLY — capitalise only: first word, first word after colon/em-dash,
   proper nouns. All other words lowercase. No italics. No quotation marks.
+  CRITICAL: When converting to sentence case, preserve the exact capitalization of country acronyms and abbreviations (e.g., U.S., U.K., USA, UK). Do not convert them to lowercase.
   CRITICAL: Do NOT overwrite with database title. Source title is authoritative.
 - JOURNAL NAME: Title case AND italicised (*Journal Name*). Use EXACTLY the journal name from the source.
   CRITICAL: NEVER append parenthetical location qualifiers like "(Basel, Switzerland)" unless verbatim in source.
-- STATUS: Retain "Advance online publication", "Published online" etc. after journal name when present.
+- STATUS: Retain the EXACT status label from the source:
+  "Advance online publication" = article ahead of print, not yet assigned to an issue/volume.
+  "Published online" or "Online published" = published but no print issue yet.
+  CRITICAL: Use verbatim wording from source. Do NOT convert between these terms.
   Format: *Journal Name*. Advance online publication. https://doi.org/XXXXX
 - Volume: italicised (*Volume*). Issue in parentheses immediately after volume, NOT italicised.
   Supplemental issue: *Volume*(Suppl. X) or *Volume*(Suppl. N).
@@ -399,7 +417,10 @@ RULES:
 - PAGE RANGE: en dash (–) between fpage and lpage. Use EXACTLY as in source.
   Article numbers: write as "Article XXXXX" or the number as-is.
   If only fpage exists, output only that page — NEVER repeat as lpage. bib_lpage = null when absent.
-- DOI as full URL: https://doi.org/XXXXX — no period after. If no DOI, use full URL, no period.
+- DOI vs URL: If DOI exists, output DOI only as https://doi.org/XXXXX — no period after.
+  If no DOI but URL exists, output URL only — no period after. NEVER output both.
+- RETRACTED PAPERS: If the source indicates the paper is retracted, append "[Retracted]" after
+  the article title (before the period). Example: "Smith, J. A. (2020). Title [Retracted]. *Journal*, *12*(3), 45."
 - Strip non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate, omit, or remove any element.
 """,
@@ -412,11 +433,13 @@ FORMAT (org author):     Organisation Name. (Year). *Title of book*. Publisher.
 FORMAT (with trans.):    Surname, F. M. (Year). *Title of book* (F. M. Translator, Trans.; Xth ed.). Publisher. (Original work published YYYY)
 RULES:
 - AUTHORS: Retain every initial with periods. Same format rules as journal.
-  Up to 20 authors; 21+ → first 19, "…", last author.
+  Up to 20 authors list all; 21+ → first 19, "…", last author.
+  CRITICAL: If the source uses an ellipsis in the author list, apply the same rule as journal: only use "…" if total authors >20; otherwise list all. Never store "…" as an entry in bib_surname/bib_fname.
   No personal author → organisation name in author position.
 - YEAR: Retain any letter suffix. Same rules as journal.
 - BOOK TITLE: Sentence case AND italicised (*Title*). Sentence case = only first word, first word after
   colon/em-dash, and proper nouns capitalised; all other words lowercase.
+  CRITICAL: When converting to sentence case, preserve the exact capitalization of country acronyms and abbreviations (e.g., U.S., U.K., USA, UK). Do not convert them to lowercase.
 - EDITION: in parentheses after title if >1st: (2nd ed.). Omit for 1st editions.
   If translator AND edition, combine: (F. M. Translator, Trans.; 2nd ed.)
 - TRANSLATOR: "(F. M. Translator, Trans.)" in parentheses after title/edition, before publisher.
@@ -425,6 +448,8 @@ RULES:
   Omit only the city/location prefix (e.g. "New York:", "London:", "Thousand Oaks, CA:").
   Strip ONLY these corporate suffixes: "Co.", "Ltd.", "Limited", "Inc.", "LLC", "Corp.", "GmbH", "S.A.", "Lda.", "Pty."
   EXCEPTION: If publisher name EXACTLY equals the author/org name, omit publisher per APA 7th.
+  CRITICAL: If the source shows the publisher as the word "Author" (meaning the authoring org is
+  also the publisher), store bib_publisher = "Author" exactly — do NOT expand to the org name.
   Multiple publishers: separate with semicolons.
 - DOI as https://doi.org/XXXXX or full URL. No period after.
 - Strip non-breaking spaces (U+00A0) silently.
@@ -463,9 +488,13 @@ FORMAT (no editor):          Author, F. M. (Year). Chapter title. In *Book title
 FORMAT (1st ed., no DOI):    Author, F. M. (Year). Chapter title. In F. M. Editor (Ed.), *Book title* (pp. fpage–lpage). Publisher.
 FORMAT (with volume):        Author, F. M. (Year). Chapter title. In F. M. Editor (Ed.), *Book title* (Vol. 1, pp. fpage–lpage). Publisher.
 RULES:
+- CRITICAL FIELD MAPPING:
+  bib_chaptertitle = the title of the chapter. NEVER put the chapter title in bib_title.
+  bib_book = the title of the book.
 - CHAPTER AUTHOR: first. Retain every initial with periods. Same format as journal.
   Year + letter suffix rules apply.
 - CHAPTER TITLE: Sentence case. No italics. No quotation marks.
+  CRITICAL: When converting to sentence case, preserve the exact capitalization of country acronyms and abbreviations (e.g., U.S., U.K., USA, UK). Do not convert them to lowercase.
   CRITICAL: Do NOT overwrite with database title unless source title completely absent.
 - "In" (no colon in APA) introduces the editor block. Editor initials appear BEFORE surname.
   e.g. "In R. L. Smith (Ed.)," — NOT "In Smith, R. L. (Ed.),"
@@ -500,17 +529,25 @@ RULES:
 - PAGE/ARTICLE TITLE: Sentence case (first word and proper nouns only). No italics. No quotation marks.
   bib_title = the PAGE or ENTRY title ONLY — NOT the website name, database name, or URL.
   The website/database name goes in bib_journal or bib_book.
-- WEBSITE/ORGANISATION NAME: Title case AND italicised (*Website Name*).
+- WEBSITE/ORGANISATION NAME: Title case AND italicised (*Website Name*). Store in bib_journal.
+  CRITICAL: bib_journal must be the HUMAN-READABLE website name ONLY (e.g., "Cancer Care Ontario",
+  "World Health Organization"). NEVER store a URL, domain, or any "http" string in bib_journal.
+  If you cannot identify a distinct website name, leave bib_journal empty.
   If the author IS the website/organisation, omit the site name to avoid repetition.
 - AUTHOR: No personal author → title moves to author position.
   Organisation as author → use org name in author position.
-- YEAR: Full date in parentheses if available: (Year, Month Day). Year only if no full date.
-  No date available → (n.d.).
-  CRITICAL: bib_year = publication year (or n.d.). bib_accessed = retrieval date. These are
-  ALWAYS separate fields. Never confuse them.
+- YEAR: CRITICAL — bib_year MUST be stored as "YYYY" or "YYYY, Month Day" (e.g., "2024, June 26").
+  NEVER store as "Month Day, YYYY" (e.g., never "June 26, 2024"). Full date if available; year only if not.
+  No date available → store as "n.d.".
+  bib_year = publication year only. bib_accessed = retrieval date. ALWAYS separate fields. Never confuse.
 - RETRIEVAL DATE: Omit for stable content. Include for content that may change (wikis, live data):
   "Retrieved Month Day, Year, from URL"
-- No period after URL.
+  CRITICAL: bib_accessed = date ONLY (e.g., "December 15, 2023"). NEVER include "from", "Retrieved",
+  or any URL in bib_accessed. The URL goes in bib_url; bib_accessed is the date string only.
+- URL: bib_url must contain ONLY the bare URL (starting with https:// or http://).
+  Strip any leading text like "from ", "Retrieved from ", "From ", etc.
+  Strip any trailing text such as ", on DATE", ", accessed DATE". No period after URL.
+  NEVER store a URL in bib_journal or bib_accessed.
 - Strip non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -520,17 +557,26 @@ FORMAT (with editors, multiple): Author, F. M. (Year). Entry title. In F. M. Edi
 FORMAT (no editor):              Author, F. M. (Year). Entry title. In *Reference Title*. Publisher. Retrieved Month Day, Year, from URL
 FORMAT (no date):                Author, F. M. (n.d.). Entry title. In F. M. Editor (Ed.), *Reference Title*. Publisher. Retrieved Month Day, Year, from URL
 RULES:
-- ENTRY TITLE: Sentence case. No italics. No quotation marks.
-- REFERENCE/DATABASE TITLE: Title case AND italicised (*Reference Title*).
+- TYPE DETECTION: Classify as ereference when the source is an entry in an online encyclopaedia,
+  dictionary, or database (e.g. StatPearls, UpToDate, Encyclopaedia Britannica, MedlinePlus,
+  Cochrane Library entry). Do NOT classify these as journal or website.
+- ENTRY TITLE: Sentence case. No italics. No quotation marks. Store in bib_title.
+- REFERENCE/DATABASE TITLE: Title case AND italicised (*Reference Title*). Store in bib_book.
 - EDITOR LABEL: "(Ed.)" for one editor; "(Eds.)" for two or more editors.
   CRITICAL: Never use "(Ed.)" for multiple editors.
   If no editor, use "In *Reference Title*" with no editor block.
 - Editor initials appear BEFORE surname, same as book_chapter rule.
-- YEAR: Use (n.d.) if no date available.
+- YEAR: Store as "YYYY" if only a year is available, OR as "YYYY, Month Day" if a full publication
+  date is given in the source (e.g., "2023, April 24"). bib_accessed = retrieval date — always
+  separate; NEVER put retrieval date in bib_year. Use "n.d." only if no date is available at all.
 - PUBLISHER: Retain name; strip corporate suffixes; omit city/location.
 - RETRIEVAL DATE: Always include "Retrieved Month Day, Year, from URL" — required for e-references
   since content may be updated.
-- No period after URL.
+  CRITICAL: bib_accessed = date ONLY (e.g., "December 15, 2023"). NEVER include "from", "Retrieved",
+  or any URL in bib_accessed. The URL goes in bib_url; bib_accessed is the date string only.
+- URL: bib_url must contain ONLY the bare URL (starting with https:// or http://).
+  Strip any leading text like "from ", "Retrieved from ", "From ", etc. No period after URL.
+  NEVER store a URL in bib_book or bib_accessed.
 - Strip non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -600,6 +646,8 @@ RULES:
 - AUTHORS: same format as journal. If organisation is author, use org name in author position.
 - INSTITUTION: treated as publisher. Retain full institution name.
   PUBLISHER rule: ALWAYS retain. Omit city only. Strip corporate suffixes only.
+  CRITICAL: If the source shows the publisher as the word "Author" (the org is its own publisher),
+  store bib_institution = "Author" exactly — do NOT expand to the org name.
 - DOI as https://doi.org/XXXXX or full URL. No period after.
   If no DOI and no URL, end with period after institution.
 - Strip non-breaking spaces (U+00A0) silently.
@@ -663,6 +711,17 @@ with the database title unless the input title is completely absent.
   BOOK vs EDITED_BOOK: classify as edited_book ONLY when editor markers ("Ed.", "Eds.", "ed.",
   "eds.", "edited by") are present AND no separate author appears before the title.
   If both author + editor present → book_chapter. Authors only, no editor markers → book.
+  WEBSITE vs BOOK vs REPORT — CRITICAL decision rules:
+    BOOK: Has a title + author(s)/org + edition number (e.g. "2nd ed.", "3rd ed.") OR a named
+      publisher. A URL does not change this — a book hosted online is still a book.
+      CRITICAL: If the source contains an edition number → classify as book, NEVER as website.
+    REPORT: Published by a government body, institution, or organisation; often has a document/
+      report number; may have a URL. Classify as report when there is no edition number and the
+      source reads like an institutional report, white paper, or policy document.
+    WEBSITE: A page or article on a website where the website itself is the primary identifier
+      (e.g. Wikipedia entry, WHO web page, blog post, news article). Classify as website ONLY
+      when the source is clearly a web page, NOT a book or formal institutional document.
+      CRITICAL: "Publisher: Author" or publisher name = org author name → book or report, NOT website.
 - bib_surname / bib_fname: ALL authors in order, pipe-separated (|) if multiple.
   e.g. "Smith|Jones|Lee" / "John A|Mary B|Chris"
   CRITICAL: bib_fname MUST be populated verbatim from source. Never delete, suppress, or collapse initials.
@@ -833,6 +892,7 @@ def _call_gemini(
         response_schema=schema,
         temperature=0.0,
         top_p=1.0,
+        max_output_tokens=8192,
     )
 
     last_exc: Optional[Exception] = None
@@ -862,9 +922,16 @@ def _call_gemini(
                 _backoff(attempt, max_retries)
                 continue
 
+            if finish_reason == types.FinishReason.MAX_TOKENS:
+                logger.warning(
+                    f"[Attempt {attempt}] Gemini hit MAX_TOKENS — response may be truncated. "
+                    "Consider increasing max_output_tokens or shortening the input."
+                )
+
             raw_json = response.text
             if not raw_json or not raw_json.strip():
-                logger.warning(f"[Attempt {attempt}] Empty response text.")
+                raw_preview = (response.text or "")[:300]
+                logger.warning(f"[Attempt {attempt}] Empty response text. Raw: {raw_preview!r}")
                 last_exc = ValueError("Empty response text")
                 _backoff(attempt, max_retries)
                 continue
@@ -874,9 +941,10 @@ def _call_gemini(
         except Exception as exc:
             last_exc = exc
             err_str = str(exc).lower()
-            if any(kw in err_str for kw in ("rate", "quota", "503", "429", "timeout", "unavailable")):
+            is_rate_limit = any(kw in err_str for kw in ("429", "quota", "resource_exhausted"))
+            if is_rate_limit or any(kw in err_str for kw in ("rate", "503", "timeout", "unavailable")):
                 logger.warning(f"[Attempt {attempt}] Transient error: {exc}. Retrying…")
-                _backoff(attempt, max_retries)
+                _backoff(attempt, max_retries, is_rate_limit=is_rate_limit)
             else:
                 logger.error(f"[Attempt {attempt}] Non-retriable error: {exc}")
                 break
@@ -885,10 +953,14 @@ def _call_gemini(
     return None
 
 
-def _backoff(attempt: int, max_retries: int) -> None:
+def _backoff(attempt: int, max_retries: int, is_rate_limit: bool = False) -> None:
+    import random
     if attempt < max_retries:
-        delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
-        logger.debug(f"Back-off: sleeping {delay:.1f}s before retry {attempt + 1}.")
+        delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1)) + random.uniform(0, 2.0)
+        if is_rate_limit:
+            # 429 quota resets on a per-minute basis — floor at 30 s
+            delay = max(delay, 30.0)
+        logger.warning(f"Back-off: sleeping {delay:.1f}s before retry {attempt + 1}/{max_retries}.")
         time.sleep(delay)
 
 

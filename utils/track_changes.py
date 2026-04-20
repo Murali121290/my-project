@@ -1,7 +1,13 @@
-
 from datetime import datetime
 from docx.oxml.shared import OxmlElement, qn
 from docx.oxml import parse_xml
+import difflib
+import logging
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler()) # Ensure it doesn't print if not configured.
+
+from docx import Document # Add this import
+from docx.text.paragraph import Paragraph # Add this import
 
 # XML Namespaces
 nsmap = {
@@ -21,7 +27,7 @@ def get_unique_id():
     # Word IDs usually should be unique.
     return str(random.randint(1, 2147483647))
 
-def add_tracked_text(paragraph, text, style=None, author="RefBot", date=None, color=None, doc=None):
+def add_tracked_text(paragraph, text, style=None, author="S4c", date=None, color=None, doc=None):
     """
     Appends a new run with `text` inside a <w:ins> element to `paragraph`.
     Simulates "Track Changes" insertion.
@@ -218,3 +224,67 @@ def add_tracked_deletion(paragraph, text, author="RefBot", date=None, doc=None):
 
 def add_tracked_run(paragraph, text, style=None, author="RefBot", date=None, color=None, doc=None):
     return add_tracked_text(paragraph, text, style, author, date, color, doc)
+
+def apply_tracked_changes_to_paragraph(
+    paragraph: Paragraph,
+    original_text: str, # The text content of this paragraph BEFORE changes (for diffing)
+    revised_text: str,  # The final text AFTER changes (what should appear in the document)
+    author: str = "RefBot",
+    date: datetime = None,
+    doc: Document = None # Required for style lookup in add_tracked_text
+):
+    """
+    Applies changes to a paragraph using Word's track changes functionality (insertions and deletions).
+    Compares original_text with revised_text and marks differences in the paragraph's XML.
+
+    Args:
+        paragraph: The python-docx Paragraph object to modify.
+        original_text: The string content of the paragraph *before* any AI processing or stripping.
+                       Used as the baseline for diffing.
+        revised_text: The new, AI-processed string content that should appear in the paragraph.
+        author: The author name for track changes.
+        date: The timestamp for track changes.
+        doc: The Document object, required for accurate style resolution in tracked insertions.
+    """
+    if date is None:
+        date = get_current_iso_time()
+    if doc is None and paragraph.document:
+        doc = paragraph.document
+    if doc is None:
+        logger.warning(f"Document object not provided for paragraph track changes. Styles might not resolve correctly.")
+
+    p_element = paragraph._element
+    
+    # Remove all existing children from the paragraph's element to prepare for reconstruction
+    # Keep pPr (paragraph properties) intact
+    for child in list(p_element.iterchildren()): # Use list() to avoid modification during iteration
+        if child.tag != qn('w:pPr'): 
+            p_element.remove(child)
+
+    # Perform difflib comparison
+    matcher = difflib.SequenceMatcher(None, original_text, revised_text)
+    
+    # Apply changes based on diff operations
+    for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+        original_sub_text = original_text[i1:i2]
+        revised_sub_text = revised_text[j1:j2]
+
+        if opcode == 'equal':
+            # For consistency, even equal parts are inserted as new if we cleared existing runs.
+            # This results in the entire paragraph being marked as an insertion.
+            if revised_sub_text:
+                add_tracked_text(paragraph, revised_sub_text, author=author, date=date, doc=doc)
+        elif opcode == 'replace':
+            # Mark original part as deleted, insert new part as inserted
+            if original_sub_text:
+                add_tracked_deletion(paragraph, original_sub_text, author=author, date=date, doc=doc)
+            if revised_sub_text:
+                add_tracked_text(paragraph, revised_sub_text, author=author, date=date, doc=doc)
+        elif opcode == 'delete':
+            # Mark original part as deleted
+            if original_sub_text:
+                add_tracked_deletion(paragraph, original_sub_text, author=author, date=date, doc=doc)
+        elif opcode == 'insert':
+            # Insert new part as inserted
+            if revised_sub_text:
+                add_tracked_text(paragraph, revised_sub_text, author=author, date=date, doc=doc)

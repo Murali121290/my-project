@@ -62,6 +62,9 @@ _PROPER_NOUNS = re.compile(
     re.IGNORECASE,
 )
 
+# Matches dotted country/org abbreviations like U.S., U.K., U.S.A., U.N. — must NOT be lowercased
+_DOTTED_ABBREV_RE = re.compile(r'[A-Z](?:\.[A-Z])+\.?')
+
 def _to_sentence_case(text: str) -> str:
     """
     Sentence case: capitalise only the first word, first word after colon/em-dash,
@@ -85,6 +88,9 @@ def _to_sentence_case(text: str) -> str:
         # Match words with at least 2 uppercase letters, or specific lower-upper patterns like mRNA
         acronym_pattern = r'\b(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[a-z][A-Z][A-Za-z0-9]*)\b'
         acronym_spans = [(m.start(), m.end(), m.group()) for m in re.finditer(acronym_pattern, text)]
+        # Also preserve dotted abbreviations like U.S., U.K., U.S.A.
+        for m in _DOTTED_ABBREV_RE.finditer(text):
+            acronym_spans.append((m.start(), m.end(), m.group()))
 
     proper_spans = [(m.start(), m.end(), m.group()) for m in _PROPER_NOUNS.finditer(text)]
     
@@ -210,6 +216,19 @@ def _fix_ref_type(meta: Dict, raw_text: str) -> Dict:
         fixed["bib_reftype"] = "conference"
         logger.info("  [TypeFix] → 'conference'  (conference keywords in raw text)")
 
+    # website → book  (org-published document with edition number misclassified as website)
+    rt5 = (fixed.get("bib_reftype") or "").lower()
+    if rt5 == "website" and fixed.get("bib_editionno"):
+        fixed["bib_reftype"] = "book"
+        logger.info("  [TypeFix] 'website' → 'book'  (has edition number)")
+
+    # website → report  (institutional document with publisher misclassified as website)
+    rt6 = (fixed.get("bib_reftype") or "").lower()
+    _raw_pub = (fixed.get("bib_publisher") or fixed.get("bib_institution") or "").strip()
+    if rt6 == "website" and _raw_pub and not _raw_pub.lower().startswith("http"):
+        fixed["bib_reftype"] = "report"
+        logger.info("  [TypeFix] 'website' → 'report'  (has publisher/institution field)")
+
     return fixed
 
 
@@ -301,7 +320,7 @@ def format_apa_from_metadata(meta: Dict) -> str:
             ini_fmt = " ".join(f"{p[0]}." for p in ini.split() if p) if ini else ""
             editors.append(f"{ini_fmt} {s}".strip())
         ed_label = "Ed." if len(editors) == 1 else "Eds."
-        in_str = "In " + ", ".join(editors) + f" ({ed_label}.), " if editors else "In "
+        in_str = "In " + ", ".join(editors) + f" ({ed_label}), " if editors else "In "
         book_str = f"*{_to_sentence_case(book)}*" if book else ""
         inner = []
         if edition and _ordinal(edition) not in ("1st", "1", "first"):
@@ -338,10 +357,11 @@ def format_apa_from_metadata(meta: Dict) -> str:
     elif ref_type in ("website", "ereference"):
         title    = meta.get("bib_title", "")
         site     = meta.get("bib_journal") or meta.get("bib_book", "")
-        accessed = meta.get("bib_accessed", "")
+        accessed = _clean_accessed(meta.get("bib_accessed", ""))
         url      = meta.get("bib_url", "")
+        if site and not _is_url(site):
+            parts.append(f"*{_to_title_case(site)}*.")
         if title:    parts.append(f"{_to_sentence_case(title)}.")
-        if site:     parts.append(f"*{_to_title_case(site)}*.")
         if accessed: parts.append(f"Retrieved {accessed}, from")
         if url:      parts.append(url)
     elif ref_type == "report":
@@ -462,10 +482,10 @@ def format_ama_from_metadata(meta: Dict) -> str:
         title    = meta.get("bib_title", "")
         site     = meta.get("bib_journal") or meta.get("bib_book", "")
         year     = meta.get("bib_year", "")
-        accessed = meta.get("bib_accessed", "")
+        accessed = _clean_accessed(meta.get("bib_accessed", ""))
         url      = meta.get("bib_url", "")
         if title:    parts.append(f"{_to_sentence_case(title)}.")
-        if site:     parts.append(f"{site}.")
+        if site and not _is_url(site): parts.append(f"{site}.")
         if year:     parts.append(f"Published {year}.")
         if accessed: parts.append(f"Accessed {accessed}.")
         if url:      parts.append(url)
@@ -828,6 +848,85 @@ def _format_initials_apa(initial: str) -> str:
     return formatted
 
 
+# ── Required metadata fields per reference type ───────────────────────────
+_REQUIRED_FIELDS_BY_TYPE: Dict[str, List[str]] = {
+    "journal":      ["bib_title", "bib_journal", "bib_year"],
+    "book":         ["bib_year"],
+    "edited_book":  ["bib_year"],
+    "book_chapter": ["bib_book"],
+    "website":      ["bib_title", "bib_url"],
+    "ereference":   ["bib_title"],
+    "thesis":       ["bib_title", "bib_school"],
+    "report":       ["bib_title"],
+    "conference":   ["bib_title"],
+}
+
+
+def _validate_converted_reference(
+    metadata: Optional[Dict],
+    final_text: str,
+    target_style: str,
+    ref_type: str,
+) -> List[str]:
+    """Return a list of format issues; empty list = reference looks valid."""
+    issues: List[str] = []
+
+    if not final_text or len(final_text.strip()) < 15:
+        issues.append("conversion produced no output")
+        return issues
+
+    if not metadata:
+        issues.append("metadata extraction failed")
+        return issues
+
+    if ref_type in ("unknown", ""):
+        issues.append("reference type could not be determined")
+
+    # Check required fields for this ref_type
+    for field in _REQUIRED_FIELDS_BY_TYPE.get(ref_type, []):
+        if not metadata.get(field):
+            issues.append(f"{field} missing")
+
+    # Author/editor presence (most types need one)
+    has_author = bool(
+        metadata.get("bib_surname") or
+        metadata.get("bib_organization") or
+        metadata.get("bib_ed_surname")
+    )
+    if not has_author and ref_type not in ("website", "ereference"):
+        issues.append("author missing")
+
+    # Format sanity checks on the final text
+    if ".." in final_text:
+        issues.append("double period in output")
+
+    if target_style == "APA" and ref_type not in ("website", "ereference", "thesis"):
+        if not re.search(r'\(\d{4}', final_text):
+            issues.append("year format incorrect")
+    elif target_style == "AMA" and ref_type == "journal":
+        if not re.search(r'\d{4};', final_text):
+            issues.append("year;volume format incorrect")
+
+    return issues
+
+
+def _add_review_comment(doc, para, comment_text: str) -> None:
+    """Attach a Word comment to the first run of the paragraph."""
+    try:
+        from docx.text.run import Run as _Run
+        runs = para.runs
+        if not runs:
+            return
+        doc.add_comment(
+            runs=runs[0],
+            text=comment_text,
+            author="S4C Reference Converter",
+            initials="S4C",
+        )
+    except Exception as exc:
+        logger.warning(f"Could not add review comment: {exc}")
+
+
 def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Optional[str]]]:
     segs: List[Tuple[str, Optional[str]]] = []
     ref_type = (meta.get("bib_reftype") or "journal").lower()
@@ -883,7 +982,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
                     segs.append((initials_str, "bib_fname"))
         if n_auth > 6:
             segs.append((", ", None))
-            segs.append(("et al", "bib_etal"))
+            segs.append(("et al.", "bib_etal"))
     segs.append((". ", None))
 
     chapter_title = meta.get("bib_chaptertitle") or ""
@@ -1062,13 +1161,75 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
     return segs
 
 
+_MONTH_DAY_YEAR_RE = re.compile(r'^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$')
+_MONTH_YEAR_RE     = re.compile(r'^([A-Za-z]+)\s+(\d{4})$')
+
+def _normalize_apa_year(y: str) -> str:
+    """Reorder 'Month Day, YYYY' or 'Month YYYY' → 'YYYY, Month Day' / 'YYYY, Month'."""
+    y = y.strip()
+    m = _MONTH_DAY_YEAR_RE.match(y)
+    if m:
+        return f"{m.group(3)}, {m.group(1)} {m.group(2)}"
+    m = _MONTH_YEAR_RE.match(y)
+    if m:
+        return f"{m.group(2)}, {m.group(1)}"
+    return y
+
+
+_URL_TRAILING_RE = re.compile(
+    r',?\s+on\s+\w+\s+\d{1,2},\s*\d{4}\.?$'
+    r'|,?\s+on\s+\w+\s+\d{4}\.?$',
+    re.IGNORECASE,
+)
+
+def _clean_url(url: str) -> str:
+    """Strip trailing text artefacts (e.g. ', on Month Day, Year') from a URL."""
+    url = url.strip().rstrip(".")
+    url = _URL_TRAILING_RE.sub("", url).strip()
+    return url
+
+
+_ACCESSED_PREFIX_RE = re.compile(
+    r'^(?:retrieved\s+from|retrieved\s*,?\s*from|from)\s+',
+    re.IGNORECASE,
+)
+
+def _clean_accessed(accessed: str) -> str:
+    """Strip 'Retrieved from', 'from', or any leaked URL from a bib_accessed value."""
+    accessed = accessed.strip()
+    accessed = _ACCESSED_PREFIX_RE.sub("", accessed).strip()
+    accessed = re.sub(r'\s*https?://\S+.*$', '', accessed, flags=re.IGNORECASE).strip()
+    return accessed
+
+
+def _is_url(value: str) -> bool:
+    """Return True if value looks like a URL (Gemini occasionally stores URLs in name fields)."""
+    return bool(re.match(r'https?://', value.strip(), re.IGNORECASE))
+
+
 def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Optional[str]]]:
     segs: List[Tuple[str, Optional[str]]] = []
     ref_type = (meta.get("bib_reftype") or "journal").lower()
 
     surnames = _split_pipe(meta.get("bib_surname"))
     fnames   = _split_pipe(meta.get("bib_fname"))
+    # Remove any stray ellipsis entries Gemini may have stored in the author list
+    clean_pairs = [(s, fnames[i] if i < len(fnames) else "")
+                   for i, s in enumerate(surnames)
+                   if s.strip() not in ("…", "...", "\u2026")]
+    surnames = [p[0] for p in clean_pairs]
+    fnames   = [p[1] for p in clean_pairs]
     n_auth   = len(surnames)
+
+    # APA rule: org/group authors must appear last in the author list
+    if n_auth > 1:
+        ind_idx = [i for i in range(n_auth)
+                   if _format_initials_apa(fnames[i]) or not _is_organization(surnames[i])]
+        org_idx = [i for i in range(n_auth) if i not in ind_idx]
+        if org_idx:
+            order    = ind_idx + org_idx
+            surnames = [surnames[i] for i in order]
+            fnames   = [fnames[i]   for i in order]
 
     is_edited_book_primary = False
     if ref_type == "edited_book" and n_auth == 0:
@@ -1125,7 +1286,8 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((".", None))
 
     segs.append((" (", None))
-    segs.append((meta.get("bib_year") or "n.d.", "bib_year"))
+    raw_year = meta.get("bib_year") or "n.d."
+    segs.append((_normalize_apa_year(raw_year), "bib_year"))
     segs.append(("). ", None))
 
     chapter_title = meta.get("bib_chaptertitle") or ""
@@ -1155,8 +1317,10 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((doi, "bib_doi"))
         return segs
 
-    elif ref_type == "book_chapter" and chapter_title:
-        clean_title = _to_sentence_case(chapter_title.rstrip("."))
+    elif ref_type == "book_chapter" and (chapter_title or main_title):
+        # Use chapter_title if present; fall back to main_title (Gemini sometimes puts it there)
+        title_text  = chapter_title or main_title
+        clean_title = _to_sentence_case(title_text.rstrip("."))
         segs.append((clean_title, "bib_chaptertitle"))
         segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
 
@@ -1260,8 +1424,9 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         segs.append((".", None))
 
     elif ref_type in ("book", "edited_book"):
-        edition   = meta.get("bib_editionno") or ""
-        publisher = _strip_publisher_suffixes(meta.get("bib_publisher") or "")  # (#58)
+        edition    = meta.get("bib_editionno") or ""
+        _raw_pub   = meta.get("bib_publisher") or ""
+        publisher  = _raw_pub if _raw_pub.strip() == "Author" else _strip_publisher_suffixes(_raw_pub)
         # Split edition so ordinal gets bib_editionno style  (#36)
         if edition and _ordinal(edition) not in ("1st", "1", "first"):
             segs.append((" (", None))
@@ -1272,21 +1437,57 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((publisher, "bib_publisher"))
             segs.append((".", None))
 
-    elif ref_type in ("website", "ereference"):
+    elif ref_type == "website":
         site     = meta.get("bib_journal") or meta.get("bib_book") or ""
-        pub      = _strip_publisher_suffixes(meta.get("bib_publisher") or "")
-        accessed = meta.get("bib_accessed") or ""
-        url      = meta.get("bib_url") or ""
+        accessed = _clean_accessed(meta.get("bib_accessed") or "")
+        url      = _clean_url(meta.get("bib_url") or "")
+        # Guard: Gemini sometimes stores a URL in the site name field
+        if _is_url(site):
+            site = ""
         if site:
             segs.append((_to_title_case(site), "bib_journal"))
             segs.append((".", None))
-        if pub and pub.lower() != site.lower():
+        if accessed and url:
+            segs.append((" Retrieved " + accessed + ", from ", None))
+            segs.append((url, "bib_url"))
+        elif url:
+            segs.append((" ", None))
+            segs.append((url, "bib_url"))
+
+    elif ref_type == "ereference":
+        ed_surnames = _split_pipe(meta.get("bib_ed_surname") or meta.get("bib_ed-surname"))
+        ed_fnames   = _split_pipe(meta.get("bib_ed_fname")   or meta.get("bib_ed-fname"))
+        ref_title   = meta.get("bib_book") or meta.get("bib_journal") or ""
+        pub         = _strip_publisher_suffixes(meta.get("bib_publisher") or "")
+        accessed    = _clean_accessed(meta.get("bib_accessed") or "")
+        url         = _clean_url(meta.get("bib_url") or "")
+        # Guard: Gemini sometimes stores a URL in the reference title field
+        if _is_url(ref_title):
+            ref_title = ""
+        segs.append(("In ", None))
+        if ed_surnames:
+            for i, es in enumerate(ed_surnames):
+                if i > 0:
+                    segs.append((" & " if i == len(ed_surnames) - 1 else ", ", None))
+                ei = ed_fnames[i] if i < len(ed_fnames) else ""
+                initials_str = _format_initials_apa(ei)
+                if initials_str:
+                    segs.append((initials_str + " ", "bib_ed-fname"))
+                segs.append((es, "bib_ed-surname"))
+            ed_label = "(Ed.)," if len(ed_surnames) == 1 else "(Eds.),"
+            segs.append((" " + ed_label + " ", None))
+        if ref_title:
+            segs.append((_to_title_case(ref_title), "bib_book"))
+            segs.append((".", None))
+        if pub:
             segs.append((" ", None))
             segs.append((pub, "bib_publisher"))
             segs.append((".", None))
-        if accessed:
+        if accessed and url:
             segs.append((" Retrieved " + accessed + ", from ", None))
-        if url:
+            segs.append((url, "bib_url"))
+        elif url:
+            segs.append((" ", None))
             segs.append((url, "bib_url"))
 
     elif ref_type == "conference":
@@ -1303,8 +1504,9 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         segs.append((".", None))
 
     elif ref_type == "report":
-        repnum = meta.get("bib_reportnum") or ""
-        inst   = _strip_publisher_suffixes(meta.get("bib_institution") or "")
+        repnum    = meta.get("bib_reportnum") or ""
+        _raw_inst = meta.get("bib_institution") or meta.get("bib_publisher") or ""
+        inst      = _raw_inst if _raw_inst.strip() == "Author" else _strip_publisher_suffixes(_raw_inst)
         if repnum:
             segs.append((" (Report No. " + repnum + ").", None))
         if inst:
@@ -1361,7 +1563,7 @@ def process_conversion(
     output_dir: Optional[Path] = None,
     source_style: str = "Auto",
     target_style: str = "APA",
-    model_name: str = "gemini-2.0-flash",
+    model_name: str = "gemini-2.5-pro",
     prefer_gemini_output: bool = True,
 ) -> Dict[str, Path]:
     input_docx = Path(input_docx)
@@ -1513,7 +1715,8 @@ def process_conversion(
 
     if tasks:
         logger.info(f"Starting parallel conversions for {len(tasks)} references...")
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        # Reduced max_workers from 5 to 2 to prevent Gemini API 429 (Too Many Requests) errors
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(process_task, t) for t in tasks]
             for future in as_completed(futures):
                 try:
@@ -1665,6 +1868,15 @@ def process_conversion(
             logger.warning(f"  Segment build failed ({_seg_err}); falling back to plain text.")
             _set_paragraph_text(para, final_text, doc=doc)
 
+        # ── Post-conversion validation: flag references that look wrong ───────
+        val_issues = _validate_converted_reference(
+            metadata, final_text, resolved_target, ref_type
+        )
+        if val_issues:
+            comment_msg = "Please check: " + "; ".join(val_issues)
+            _add_review_comment(doc, para, comment_msg)
+            logger.warning(f"  [{count}] Flagged for review — {', '.join(val_issues)}")
+
         converted_count += 1
 
         entry = ConversionLogEntry(
@@ -1725,7 +1937,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir",       type=str,                                          help="Output directory (default: same as input)")
     parser.add_argument("--source-style",     type=str, default="Auto", choices=["AMA","APA","Auto"], help="Source citation style")
     parser.add_argument("--target-style",     type=str, default="APA",  choices=["AMA","APA"],       help="Target citation style")
-    parser.add_argument("--model",            type=str, default="gemini-2.0-flash",               help="Gemini model name")
+    parser.add_argument("--model",            type=str, default="gemini-2.5-pro",               help="Gemini model name")
     parser.add_argument("--no-gemini-output", action="store_true",                                help="Rebuild from metadata instead of Gemini formatted output")
     args = parser.parse_args()
 
