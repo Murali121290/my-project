@@ -4129,6 +4129,8 @@ def file_history():
                        u.username,
                        'validation' AS type,
                        '' AS route_type,
+                       '' AS token,
+                       '' AS selected_tasks,
                        '' AS original_filenames,
                        f.user_id
                 FROM files f
@@ -4178,6 +4180,41 @@ def file_history():
         cursor = conn.execute(count_query, params[:-2])  # exclude LIMIT/OFFSET
         total_records = cursor.fetchone()[0]
 
+        # Get overall stats
+        stats_user_condition = ""
+        stats_params = []
+        if not session.get("is_admin"):
+            stats_user_condition = "WHERE user_id = ?"
+            stats_params = [g.user["id"]]
+            
+        stats_query = f"""
+            SELECT type, route_type, COUNT(*) as count FROM (
+                SELECT id, user_id, 'validation' AS type, 'validation' AS route_type FROM files
+                UNION ALL
+                SELECT id, user_id, 'macro' AS type, route_type FROM macro_processing
+            ) combined
+            {stats_user_condition}
+            GROUP BY type, route_type
+        """
+        cursor = conn.execute(stats_query, stats_params)
+        raw_stats = cursor.fetchall()
+        
+        overview_stats = {
+            'total': 0,
+            'validation': 0,
+            'macro': 0,
+            'by_route': {}
+        }
+        for row in raw_stats:
+            c = row['count']
+            overview_stats['total'] += c
+            if row['type'] == 'validation':
+                overview_stats['validation'] += c
+                overview_stats['by_route']['validation'] = c
+            else:
+                overview_stats['macro'] += c
+                overview_stats['by_route'][row['route_type']] = c
+
     total_pages = (total_records + per_page - 1) // per_page
 
     return render_template(
@@ -4186,7 +4223,8 @@ def file_history():
         page=page,
         total_pages=total_pages,
         route_filter=route_filter,
-        route_macros=ROUTE_MACROS
+        route_macros=ROUTE_MACROS,
+        overview_stats=overview_stats
     )
 # -----------------------
 # Admin Routes
