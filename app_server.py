@@ -14,6 +14,9 @@ from ReferenceConversion import _looks_like_inline_citation
 
 load_dotenv()
 
+ALTTEXT_URL = os.environ.get("ALTTEXT_URL", "http://alttext_app:5000")
+ALTTEXT_SERVICE_TOKEN = os.environ.get("ALTTEXT_SERVICE_TOKEN", "")
+
 import warnings
 # Suppress sqlite3 datetime adapter deprecation warning (Python 3.12+)
 warnings.filterwarnings('ignore', message='.*default datetime adapter is deprecated.*', category=DeprecationWarning)
@@ -27,6 +30,7 @@ import socket
 import time
 import threading
 import concurrent.futures
+import requests as _requests_lib
 try:
     import psycopg2
     from psycopg2 import pool, extras
@@ -247,7 +251,8 @@ ROUTE_PERMISSIONS = {
     'ppd': ['PERMISSIONS','COPYEDIT', 'PPD', 'PM', 'ADMIN'],
     'credit_extractor': ['PERMISSIONS', 'PM', 'PPD','ADMIN'],
     'word_to_xml': ['ADMIN'],
-    'bias_scan': ['COPYEDIT', 'ADMIN']
+    'bias_scan': ['COPYEDIT', 'ADMIN'],
+    'alttext': ['COPYEDIT', 'ADMIN', 'PERMISSIONS', 'PM', 'PPD'],
 }
 
 def get_user_role():
@@ -5233,6 +5238,113 @@ def technical_download(token):
         mimetype="application/zip",
         download_name=f"Technical_Documents_{_now_utc().strftime('%Y%m%d_%H%M%S')}.zip"
     )
+
+# -----------------------
+# Alttext Integration
+# -----------------------
+
+def _alttext_headers():
+    return {
+        "X-Service-Token": ALTTEXT_SERVICE_TOKEN,
+        "X-Forwarded-For": request.remote_addr,
+    }
+
+
+@app.route("/alttext-api/<path:subpath>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@csrf.exempt
+def alttext_proxy(subpath):
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    target = f"{ALTTEXT_URL}/{subpath}"
+    if request.query_string:
+        target += "?" + request.query_string.decode()
+    headers = _alttext_headers()
+    if request.content_type:
+        headers["Content-Type"] = request.content_type
+    try:
+        resp = _requests_lib.request(
+            method=request.method,
+            url=target,
+            headers=headers,
+            data=request.get_data(),
+            timeout=3600,
+            stream=True,
+        )
+    except _requests_lib.exceptions.ConnectionError:
+        return jsonify({"error": "Alttext service unavailable"}), 503
+    ct = resp.headers.get("Content-Type", "application/json")
+    skip = {"content-encoding", "transfer-encoding", "connection", "content-length"}
+    fwd_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip}
+    if any(x in ct for x in ("pdf", "octet-stream", "xlsx", "zip", "spreadsheet")):
+        def _stream():
+            for chunk in resp.iter_content(65536):
+                if chunk:
+                    yield chunk
+        return app.response_class(_stream(), status=resp.status_code,
+                                   headers=fwd_headers, content_type=ct)
+    return (resp.content, resp.status_code, fwd_headers)
+
+
+@app.route("/alttext/dashboard")
+@role_required(ROUTE_PERMISSIONS.get('alttext', ['ADMIN']))
+def alttext_dashboard():
+    return render_template("alttext/dashboard.html", title="Alt Text Dashboard")
+
+
+@app.route("/alttext/upload")
+@role_required(ROUTE_PERMISSIONS.get('alttext', ['ADMIN']))
+def alttext_upload():
+    return render_template("alttext/upload.html", title="Process Documents")
+
+
+@app.route("/alttext/batches")
+@role_required(ROUTE_PERMISSIONS.get('alttext', ['ADMIN']))
+def alttext_batches():
+    return render_template("alttext/batches.html", title="Batch History")
+
+
+@app.route("/alttext/batch/<int:batch_id>")
+@role_required(ROUTE_PERMISSIONS.get('alttext', ['ADMIN']))
+def alttext_batch_details(batch_id):
+    return render_template("alttext/batch_details.html", batch_id=batch_id)
+
+
+@app.route("/alttext/markup")
+@role_required(ROUTE_PERMISSIONS.get('alttext', ['ADMIN']))
+def alttext_markup():
+    return render_template("alttext/mark.html", title="Markup Tool", no_padding=True)
+
+
+@app.route("/alttext/review/<int:job_id>")
+@role_required(ROUTE_PERMISSIONS.get('alttext', ['ADMIN']))
+def alttext_review(job_id):
+    try:
+        r = _requests_lib.get(
+            f"{ALTTEXT_URL}/api/job/{job_id}/data",
+            headers=_alttext_headers(),
+            timeout=10,
+        )
+        pdf_filename = r.json().get("pdf_filename", "") if r.ok else ""
+    except Exception:
+        pdf_filename = ""
+    return render_template("alttext/review.html", job_id=job_id,
+                           pdf_filename=pdf_filename, no_padding=True)
+
+
+@app.route("/alttext/downloads")
+@role_required(ROUTE_PERMISSIONS.get('alttext', ['ADMIN']))
+def alttext_downloads():
+    try:
+        r = _requests_lib.get(
+            f"{ALTTEXT_URL}/api/output-files",
+            headers=_alttext_headers(),
+            timeout=10,
+        )
+        files = r.json().get("files", []) if r.ok else []
+    except Exception:
+        files = []
+    return render_template("alttext/download.html", title="Generated Outputs", files=files)
+
 
 # -----------------------
 # Main Execution

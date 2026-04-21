@@ -380,20 +380,26 @@
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
                 </a>
-                <details class="nav-group">
+                <details class="nav-group" {% if request.endpoint and request.endpoint.startswith('alttext_') %}open{% endif %}>
                     <summary>
                         <i class="fas fa-image"></i> Alt Text Generator
                         <i class="fas fa-chevron-down nav-group-arrow"></i>
                     </summary>
                     <div class="nav-group-items">
-                        <a href="/alttext/markup" target="_blank" class="nav-link">
+                        <a href="{{ url_for('alttext_dashboard') }}" class="nav-link {% if request.endpoint == 'alttext_dashboard' %}active{% endif %}">
+                            <i class="fas fa-tachometer-alt"></i> Dashboard
+                        </a>
+                        <a href="{{ url_for('alttext_markup') }}" class="nav-link {% if request.endpoint == 'alttext_markup' %}active{% endif %}">
                             <i class="fas fa-draw-polygon"></i> Markup Tool
                         </a>
-                        <a href="/alttext/batches" target="_blank" class="nav-link">
+                        <a href="{{ url_for('alttext_batches') }}" class="nav-link {% if request.endpoint in ['alttext_batches', 'alttext_batch_details'] %}active{% endif %}">
                             <i class="fas fa-layer-group"></i> Batches
                         </a>
-                        <a href="/alttext/upload" target="_blank" class="nav-link">
+                        <a href="{{ url_for('alttext_upload') }}" class="nav-link {% if request.endpoint == 'alttext_upload' %}active{% endif %}">
                             <i class="fas fa-file-upload"></i> Submit Batch
+                        </a>
+                        <a href="{{ url_for('alttext_downloads') }}" class="nav-link {% if request.endpoint == 'alttext_downloads' %}active{% endif %}">
+                            <i class="fas fa-download"></i> Downloads
                         </a>
                     </div>
                 </details>
@@ -491,20 +497,26 @@
                     class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
                     <i class="fas fa-file-code"></i> Word to XML
                 </a>
-                <details class="nav-group">
+                <details class="nav-group" {% if request.endpoint and request.endpoint.startswith('alttext_') %}open{% endif %}>
                     <summary>
                         <i class="fas fa-image"></i> Alt Text Generator
                         <i class="fas fa-chevron-down nav-group-arrow"></i>
                     </summary>
                     <div class="nav-group-items">
-                        <a href="/alttext/markup" target="_blank" class="nav-link">
+                        <a href="{{ url_for('alttext_dashboard') }}" class="nav-link {% if request.endpoint == 'alttext_dashboard' %}active{% endif %}">
+                            <i class="fas fa-tachometer-alt"></i> Dashboard
+                        </a>
+                        <a href="{{ url_for('alttext_markup') }}" class="nav-link {% if request.endpoint == 'alttext_markup' %}active{% endif %}">
                             <i class="fas fa-draw-polygon"></i> Markup Tool
                         </a>
-                        <a href="/alttext/batches" target="_blank" class="nav-link">
+                        <a href="{{ url_for('alttext_batches') }}" class="nav-link {% if request.endpoint in ['alttext_batches', 'alttext_batch_details'] %}active{% endif %}">
                             <i class="fas fa-layer-group"></i> Batches
                         </a>
-                        <a href="/alttext/upload" target="_blank" class="nav-link">
+                        <a href="{{ url_for('alttext_upload') }}" class="nav-link {% if request.endpoint == 'alttext_upload' %}active{% endif %}">
                             <i class="fas fa-file-upload"></i> Submit Batch
+                        </a>
+                        <a href="{{ url_for('alttext_downloads') }}" class="nav-link {% if request.endpoint == 'alttext_downloads' %}active{% endif %}">
+                            <i class="fas fa-download"></i> Downloads
                         </a>
                     </div>
                 </details>

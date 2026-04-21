@@ -14,6 +14,8 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-hub_secure_pass}
       - DB_HOST=postgres
       - DB_PORT=5432
+      - ALTTEXT_URL=http://alttext_app:5000
+      - ALTTEXT_SERVICE_TOKEN=${ALTTEXT_SERVICE_TOKEN}
       # If you switch app_server.py to use Postgres later, these env vars are ready
     volumes:
       # Mount source code for hot-reloading/updates without rebuild
