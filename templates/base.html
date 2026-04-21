@@ -478,25 +478,6 @@
                     class="nav-link {% if request.endpoint == 'doi_finder' %}active{% endif %}">
                     <i class="fas fa-link"></i> DOI Validation
                 </a>
-                {% endif %}
-
-                <a href="{{ url_for('batch_queue_view') }}"
-                    class="nav-link {% if request.endpoint == 'batch_queue_view' %}active{% endif %}">
-                    <i class="fas fa-layer-group"></i> Job Queue
-                </a>
-                <a href="{{ url_for('file_history') }}"
-                    class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
-                    <i class="fas fa-history"></i> History
-                </a>
-                {% if current_role in ['ADMIN'] %}
-                <a href="{{ url_for('credit_extractor') }}"
-                    class="nav-link {% if request.endpoint == 'credit_extractor' %}active{% endif %}">
-                    <i class="fas fa-file-contract"></i> Credit Extractor
-                </a>
-                <a href="{{ url_for('word_to_xml') }}"
-                    class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
-                    <i class="fas fa-file-code"></i> Word to XML
-                </a>
                 <details class="nav-group" {% if request.endpoint and request.endpoint.startswith('alttext_') %}open{% endif %}>
                     <summary>
                         <i class="fas fa-image"></i> Alt Text Generator
@@ -520,6 +501,25 @@
                         </a>
                     </div>
                 </details>
+                {% endif %}
+
+                <a href="{{ url_for('batch_queue_view') }}"
+                    class="nav-link {% if request.endpoint == 'batch_queue_view' %}active{% endif %}">
+                    <i class="fas fa-layer-group"></i> Job Queue
+                </a>
+                <a href="{{ url_for('file_history') }}"
+                    class="nav-link {% if request.endpoint == 'file_history' %}active{% endif %}">
+                    <i class="fas fa-history"></i> History
+                </a>
+                {% if current_role in ['ADMIN'] %}
+                <a href="{{ url_for('credit_extractor') }}"
+                    class="nav-link {% if request.endpoint == 'credit_extractor' %}active{% endif %}">
+                    <i class="fas fa-file-contract"></i> Credit Extractor
+                </a>
+                <a href="{{ url_for('word_to_xml') }}"
+                    class="nav-link {% if request.endpoint == 'word_to_xml' %}active{% endif %}">
+                    <i class="fas fa-file-code"></i> Word to XML
+                </a>
                 {% endif %}
 
                 {% else %}
