@@ -31,7 +31,7 @@ logger.addHandler(logging.NullHandler())
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "gemini-2.5-pro"
+DEFAULT_MODEL = "gemini-2.0-flash"
 _MAX_RETRIES = 5
 _RETRY_BASE_DELAY = 5.0  # seconds
 
@@ -41,8 +41,9 @@ _RETRY_BASE_DELAY = 5.0  # seconds
 # ─────────────────────────────────────────────
 
 class CitationStyle(str, Enum):
-    AMA = "AMA"
-    APA = "APA"
+    AMA  = "AMA"
+    APA  = "APA"
+    CGRN = "CGRN"
 
 
 class ReferenceType(str, Enum):
@@ -55,6 +56,8 @@ class ReferenceType(str, Enum):
     CONFERENCE   = "conference"
     THESIS       = "thesis"
     REPORT       = "report"
+    PATENT       = "patent"
+    LEGAL        = "legal"
     UNKNOWN      = "unknown"
 
 
@@ -95,6 +98,8 @@ BIB_FIELDS: List[str] = [
     "bib_isbn",
     "bib_issn",
     "bib_pmid",
+    "bib_assignee",
+    "bib_comment",
 ]
 
 
@@ -172,6 +177,8 @@ FORMAT (standard):         Surname FM, Surname FM. Title of article. Journal Abb
 FORMAT (article number):   Surname FM. Title of article. Journal Abbrev. Year;Volume(Issue):e13284. doi:XXXXX
 FORMAT (online ahead):     Surname FM. Title of article. Journal Abbrev. Published online Month Day, Year. doi:XXXXX
 FORMAT (no DOI, URL only): Surname FM. Title of article. Journal Abbrev. Year;Volume(Issue):fpage-lpage. https://URL
+FORMAT (supplement issue): Surname FM. Title of article. Journal Abbrev. Year;Volume(Suppl N):fpage-lpage. doi:XXXXX
+FORMAT (letter/editorial): Surname FM. Title [letter/editorial/commentary]. Journal Abbrev. Year;Volume(Issue):fpage-lpage.
 RULES:
 - AUTHORS: Last name followed by space then initials with NO periods or spaces between initials
   (e.g. Smith JA, Jones BC). Comma-space between authors.
@@ -204,6 +211,11 @@ RULES:
   NEVER output both. If neither exists, end reference with a period.
 - RETRACTED PAPERS: If the source indicates the paper is retracted, append "[Retracted]" after the
   article title (before the period). Example: "Smith JA. Title [Retracted]. Journal. 2020;12(3):45."
+- SUPPLEMENT ISSUE: Replace the normal issue parenthetical with "(Suppl N)" — e.g. Year;110(Suppl 1):S45-S50.
+  Store the supplement designator (e.g. "Suppl 1") verbatim in bib_issue.
+- LETTER/EDITORIAL/COMMENTARY: Article-type label in square brackets immediately after the title
+  (before the period), all lowercase. Allowed labels: [letter], [editorial], [commentary].
+  Example: "Davis L. Response to new guidelines [letter]. BMJ. 2021;372:n123."
 - Strip any non-breaking spaces (U+00A0) silently — never output a dot in their place.
 - COMPLETENESS: Output the FULL reference. Never truncate, omit, or paraphrase any element.
 """,
@@ -212,6 +224,8 @@ FORMAT (with edition):    Surname FM, Surname FM. Title of book. Xth ed. Publish
 FORMAT (1st/only edition): Surname FM, Surname FM. Title of book. Publisher; Year.
 FORMAT (with DOI/URL):    Surname FM. Title of book. Publisher; Year. doi:XXXXX
 FORMAT (org author):      Organisation Name. Title of book. Publisher; Year.
+FORMAT (translated):      Surname FM. Title of book. Translator FM, trans. Publisher; Year.
+FORMAT (with volume):     Surname FM. Title of book. Vol N. Publisher; Year.
 RULES:
 - AUTHORS: Retain every initial. Same format rules as journal (no periods in initials).
   Up to 6 authors; 7+ → first 6 + ", et al."
@@ -226,6 +240,11 @@ RULES:
 - End with period after year, UNLESS a DOI/URL follows (no period before doi: or URL).
 - DOI: include if available. Prefix "doi:". No period after.
   URL: include if no DOI. No period after URL.
+- TRANSLATED BOOK: Translator name(s) in same initials format as authors, followed by ", trans."
+  placed after the book title and before the publisher.
+  Example: "Freud S. The interpretation of dreams. Strachey J, trans. Basic Books; 2010."
+- VOLUME NUMBER: "Vol N." placed after book title, before publisher.
+  Example: "Smith J. Encyclopedia of biology. Vol 2. Academic Press; 2015."
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -315,13 +334,19 @@ RULES:
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
     ReferenceType.CONFERENCE: """
-FORMAT (paper presentation):  Author FM. Title of paper. Paper presented at: Full Conference Name; Month Day–Day, Year; City, Country.
+FORMAT (paper presentation):   Author FM. Title of paper. Paper presented at: Full Conference Name; Month Day–Day, Year; City, Country.
 FORMAT (poster presentation):  Author FM. Title of poster. Poster presented at: Full Conference Name; Month Day–Day, Year; City, Country.
-FORMAT (published proceedings, single ed):  Author FM. Chapter/paper title. In: Editor FM, ed. Proceedings Title. Publisher; Year:fpage-lpage.
+FORMAT (abstract/poster):      Author FM. Title [abstract/poster]. Presented at: Full Conference Name; Month Day–Day, Year; City, Country.
+FORMAT (published proceedings, single ed):   Author FM. Chapter/paper title. In: Editor FM, ed. Proceedings Title. Publisher; Year:fpage-lpage.
 FORMAT (published proceedings, multiple eds): Author FM. Chapter/paper title. In: Editor FM, Editor FM, eds. Proceedings Title. Publisher; Year:fpage-lpage.
+FORMAT (proceedings online URL): Author FM. Title of paper. In: Editor FM, ed. Proceedings Title. Publisher; Year. Accessed Month Day, Year. URL
 RULES:
-- PRESENTATION TYPE: Use "Paper presented at:" for oral presentations;
-  "Poster presented at:" for poster presentations.
+- PRESENTATION TYPE: Use "Paper presented at:" for oral/paper presentations;
+  "Poster presented at:" for poster presentations;
+  "Presented at:" for abstracts or when type is unspecified (use with [abstract] or [poster] label).
+- ABSTRACT/POSTER LABEL: When an abstract or poster is identified, append [abstract] or [poster]
+  in square brackets immediately after the title, before the period.
+  Example: "Iyer S. COVID-19 vaccine response [poster]. Presented at: IMA Conference; January 2022; Chennai, India."
 - DATE: Month Day–Day, Year (en dash between days). Place after conference name, separated by semicolon.
 - LOCATION: City, State/Country. Place after date, separated by semicolon.
 - End with period after location.
@@ -344,16 +369,23 @@ FORMAT (doctoral, with URL):     Author FM. Title of thesis [doctoral dissertati
 FORMAT (master's, with URL):     Author FM. Title of thesis [master's thesis]. University Name; Year. Accessed Month Day, Year. URL
 FORMAT (doctoral, no URL):       Author FM. Title of thesis [doctoral dissertation]. University Name; Year.
 FORMAT (master's, no URL):       Author FM. Title of thesis [master's thesis]. University Name; Year.
+FORMAT (with DOI):               Author FM. Title of thesis [doctoral dissertation]. University Name; Year. doi:XXXXX
+FORMAT (from database):          Author FM. Title of thesis [doctoral dissertation]. University Name; Year. Database Name.
+FORMAT (unpublished):            Author FM. Title of thesis [master's thesis]. University Name; Year. Unpublished.
+FORMAT (undergraduate):          Author FM. Title of thesis [undergraduate thesis]. University Name; Year.
 RULES:
 - TITLE: sentence case, italicise if possible.
 - DEGREE TYPE in brackets immediately after title (no comma before bracket):
   Use [doctoral dissertation] for PhD/doctoral work.
   Use [master's thesis] for master's-level work.
+  Use [undergraduate thesis] for undergraduate-level work.
   Use the exact degree label if specified in the source.
 - UNIVERSITY: treat as publisher (replaces publisher field).
 - YEAR: placed after university, preceded by semicolon: University; Year.
-- If available online: add "Accessed Month Day, Year. URL" after year.
-  No period after URL.
+- If available online: add "Accessed Month Day, Year. URL" after year.  No period after URL.
+- DATABASE: If retrieved from a database (e.g. ProQuest Dissertations & Theses Global),
+  add the database name after the year. Example: "University; Year. ProQuest Dissertations & Theses Global."
+- UNPUBLISHED: If not publicly accessible, append "Unpublished." after year.
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -362,6 +394,9 @@ FORMAT (with report number, DOI):  Author FM. Title of report. Institution Name;
 FORMAT (with report number, URL):  Author FM. Title of report. Institution Name; Year. Report No. XXXX. URL
 FORMAT (no report number):         Author FM. Title of report. Institution Name; Year. doi:XXXXX
 FORMAT (org author):               Organisation Name. Title of report. Institution Name; Year. Report No. XXXX.
+FORMAT (government):               Government Agency. Title of report. Publisher; Year.
+FORMAT (corporate):                Company Name. Title of report. Company/Publisher; Year.
+FORMAT (unpublished/internal):     Author FM. Title of report. Institution Name; Year. Unpublished.
 RULES:
 - TITLE: sentence case, italicise if possible.
 - AUTHORS: same format as journal. If organisation is the author, use organisation name directly.
@@ -371,6 +406,35 @@ RULES:
   If no report number, omit entirely.
 - DOI: prefix "doi:" after report number (or after year if no report number). No period after.
 - URL: include if no DOI. No period after URL.
+- UNPUBLISHED/INTERNAL: append "Unpublished." after year if not publicly accessible.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.PATENT: """
+FORMAT (issued patent):      Inventor FM. Title of invention. Country patent XXXXXXX. Issued Month Day, Year.
+FORMAT (patent application): Inventor FM. Title of invention. Country patent application XXXXXXX. Published Month Day, Year.
+FORMAT (WIPO/PCT):           Inventor FM. Title of invention. WIPO patent WOXXXX/XXXXXX. Published Month Day, Year.
+FORMAT (European):           Inventor FM. Title of invention. European patent EPXXXXXXX. Issued Month Day, Year.
+FORMAT (with assignee):      Inventor FM; Assignee Name. Title of invention. Country patent XXXXXXX. Issued Month Day, Year.
+FORMAT (online, URL):        Inventor FM. Title of invention. Country patent XXXXXXX. Issued Month Day, Year. Accessed Month Day, Year. URL
+FORMAT (with DOI):           Inventor FM. Title of invention. Patent number. Published Month Day, Year. doi:XXXXX
+RULES:
+- INVENTORS: Last name followed by initials with NO periods between initials (same as journal authors).
+  Comma-space between inventors. Semicolon separates inventor(s) from assignee company.
+  bib_surname/bib_fname → inventors; bib_assignee → assignee company name.
+- TITLE: sentence case. No italics.
+- PATENT DESIGNATION (bib_reportnum): The full patent identifier, including country/office prefix and number.
+  Examples: "US patent 10,123,456" | "US patent application 2021/0123456" |
+            "WIPO patent WO2022/098765" | "European patent EP3456789" | "Indian patent 2020112345"
+  For applications: use "Country patent application XXXXXXX".
+  For WIPO: use "WIPO patent WOXXXX/XXXXXX".
+  For European: use "European patent EPXXXXXXX".
+- ISSUED/PUBLISHED DATE: Full date written out — "Issued Month Day, Year." or "Published Month Day, Year."
+  Not semicolon-year style. bib_year = year only (e.g. "2020").
+- ASSIGNEE (company): appears after inventors, separated by semicolon. bib_assignee = company name.
+  Example: "Rao V; Infosys. Blockchain-based healthcare system. Indian patent 2020112345. Issued August 12, 2023."
+- ACCESS DATE + URL: if accessed online, add "Accessed Month Day, Year. URL" after issued/published date. No period after URL.
+- DOI: if present, prefix "doi:". No period after.
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -653,6 +717,229 @@ RULES:
 - Strip non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
+    ReferenceType.LEGAL: """
+FORMAT (court case):              Case Name, Volume Reporter Page (Court Year).
+FORMAT (Indian court case):       Case Name, (Year) Volume Reporter Page.
+FORMAT (statute/act, US):         Name of Act, Source § section (Year).
+FORMAT (statute/act, India):      Name of Act, Year.
+FORMAT (constitution, US):        U.S. Const. art. X, § X.
+FORMAT (constitution, India):     India Const. art. X.
+FORMAT (bill):                    Title of Bill, H.R./S. Number, Congress (Year).
+FORMAT (regulation):              Title or number, Source § section (Year).
+FORMAT (legal report/govt doc):   Agency Name. (Year). *Title of report*. URL
+FORMAT (court decision + URL):    Case Name, Volume Reporter Page (Court Year). URL
+RULES:
+- CRITICAL: Legal references do NOT follow the standard Author (Year) format. They use
+  jurisdiction-specific citation conventions as shown in the formats above.
+- CASE NAME: italicised in APA (e.g. *Brown v. Board of Education*). bib_title = case/statute/bill name.
+- REPORTER: Standard abbreviation for the law reporter (e.g. "U.S.", "SCC", "F.2d"). bib_journal = reporter.
+- VOLUME: numeric volume or title number. bib_volume = volume.
+- PAGE: starting page of the decision/statute. bib_fpage = page or section number.
+- COURT: abbreviation or full name of the court. bib_institution = court or legislative body.
+- YEAR: year in parentheses at end of citation (court year). bib_year = year.
+- SECTION (§): retain the section symbol (§) and number verbatim. Store in bib_fpage.
+- URL: for online decisions or government legal documents, append URL after the citation. bib_url = URL.
+- GOVERNMENT LEGAL REPORTS: use standard APA report format — Agency. (Year). *Title*. URL.
+- No period after URL.
+- Strip non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+}
+
+
+# ─────────────────────────────────────────────
+# CGRN RULES  (Chicago Author-Date, 17th ed.)
+# ─────────────────────────────────────────────
+
+CGRN_RULES: Dict[str, str] = {
+    ReferenceType.JOURNAL: """
+FORMAT (standard):         Surname, Firstname M., and Firstname M. Surname. Year. "Article Title." *Journal Name* Vol (Issue): fpage–lpage. https://doi.org/XXXXX
+FORMAT (supplement issue): Surname, Firstname M. Year. "Article Title." *Journal Name* Vol (suppl. N): fpage–lpage. https://doi.org/XXXXX
+FORMAT (abbreviated name): Surname, Firstname M. Year. "Article Title." ABBREV—*Full Journal Name* Vol (Issue): fpage–lpage. https://doi.org/XXXXX
+FORMAT (no DOI, URL):      Surname, Firstname M. Year. "Article Title." *Journal Name* Vol (Issue): fpage–lpage. URL
+FORMAT (no DOI, no URL):   Surname, Firstname M. Year. "Article Title." *Journal Name* Vol (Issue): fpage–lpage.
+RULES:
+- AUTHORS: First author inverted — Lastname, Firstname M. Subsequent authors in normal order
+  (Firstname M. Lastname). Joined with ", and" before the last author if two; commas between
+  multiple, with "and" before the final one.
+  Suffixes (Jr., Sr., II) appended directly after name: e.g. "Thomas A. Callister Jr."
+  Abbreviated org author: "MOE (Ministry of Education)." — abbreviation first, full form in parentheses.
+  For many authors (≥ 4): first author + ", et al." is acceptable per Chicago style.
+  CRITICAL: bib_fname MUST be populated verbatim. Never collapse initials.
+- YEAR: Placed after the author block, before the title. Ends with period: "2000."
+- ARTICLE TITLE: Title Case AND enclosed in double quotation marks. Ends with period inside the
+  closing quotation mark: "Article Title."
+- JOURNAL NAME: Title Case AND italicised. Use the name exactly as in the source (abbreviated
+  form or full name). Do NOT normalise to NLM abbreviations.
+  If the source gives both an abbreviation and full name separated by "—" or "–", retain both:
+  "JIPP—*Jurnal Ilmiah Profesi Pendidikan*"
+- VOLUME + ISSUE: Vol (Issue) — space before opening parenthesis.
+  Supplement: (suppl. N) — lowercase "suppl." with period.
+  No issue → omit parentheses.
+- PAGE RANGE: colon and space after closing parenthesis: Vol (Issue): fpage–lpage.
+  En dash (–) between fpage and lpage. No "pp." prefix.
+  Ends with period.
+- DOI as full URL: https://doi.org/XXXXX. Ends with period.
+  If no DOI but URL exists, use URL. If neither, end after page range.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.BOOK: """
+FORMAT (standard):      Surname, Firstname. Year. *Book Title*. Publisher.
+FORMAT (with edition):  Surname, Firstname. Year. *Book Title*. Nth ed. Publisher.
+FORMAT (translated):    Surname, Firstname. Year. *Book Title*. Translated by Firstname Surname. Publisher.
+FORMAT (org author):    Organisation Name. Year. *Book Title*. Publisher.
+FORMAT (online):        Organisation Name. Year. *Book Title*. Publisher. URL.
+RULES:
+- AUTHORS: Same inverted format as journal. "and" before last author.
+  Org author used as-is.
+- YEAR: After author block, before title. Ends with period.
+- BOOK TITLE: Title Case AND italicised. Subtitle separated by colon: *Title: Subtitle*.
+- EDITION: "Nth ed." placed after title, before publisher. e.g. "1st ed." "2nd ed."
+  Include edition for ALL editions (including 1st) when stated in source.
+- TRANSLATED: "Translated by Firstname Surname." placed after title/edition, before publisher.
+  If both translated and edited: "Translated and edited by Firstname Surname."
+- PUBLISHER: Retain publisher name. Strip corporate suffixes: "Inc.", "Ltd.", "Co.", "Corp.",
+  "GmbH", "LLC". City NOT required.
+  CRITICAL: No DOI and no web link for pure book references (no online URL unless the source
+  is explicitly an online-only publication). Exception: online reports/institutional documents
+  may include a URL.
+- End with period after publisher (or after URL if included).
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.EDITED_BOOK: """
+FORMAT (single editor):   Surname, Firstname, ed. Year. *Book Title*. Publisher.
+FORMAT (multiple editors): Surname, Firstname, and Firstname Surname, eds. Year. *Book Title*. Publisher.
+FORMAT (with edition):    Surname, Firstname, ed. Year. *Book Title*. Nth ed. Publisher.
+RULES:
+- EDITOR LABEL: ", ed." for single editor; ", eds." for multiple editors — placed after the last
+  editor name, before the year. CRITICAL: Never use "ed." for multiple editors.
+- EDITOR NAMES: first editor inverted (Lastname, Firstname), additional editors normal order.
+  "and" before last editor when 2+. Comma between multiple editors.
+- YEAR: After editor block and label, before title. Ends with period.
+- BOOK TITLE: Title Case AND italicised.
+- EDITION: "Nth ed." after title, before publisher.
+- PUBLISHER: same rules as book (strip Inc./Ltd./Co.; no city; no DOI/URL for edited books).
+- End with period after publisher.
+- CRITICAL: In metadata bib_ed_surname / bib_ed_fname MUST be populated; bib_surname / bib_fname = null.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.BOOK_CHAPTER: """
+FORMAT (single editor):    Surname, Firstname. Year. "Chapter Title." In *Book Title*, edited by Firstname Surname, fpage–lpage. Publisher.
+FORMAT (multiple editors): Surname, Firstname. Year. "Chapter Title." In *Book Title*, edited by Firstname Surname, Firstname Surname, and Firstname Surname, fpage–lpage. Publisher.
+FORMAT (with edition):     Surname, Firstname. Year. "Chapter Title." In *Book Title*, Nth ed., edited by Firstname Surname, fpage–lpage. Publisher.
+FORMAT (no page range):    Surname, Firstname. Year. "Chapter Title." In *Book Title*, edited by Firstname Surname. Publisher.
+FORMAT (with DOI):         Surname, Firstname. Year. "Chapter Title." In *Book Title*, edited by Firstname Surname, fpage–lpage. Publisher. https://doi.org/XXXXX
+RULES:
+- CHAPTER AUTHOR: inverted first author + normal subsequent authors.
+- YEAR: after author block, before title.
+- CHAPTER TITLE: Title Case in double quotation marks. Ends with period inside closing quote.
+- "In" (capital I, no colon) introduces the book block.
+- BOOK TITLE: Title Case AND italicised.
+- EDITION: "Nth ed.," placed after book title, before "edited by" clause.
+- "edited by" (lowercase): comma after book title/edition, then "edited by Firstname Surname".
+  Two editors: "edited by F. N. Editor and F. N. Editor"
+  Three+: "edited by F. N. Editor, F. N. Editor, and F. N. Editor"
+  Editor initials in Chicago style appear in normal order (Firstname Surname, NOT inverted).
+- PAGE RANGE: en dash (–). Placed after editor(s), before publisher: ", fpage–lpage."
+  If no page range, omit. No "pp." prefix in CGRN.
+- PUBLISHER: strip Inc./Ltd./Co.; no city.
+- DOI or URL: include if available, after publisher. Ends with period.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.WEBSITE: """
+FORMAT (with author, date):  Surname, Firstname. Year. "Page Title." Website Name. Accessed Month Day, Year. URL.
+FORMAT (org author):         Organisation Name. Year. "Page Title." Website Name. Accessed Month Day, Year. URL.
+FORMAT (no author, no date): "Page Title." n.d. Organisation Name. Accessed Month Day, Year. URL.
+FORMAT (no author, date):    "Page Title." Year. Website Name. Accessed Month Day, Year. URL.
+RULES:
+- PAGE TITLE: Title Case in double quotation marks if it has a distinct title.
+  If no discrete title, use the page/document description.
+- No author → title moves to first position.
+- No date → "n.d." in place of year.
+- ORGANISATION/WEBSITE NAME: Title Case, not italicised. Placed after title.
+- ACCESS DATE: "Accessed Month Day, Year." before the URL.
+- URL: full URL. Ends with period.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.EREFERENCE: """
+FORMAT (with editor):  Surname, Firstname. Year. "Entry Title." In *Reference Title*, edited by Firstname Surname. Publisher. Accessed Month Day, Year. URL.
+FORMAT (no editor):    Surname, Firstname. Year. "Entry Title." In *Reference Title*. Publisher. Accessed Month Day, Year. URL.
+FORMAT (no date):      Surname, Firstname. n.d. "Entry Title." In *Reference Title*. Publisher. Accessed Month Day, Year. URL.
+RULES:
+- ENTRY TITLE: Title Case in double quotation marks.
+- REFERENCE/DATABASE TITLE: Title Case AND italicised.
+- "edited by" (lowercase) with editor in normal order (not inverted).
+- ACCESS DATE: Always include "Accessed Month Day, Year." before URL.
+- URL: ends with period.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.CONFERENCE: """
+FORMAT (paper, presented):   Surname, Firstname. Year. "Paper Title." Presented at Conference Name, Location, Month Day–Day, Year. Publisher. https://doi.org/XXXXX
+FORMAT (published proceedings, single ed):  Surname, Firstname. Year. "Paper Title." In *Proceedings Title*, edited by Firstname Surname, fpage–lpage. Publisher. https://doi.org/XXXXX
+FORMAT (published proceedings, multiple eds): Surname, Firstname. Year. "Paper Title." In *Proceedings Title*, edited by F. N. Editor, F. N. Editor, and F. N. Editor. Publisher. https://doi.org/XXXXX
+FORMAT (poster/abstract):    Surname, Firstname. Year. "Title." Presented at Conference Name, Location, Month Day–Day, Year.
+RULES:
+- PAPER TITLE: Title Case in double quotation marks.
+- "Presented at" introduces conference name, location, and date.
+  Format: "Presented at the [Full Conference Name], [City, Country], [Month Day–Day, Year]."
+  Retain full conference name including acronym if given in source.
+- PUBLISHER (proceedings): listed after date, before DOI.
+- PUBLISHED PROCEEDINGS: use book-chapter rules — "In *Proceedings Title*, edited by ..."
+  Editor names in normal order (not inverted).
+- DOI as full URL. Ends with period.
+- CRITICAL FIELD MAPPING:
+  bib_title = paper/poster title; bib_conference = full conference name;
+  bib_confdate = date range; bib_conflocation = city and country.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.THESIS: """
+FORMAT (PhD dissertation):       Surname, Firstname. Year. "Title." PhD diss., University Name.
+FORMAT (master's thesis):        Surname, Firstname. Year. "Title." Master's thesis, University Name.
+FORMAT (PhD, online):            Surname, Firstname. Year. "Title." PhD diss., University Name. URL.
+FORMAT (undergraduate thesis):   Surname, Firstname. Year. "Title." Undergraduate thesis, University Name.
+RULES:
+- TITLE: Title Case in double quotation marks.
+- DEGREE LABEL: "PhD diss.," or "Master's thesis," or "Undergraduate thesis," — comma after label.
+- UNIVERSITY: full name. End with period.
+- URL: if available online, append URL after period. Ends with period.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.REPORT: """
+FORMAT (org author, URL):      Organisation Name. Year. *Report Title*. Publisher. URL.
+FORMAT (org author, no URL):   Organisation Name. Year. *Report Title*. Publisher.
+FORMAT (govt, with number):    Government Agency. Year. *Report Title*. Report No. XXXX. Publisher.
+FORMAT (individual author):    Surname, Firstname. Year. *Report Title*. Publisher. URL.
+RULES:
+- REPORT TITLE: Title Case AND italicised.
+- AUTHORS / ORG: same name rules as book.
+- PUBLISHER: retain full name; strip Inc./Ltd./Co.
+- REPORT NUMBER: "Report No. XXXX." placed after title, before publisher/URL.
+- URL: full URL, ends with period.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
+    ReferenceType.PATENT: """
+FORMAT (standard): Inventor, Firstname. Year. "Title of Invention." Country Patent XXXXXXX. Issued Month Day, Year.
+FORMAT (with assignee): Inventor, Firstname; Assignee Name. Year. "Title." Country Patent XXXXXXX. Issued Month Day, Year.
+FORMAT (online): Inventor, Firstname. Year. "Title." Country Patent XXXXXXX. Issued Month Day, Year. Accessed Month Day, Year. URL.
+RULES:
+- Inventor name inverted (first inventor), normal order for subsequent inventors.
+- Patent number written as: "Country Patent XXXXXXX" (Title Case).
+- TITLE: Title Case in quotation marks.
+- Issued date written in full.
+- Assignee: separated from inventor by semicolon.
+- bib_reportnum = full patent designation; bib_assignee = assignee company.
+- Strip any non-breaking spaces (U+00A0) silently.
+- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+""",
 }
 
 
@@ -661,10 +948,16 @@ RULES:
 # ─────────────────────────────────────────────
 
 CONVERSION_MAP: Dict[Tuple[CitationStyle, CitationStyle], Tuple[str, str]] = {
-    (CitationStyle.AMA, CitationStyle.APA): ("AMA 11th Edition", "APA 7th Edition"),
-    (CitationStyle.APA, CitationStyle.AMA): ("APA 7th Edition", "AMA 11th Edition"),
-    (CitationStyle.APA, CitationStyle.APA): ("APA 7th Edition", "APA 7th Edition (Strict Formatting Validation)"),
-    (CitationStyle.AMA, CitationStyle.AMA): ("AMA 11th Edition", "AMA 11th Edition (Strict Formatting Validation)"),
+    (CitationStyle.AMA,  CitationStyle.APA):  ("AMA 11th Edition",        "APA 7th Edition"),
+    (CitationStyle.APA,  CitationStyle.AMA):  ("APA 7th Edition",         "AMA 11th Edition"),
+    (CitationStyle.APA,  CitationStyle.APA):  ("APA 7th Edition",         "APA 7th Edition (Strict Formatting Validation)"),
+    (CitationStyle.AMA,  CitationStyle.AMA):  ("AMA 11th Edition",        "AMA 11th Edition (Strict Formatting Validation)"),
+    # CGRN (Chicago Author-Date) conversions
+    (CitationStyle.AMA,  CitationStyle.CGRN): ("AMA 11th Edition",        "CGRN Chicago Author-Date"),
+    (CitationStyle.APA,  CitationStyle.CGRN): ("APA 7th Edition",         "CGRN Chicago Author-Date"),
+    (CitationStyle.CGRN, CitationStyle.AMA):  ("CGRN Chicago Author-Date","AMA 11th Edition"),
+    (CitationStyle.CGRN, CitationStyle.APA):  ("CGRN Chicago Author-Date","APA 7th Edition"),
+    (CitationStyle.CGRN, CitationStyle.CGRN): ("CGRN Chicago Author-Date","CGRN Chicago Author-Date (Strict Formatting Validation)"),
 }
 
 
@@ -675,7 +968,12 @@ def _build_prompt(
     cr_item: Optional[Dict[str, Any]] = None,
 ) -> str:
     source_label, target_label = CONVERSION_MAP[(source_style, target_style)]
-    rules_map = APA_RULES if target_style == CitationStyle.APA else AMA_RULES
+    if target_style == CitationStyle.APA:
+        rules_map = APA_RULES
+    elif target_style == CitationStyle.CGRN:
+        rules_map = CGRN_RULES
+    else:
+        rules_map = AMA_RULES
     rules_block = "\n".join(
         f"### {ref_type.upper()}\n{rules}"
         for ref_type, rules in rules_map.items()
@@ -701,13 +999,13 @@ with the database title unless the input title is completely absent.
     return f"""You are a professional bibliographic reference conversion expert specialising in {source_label} to {target_label} conversion.
 
 ## YOUR TASK
-1. Detect the reference type (journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report).
+1. Detect the reference type (journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report, patent, legal).
 2. Extract ALL available metadata into the bib_ fields. If database match metadata is provided below, incorporate it completely to fix/complete the reference (add DOIs, fix capitals, expand abbreviations).
 3. Reformat the reference strictly according to {target_label} rules for the detected type.
 4. Note any missing data, assumptions made, or issues in "conversion_notes".
 
 ## STRICT EXTRACTION RULES
-- bib_reftype: one of: journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report, unknown
+- bib_reftype: one of: journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report, patent, legal, unknown
   BOOK vs EDITED_BOOK: classify as edited_book ONLY when editor markers ("Ed.", "Eds.", "ed.",
   "eds.", "edited by") are present AND no separate author appears before the title.
   If both author + editor present → book_chapter. Authors only, no editor markers → book.
@@ -722,6 +1020,15 @@ with the database title unless the input title is completely absent.
       (e.g. Wikipedia entry, WHO web page, blog post, news article). Classify as website ONLY
       when the source is clearly a web page, NOT a book or formal institutional document.
       CRITICAL: "Publisher: Author" or publisher name = org author name → book or report, NOT website.
+    PATENT: Source describes an invention with a patent or patent application number issued by a
+      national patent office (USPTO, EPO, WIPO, IPO, etc.). Classify as patent regardless of URL.
+      bib_reportnum = full patent designation; bib_assignee = assignee company (if any);
+      bib_surname/bib_fname = inventors; bib_title = title of invention.
+    LEGAL: Source is a court case citation, statute/act, regulation, constitutional provision, or
+      bill/proposed law. Does NOT follow Author–Year format.
+      bib_title = case/statute/bill name; bib_journal = reporter abbreviation;
+      bib_volume = volume/title number; bib_fpage = page or section number;
+      bib_institution = court or legislative body; bib_year = year.
 - bib_surname / bib_fname: ALL authors in order, pipe-separated (|) if multiple.
   e.g. "Smith|Jones|Lee" / "John A|Mary B|Chris"
   CRITICAL: bib_fname MUST be populated verbatim from source. Never delete, suppress, or collapse initials.
@@ -759,6 +1066,8 @@ with the database title unless the input title is completely absent.
 - bib_url: full URL only, no trailing period
 - bib_editionno: number only (e.g., "2", "3")
 - bib_deg: full degree name (e.g., "Doctoral dissertation", "Master's thesis")
+- bib_assignee: for patent refs only — the company/organisation holding the patent. Null for all other types.
+- bib_comment: always return null — this field is populated externally by the validation layer.
 - All other string fields: extract verbatim from source
 - Return null for any field not present in the source — NEVER fabricate data
 - COMPLETENESS: The formatted_output must be the FULL reference — never truncate, omit, abbreviate,
@@ -777,8 +1086,15 @@ Return valid JSON matching the required schema exactly.
 
 
 def _build_validation_prompt(raw_text: str, target_style: CitationStyle) -> str:
-    target_label = "APA 7th Edition" if target_style == CitationStyle.APA else "AMA 11th Edition"
-    rules_map = APA_RULES if target_style == CitationStyle.APA else AMA_RULES
+    if target_style == CitationStyle.APA:
+        target_label = "APA 7th Edition"
+        rules_map = APA_RULES
+    elif target_style == CitationStyle.CGRN:
+        target_label = "CGRN Chicago Author-Date"
+        rules_map = CGRN_RULES
+    else:
+        target_label = "AMA 11th Edition"
+        rules_map = AMA_RULES
     rules_block = "\n".join(
         f"### {ref_type.upper()}\n{rules}"
         for ref_type, rules in rules_map.items()
@@ -796,8 +1112,15 @@ Given an input reference, validate whether it perfectly adheres to {target_label
 5. Extract ALL available metadata into the bib_ fields.
 
 ## STRICT EXTRACTION RULES
-- bib_reftype: one of: journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report, unknown
-- bib_surname / bib_fname: ALL authors in order, pipe-separated (|) if multiple.
+- bib_reftype: one of: journal, book, edited_book, book_chapter, website, ereference, conference, thesis, report, patent, legal, unknown
+  PATENT: Has a patent/application number from a national patent office (USPTO, EPO, WIPO, etc.).
+    bib_reportnum = full patent designation; bib_assignee = assignee company;
+    bib_surname/bib_fname = inventors; bib_title = title of invention.
+  LEGAL: Court case, statute/act, regulation, constitutional provision, or bill. No Author–Year format.
+    bib_title = case/statute/bill name; bib_journal = reporter abbreviation;
+    bib_volume = volume/title number; bib_fpage = page or section number;
+    bib_institution = court or legislative body; bib_year = year.
+- bib_surname / bib_fname: ALL authors/inventors in order, pipe-separated (|) if multiple.
   CRITICAL: bib_fname MUST be populated verbatim from source. Never collapse initials.
   Retain generation suffixes (Jr., Sr., II, III) in bib_fname comma-separated after initials.
 - bib_ed_surname / bib_ed_fname: same pipe-separated format for editors.
@@ -810,6 +1133,8 @@ Given an input reference, validate whether it perfectly adheres to {target_label
 - bib_editionno: number only.
 - bib_deg: full degree name.
 - bib_title: for website/ereference = page/entry title only, NOT the site/database name.
+- bib_assignee: patent assignee company name only (patent refs). Null for all other types.
+- bib_comment: leave null — populated externally by the validation layer, not by this prompt.
 - Return null for any field not present — NEVER fabricate data.
 - JOURNAL NAME: NEVER append parenthetical location qualifiers unless verbatim in source.
 - TITLES: NEVER overwrite source titles with database titles unless completely absent.
@@ -978,6 +1303,7 @@ def convert_reference(
     target_style: CitationStyle,
     model_name: str = DEFAULT_MODEL,
     cr_item: Optional[Dict[str, Any]] = None,
+    validate: bool = False,
 ) -> Optional[Dict[str, Any]]:
     if not raw_text or not raw_text.strip():
         logger.error("raw_text is empty.")
@@ -1031,6 +1357,35 @@ def convert_reference(
     if parsed.get("conversion_notes"):
         logger.warning(f"Conversion notes: {parsed['conversion_notes']}")
 
+    if validate:
+        if target_style == CitationStyle.AMA:
+            style_label = "AMA"
+        elif target_style == CitationStyle.CGRN:
+            style_label = "CGRN"
+        else:
+            style_label = "APA"
+        val = validate_reference(parsed["formatted_output"], target_style, model_name)
+        if val is not None:
+            parsed["is_valid"]            = val.get("is_valid", False)
+            parsed["validation_errors"]   = val.get("validation_errors", [])
+            parsed["corrected_reference"] = val.get("corrected_reference", "")
+            errors = val.get("validation_errors") or []
+            if errors:
+                comment_text = (
+                    f"[{style_label} validation: "
+                    + "; ".join(errors)
+                    + "]"
+                )
+                parsed["metadata"]["bib_comment"] = comment_text
+                logger.warning(f"Validation issues [{ref_type}]: {comment_text}")
+            else:
+                parsed["metadata"]["bib_comment"] = None
+        else:
+            parsed["is_valid"]            = None
+            parsed["validation_errors"]   = []
+            parsed["corrected_reference"] = ""
+            logger.warning("Post-conversion validation call failed.")
+
     return parsed
 
 
@@ -1076,7 +1431,12 @@ def validate_reference(
     parsed["metadata"] = meta
 
     ref_type   = meta.get("bib_reftype", "unknown")
-    target_lbl = "APA 7th" if target_style == CitationStyle.APA else "AMA 11th"
+    if target_style == CitationStyle.APA:
+        target_lbl = "APA 7th"
+    elif target_style == CitationStyle.CGRN:
+        target_lbl = "CGRN Chicago"
+    else:
+        target_lbl = "AMA 11th"
     status     = "VALID" if parsed["is_valid"] else "INVALID"
     logger.info(f"Validated [{ref_type}] against {target_lbl}: {status}")
 
@@ -1093,6 +1453,7 @@ def convert_references_batch(
     target_style: CitationStyle,
     model_name: str = DEFAULT_MODEL,
     cr_items: Optional[List[Optional[Dict[str, Any]]]] = None,
+    validate: bool = False,
 ) -> List[Optional[Dict[str, Any]]]:
     if cr_items and len(cr_items) != len(references):
         raise ValueError(
@@ -1103,6 +1464,6 @@ def convert_references_batch(
     for i, ref in enumerate(references):
         logger.info(f"Processing reference {i + 1}/{len(references)}")
         cr = cr_items[i] if cr_items else None
-        result = convert_reference(ref, source_style, target_style, model_name, cr_item=cr)
+        result = convert_reference(ref, source_style, target_style, model_name, cr_item=cr, validate=validate)
         results.append(result)
     return results

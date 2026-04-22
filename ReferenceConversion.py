@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 import copy
 
-from gemini_ref_converter import convert_reference, CitationStyle, BIB_FIELDS
+from gemini_ref_converter import convert_reference, CitationStyle, BIB_FIELDS, CONVERSION_MAP
 
 # ─────────────────────────────────────────────
 # LOGGING
@@ -670,6 +670,77 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
                         except Exception:
                             para.add_run(chunk)
                     chunk_start = k
+
+
+def _write_cgrn_runs(para, text: str, doc=None, original_text: str = None) -> None:
+    """Write CGRN reference text preserving paragraph font/size exactly.
+
+    Only applies run.italic=True for *italic* markers — no character style
+    overrides that could change the font or size set by the paragraph style.
+    Supports track changes when the track_changes module is available.
+    """
+    if original_text is None:
+        original_text = para.text
+    _clear_paragraph_text(para)
+
+    # Parse *italic* markers; strip them and note italic spans.
+    import re as _re
+    pattern = _re.compile(r'\*\*(.+?)\*\*|\*(.+?)\*')
+    segments: List[Tuple[str, bool]] = []  # (text, is_italic)
+    last = 0
+    for m in pattern.finditer(text):
+        if m.start() > last:
+            segments.append((text[last:m.start()], False))
+        if m.group(1) is not None:
+            segments.append((m.group(1), False))   # **bold** → treat as normal (preserve para font)
+        else:
+            segments.append((m.group(2), True))    # *italic* → italic only
+        last = m.end()
+    if last < len(text):
+        segments.append((text[last:], False))
+
+    try:
+        from utils.track_changes import add_tracked_deletion, add_tracked_text
+        use_tc = True
+    except ImportError:
+        use_tc = False
+
+    if use_tc:
+        # Build plain original and new texts for diff
+        new_plain = "".join(t for t, _ in segments)
+        import difflib
+        matcher = difflib.SequenceMatcher(None, original_text, new_plain)
+        italic_map = []
+        for t, ital in segments:
+            italic_map.extend([ital] * len(t))
+
+        for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+            if opcode == 'equal':
+                chunk = new_plain[j1:j2]
+                if chunk:
+                    run = para.add_run(chunk)
+                    if any(italic_map[j1:j2]):
+                        run.italic = True
+            elif opcode == 'delete':
+                add_tracked_deletion(para, original_text[i1:i2], doc=doc, author="S4C Reference Converter")
+            elif opcode in ('insert', 'replace'):
+                if opcode == 'replace':
+                    add_tracked_deletion(para, original_text[i1:i2], doc=doc, author="S4C Reference Converter")
+                chunk = new_plain[j1:j2]
+                if chunk:
+                    try:
+                        run_obj = add_tracked_text(para, chunk, style=None, author="S4C Reference Converter", doc=doc)
+                    except Exception:
+                        run_obj = para.add_run(chunk)
+                    if hasattr(run_obj, 'italic') and any(italic_map[j1:j2]):
+                        run_obj.italic = True
+    else:
+        for seg_text, is_italic in segments:
+            if not seg_text:
+                continue
+            run = para.add_run(seg_text)
+            if is_italic:
+                run.italic = True
 
 
 def _set_paragraph_text(para, text: str, doc=None, original_text: str = None, is_conversion: bool = False) -> None:
@@ -1563,7 +1634,7 @@ def process_conversion(
     output_dir: Optional[Path] = None,
     source_style: str = "Auto",
     target_style: str = "APA",
-    model_name: str = "gemini-2.5-pro",
+    model_name: str = "gemini-2.0-flash",
     prefer_gemini_output: bool = True,
 ) -> Dict[str, Path]:
     input_docx = Path(input_docx)
@@ -1571,15 +1642,20 @@ def process_conversion(
         raise FileNotFoundError(f"Input file not found: {input_docx}")
 
     target_style = target_style.strip().upper() if target_style.upper() != "AUTO" else "AUTO"
-    if target_style not in ("AMA", "APA", "AUTO"):
-        raise ValueError(f"target_style must be 'AMA', 'APA', or 'AUTO', got: {target_style}")
+    if target_style not in ("AMA", "APA", "CGRN", "AUTO"):
+        raise ValueError(f"target_style must be 'AMA', 'APA', 'CGRN', or 'AUTO', got: {target_style}")
 
     if output_dir is None:
         output_dir = input_docx.parent
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    target_enum = CitationStyle.APA if target_style == "APA" else CitationStyle.AMA
+    if target_style == "APA":
+        target_enum = CitationStyle.APA
+    elif target_style == "CGRN":
+        target_enum = CitationStyle.CGRN
+    else:
+        target_enum = CitationStyle.AMA
 
     stem             = input_docx.stem
     output_docx_path = output_dir / f"{stem}_Converted.docx"
@@ -1616,6 +1692,15 @@ def process_conversion(
 
         raw_lower = raw_text.lower()
 
+        # CGRN documents: '* ReferencesText' paragraphs are always references —
+        # no <ref-open>/<ref-close> markers needed.
+        try:
+            para_style_name_check = para.style.name or ''
+        except Exception:
+            para_style_name_check = ''
+
+        is_cgrn_para = (para_style_name_check == '* ReferencesText')
+
         if "<ref-open>" in raw_lower:
             in_ref_section = True
             logger.info("Entering reference section.")
@@ -1624,7 +1709,7 @@ def process_conversion(
             in_ref_section = False
             logger.info("Exiting reference section.")
             continue
-        if not in_ref_section:
+        if not in_ref_section and not is_cgrn_para:
             continue
 
         if len(raw_text) < 15:
@@ -1659,8 +1744,12 @@ def process_conversion(
                 detected_source = CitationStyle.AMA
             elif para_style in ('REF-U', 'REF'):
                 detected_source = CitationStyle.APA
+            elif para_style == '* ReferencesText':
+                detected_source = CitationStyle.CGRN
             else:
                 detected_source = detect_source_style(raw_text)
+        elif source_style.upper() == "CGRN":
+            detected_source = CitationStyle.CGRN
         else:
             detected_source = CitationStyle.AMA if source_style.upper() == "AMA" else CitationStyle.APA
 
@@ -1669,6 +1758,8 @@ def process_conversion(
         if target_style.upper() == "AUTO":
             t_enum = detected_source
             logger.info(f"  [{count}] Auto: strict formatting validation for {t_enum.value}")
+        elif target_style.upper() == "CGRN":
+            t_enum = CitationStyle.CGRN
         else:
             t_enum = CitationStyle.APA if target_style.upper() == "APA" else CitationStyle.AMA
 
@@ -1716,7 +1807,7 @@ def process_conversion(
     if tasks:
         logger.info(f"Starting parallel conversions for {len(tasks)} references...")
         # Reduced max_workers from 5 to 2 to prevent Gemini API 429 (Too Many Requests) errors
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             futures = [executor.submit(process_task, t) for t in tasks]
             for future in as_completed(futures):
                 try:
@@ -1816,11 +1907,14 @@ def process_conversion(
             if metadata.get("bib_doi") and "doi:" not in final_text.lower() and "doi.org" not in final_text.lower():
                 if resolved_target == "AMA":
                     final_text = final_text.rstrip(".") + f". doi:{metadata['bib_doi']}"
-                else:
+                elif resolved_target != "CGRN":
                     final_text = final_text.rstrip(".") + f". https://doi.org/{metadata['bib_doi']}"
         else:
+            # CGRN has no metadata fallback formatter — always use Gemini output
             if resolved_target == "AMA":
                 final_text = format_ama_from_metadata(metadata)
+            elif resolved_target == "CGRN":
+                final_text = gemini_out or raw_text
             else:
                 final_text = format_apa_from_metadata(metadata)
 
@@ -1841,29 +1935,34 @@ def process_conversion(
             continue
 
         try:
-            segs = []
-            if metadata and metadata.get("bib_reftype"):
-                try:
-                    if resolved_target == "AMA":
-                        segs = build_segments_ama(metadata, gemini_out)
-                    else:
-                        segs = build_segments_apa(metadata, gemini_out)
-                    segs_text = "".join(t for t, _ in segs)
-                    if len(segs_text.strip()) < 10:
-                        segs = []
-                        logger.debug(f"  [{count}] Metadata segments too short; using Gemini text path.")
-                except Exception as _meta_err:
-                    segs = []
-                    logger.warning(f"  [{count}] Metadata segment build failed ({_meta_err}); falling back.")
-
-            if not segs and final_text:
-                segs = _parse_gemini_output_to_segments(final_text)
-                logger.debug(f"  [{count}] Using Gemini text parse (fallback) for styling.")
-
-            if segs:
-                _write_styled_runs(para, segs, doc=doc, is_conversion=(detected_source != task['target_enum']))
+            if resolved_target == "CGRN":
+                # CGRN: preserve paragraph font/size exactly — only apply italic,
+                # no character style overrides that could change the typeface.
+                _write_cgrn_runs(para, final_text, doc=doc, original_text=raw_text)
             else:
-                _set_paragraph_text(para, final_text, doc=doc)
+                segs = []
+                if metadata and metadata.get("bib_reftype"):
+                    try:
+                        if resolved_target == "AMA":
+                            segs = build_segments_ama(metadata, gemini_out)
+                        else:
+                            segs = build_segments_apa(metadata, gemini_out)
+                        segs_text = "".join(t for t, _ in segs)
+                        if len(segs_text.strip()) < 10:
+                            segs = []
+                            logger.debug(f"  [{count}] Metadata segments too short; using Gemini text path.")
+                    except Exception as _meta_err:
+                        segs = []
+                        logger.warning(f"  [{count}] Metadata segment build failed ({_meta_err}); falling back.")
+
+                if not segs and final_text:
+                    segs = _parse_gemini_output_to_segments(final_text)
+                    logger.debug(f"  [{count}] Using Gemini text parse (fallback) for styling.")
+
+                if segs:
+                    _write_styled_runs(para, segs, doc=doc, is_conversion=(detected_source != task['target_enum']))
+                else:
+                    _set_paragraph_text(para, final_text, doc=doc)
         except Exception as _seg_err:
             logger.warning(f"  Segment build failed ({_seg_err}); falling back to plain text.")
             _set_paragraph_text(para, final_text, doc=doc)
@@ -1932,12 +2031,12 @@ def process_conversion(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Convert references in a Word document between AMA and APA styles.")
+    parser = argparse.ArgumentParser(description="Convert references in a Word document between AMA, APA, and CGRN styles.")
     parser.add_argument("input",              type=str,                                          help="Path to input .docx file")
     parser.add_argument("--output-dir",       type=str,                                          help="Output directory (default: same as input)")
-    parser.add_argument("--source-style",     type=str, default="Auto", choices=["AMA","APA","Auto"], help="Source citation style")
-    parser.add_argument("--target-style",     type=str, default="APA",  choices=["AMA","APA"],       help="Target citation style")
-    parser.add_argument("--model",            type=str, default="gemini-2.5-pro",               help="Gemini model name")
+    parser.add_argument("--source-style",     type=str, default="Auto", choices=["AMA","APA","CGRN","Auto"], help="Source citation style")
+    parser.add_argument("--target-style",     type=str, default="APA",  choices=["AMA","APA","CGRN"],        help="Target citation style")
+    parser.add_argument("--model",            type=str, default="gemini-2.0-flash",              help="Gemini model name")
     parser.add_argument("--no-gemini-output", action="store_true",                                help="Rebuild from metadata instead of Gemini formatted output")
     args = parser.parse_args()
 

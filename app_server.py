@@ -306,6 +306,8 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
         
         try:
             for idx, path in enumerate(file_paths, start=1):
+                if batch_queue.is_cancelled(job_id):
+                    return
                 filename = original_filenames[idx-1]
                 update_progress({
                     "current": idx,
@@ -477,6 +479,8 @@ def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user
             
             # Process each file
             for idx, path in enumerate(file_paths, start=1):
+                if batch_queue.is_cancelled(job_id):
+                    return
                 filename = original_filenames[idx-1]
                 update_progress({
                     "current": idx,
@@ -657,6 +661,8 @@ def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, us
 
             # Execute Perl script with temp_dir as argument
             # The Perl script expects a directory path and processes all .docx files in it
+            if batch_queue.is_cancelled(job_id):
+                return
             try:
                 result = subprocess.run(
                     ["perl", perl_script, temp_dir],
@@ -1028,6 +1034,7 @@ class BatchQueueManager:
             max_workers=self.MAX_WORKERS, thread_name_prefix="batchworker"
         )
         self._active_futures = {}   # job_id → Future (None while slot is being reserved)
+        self._cancel_flags = {}     # job_id → threading.Event (set = job should stop)
         self._lock = Lock()
 
     def submit(self, job_id, route_type, user_id, username,
@@ -1046,12 +1053,19 @@ class BatchQueueManager:
             print(f"BatchQueue submit DB error for {job_id}: {e}")
         self._try_dispatch(job_id, target_fn, fn_args)
 
+    def is_cancelled(self, job_id):
+        """Returns True if a cancel has been requested for this job."""
+        with self._lock:
+            flag = self._cancel_flags.get(job_id)
+        return flag is not None and flag.is_set()
+
     def _try_dispatch(self, job_id, target_fn, fn_args):
         """Dispatch a job to the executor if a worker slot is available."""
         with self._lock:
             if len(self._active_futures) >= self.MAX_WORKERS:
                 return
             self._active_futures[job_id] = None  # Reserve slot immediately
+            self._cancel_flags[job_id] = threading.Event()
 
         self._mark_running(job_id)
         future = self._executor.submit(target_fn, *fn_args)
@@ -1063,6 +1077,7 @@ class BatchQueueManager:
         """Called by executor when a job finishes (success, failure, or cancel)."""
         with self._lock:
             self._active_futures.pop(job_id, None)
+            self._cancel_flags.pop(job_id, None)
 
         if future.cancelled():
             self._mark_done(job_id, 'cancelled')
@@ -1144,7 +1159,7 @@ class BatchQueueManager:
         else:
             raise ValueError(f"Unknown route_type for reconstruction: {route_type}")
 
-    def cancel(self, job_id, requesting_user_id):
+    def cancel(self, job_id, requesting_user_id, is_admin=False):
         """Cancel a pending or running job. Returns (success, message)."""
         try:
             with self._db.get_connection() as db:
@@ -1157,7 +1172,7 @@ class BatchQueueManager:
         if not row:
             return False, "Job not found"
 
-        if int(row['user_id']) != int(requesting_user_id):
+        if not is_admin and int(row['user_id']) != int(requesting_user_id):
             return False, "Forbidden"
 
         status = row['status']
@@ -1176,6 +1191,9 @@ class BatchQueueManager:
         if status == 'running':
             with self._lock:
                 future = self._active_futures.get(job_id)
+                flag = self._cancel_flags.get(job_id)
+            if flag:
+                flag.set()
             if future:
                 future.cancel()
             try:
@@ -1187,7 +1205,7 @@ class BatchQueueManager:
                     db.commit()
             except Exception as e:
                 return False, f"DB error: {e}"
-            return True, "Cancel requested (job may already be running)"
+            return True, "Cancelled"
 
         return False, f"Cannot cancel job in status '{status}'"
 
@@ -2646,6 +2664,8 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
             pages_text = []
             global_page = 1
             for path in saved_paths:
+                if batch_queue.is_cancelled(job_id):
+                    return
                 with pdfplumber.open(path) as pdf:
                     for page in pdf.pages:
                         text = page.extract_text()
@@ -2849,6 +2869,8 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
         # --- END LINUX BATCH PDF CONVERSION OPTIMIZATION ---
 
         for i, path in enumerate(saved, 1):
+            if batch_queue.is_cancelled(job_id):
+                return
             fname = os.path.basename(path)
             update_progress({
                 "current": i,
@@ -3348,7 +3370,7 @@ def batch_queue_api():
 def batch_queue_cancel(job_id):
     if 'user_id' not in session:
         return jsonify({"error": "Not logged in"}), 401
-    ok, msg = batch_queue.cancel(job_id, session['user_id'])
+    ok, msg = batch_queue.cancel(job_id, session['user_id'], is_admin=bool(session.get('is_admin')))
     return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
 
@@ -3496,6 +3518,8 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
         
         try:
             for idx, filepath in enumerate(file_paths):
+                if batch_queue.is_cancelled(job_id):
+                    return
                 filename = original_filenames[idx]
                 base_name = os.path.splitext(filename)[0]
                 
@@ -3807,34 +3831,42 @@ def validate_file():
                 if filename.lower().endswith('.docx'):
                     try:
                         from docx import Document
-                        
+
                         doc = Document(filepath)
-                        has_ref_style = False
-                        has_ref_open = False
-                        has_ref_close = False
-                        
+                        has_ref_style  = False
+                        has_cgrn_style = False
+                        has_ref_open   = False
+                        has_ref_close  = False
+
                         for para in doc.paragraphs:
-                            if para.style and para.style.name and para.style.name.upper() in ['REF-N', 'REF-U']:
+                            sname = (para.style.name or '') if para.style else ''
+                            if sname.upper() in ['REF-N', 'REF-U']:
                                 has_ref_style = True
+                            if sname == '* ReferencesText':
+                                has_cgrn_style = True
                             if '<ref-open>' in para.text:
                                 has_ref_open = True
                             if '<ref-close>' in para.text:
                                 has_ref_close = True
-                                
-                            if has_ref_style and has_ref_open and has_ref_close:
+
+                            if (has_ref_style or has_cgrn_style) and has_ref_open and has_ref_close:
                                 break
-                                
-                        missing = []
-                        if not has_ref_style:
-                            missing.append("style 'REF-N' or 'REF-U'")
-                        if not has_ref_open:
-                            missing.append("'<ref-open>' tag")
-                        if not has_ref_close:
-                            missing.append("'<ref-close>' tag")
-                            
-                        if missing:
-                            file_errors.append(f"{filename} (Missing: {', '.join(missing)})")
-                            
+
+                        # CGRN documents use '* ReferencesText' style and need no
+                        # <ref-open>/<ref-close> markers — paragraphs are identified by style alone.
+                        if has_cgrn_style:
+                            pass  # valid CGRN document — no further checks required
+                        else:
+                            missing = []
+                            if not has_ref_style:
+                                missing.append("style 'REF-N', 'REF-U', or '* ReferencesText'")
+                            if not has_ref_open:
+                                missing.append("'<ref-open>' tag")
+                            if not has_ref_close:
+                                missing.append("'<ref-close>' tag")
+                            if missing:
+                                file_errors.append(f"{filename} (Missing: {', '.join(missing)})")
+
                     except Exception as e:
                         file_errors.append(f"{filename} (Error reading file: {str(e)})")
                 # --- NEW VALIDATION LOGIC END ---
@@ -5016,6 +5048,8 @@ def process_technical_job(job_id, unique_folder, saved_paths, original_filenames
         try:
             processed_files = []
             for idx, input_path in enumerate(saved_paths, 1):
+                if batch_queue.is_cancelled(job_id):
+                    return
                 filename = original_filenames[idx - 1]
                 update_progress({"current": idx, "status": f"Processing {filename}"})
                 output_path = input_path
