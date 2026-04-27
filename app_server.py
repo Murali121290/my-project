@@ -2292,27 +2292,28 @@ def process_document(file_path, citation_format='styled'):
     before_stats['auto_converted'] = auto_converted
     before_stats['citations_tagged'] = cite_tag_result.get('tagged', 0)
 
-    # DECISION:
-    # 1. If Unused References exist -> ABORT renumbering.
+    # DECISION: Skip duplicate resolution and renumbering if document has issues
+    # 1. If Unused References exist -> ABORT (don't renumber or merge duplicates)
     if before_stats["unused_references"]:
         return doc, before_stats, before_stats, {}, "Failed: Document validation failed due to unused references.", []
 
-    # 2. If Perfect -> No need.
-    if before_stats["is_perfect"]:
-        return doc, before_stats, before_stats, {}, "Validation completed.", []
-
-    # 3. If Missing Refs -> Can't safely renumber usually
+    # 2. If Missing Refs exist -> ABORT (don't renumber or merge duplicates)
     if before_stats["missing_references"]:
         return doc, before_stats, before_stats, {}, "Failed: Missing references detected.", []
 
+    # 3. If Perfect -> No changes needed
+    if before_stats["is_perfect"]:
+        return doc, before_stats, before_stats, {}, "Validation completed.", []
+
+    # Only proceed with duplicate resolution and renumbering if document is consistent
     # PROCESS 2: Resolve duplicates with track changes
     merge_log = []
-    if not before_stats["missing_references"] and not before_stats["unused_references"]:
-        merge_log = processor.resolve_duplicates()
+    merge_log = processor.resolve_duplicates()
+    if merge_log:
         # Re-validate after merge to get fresh stats
         before_stats = processor.get_validation_stats()
 
-    # DO RENUMBER
+    # Renumber citations and bibliography entries
     mapping = processor.renumber()
 
     # Check AFTER (Validate result)
