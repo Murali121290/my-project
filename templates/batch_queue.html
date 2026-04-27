@@ -50,6 +50,7 @@
     .badge-downloaded { background: #d1ecf1; color: #0c5460; }
     .badge-failed     { background: #f8d7da; color: #721c24; }
     .badge-cancelled  { background: #fff3cd; color: #856404; }
+    .badge-not-ready  { background: #f0f0f0; color: #999; }
 
     @keyframes pulse {
         0%, 100% { opacity: 1; }
@@ -190,8 +191,10 @@
                         <a class="btn-sm btn-download" href="/download_zip/{{ job.job_id }}">
                             <i class="fas fa-download"></i> Download
                         </a>
-                        {% else %}
+                        {% elif job.status == 'downloaded' %}
                         <span class="ts">—</span>
+                        {% else %}
+                        <span class="badge badge-not-ready">Not ready</span>
                         {% endif %}
                     </td>
                 </tr>
@@ -240,7 +243,10 @@ function actionsHtml(job) {
     } else if (job.status === 'completed') {
         return `<a class="btn-sm btn-download" href="/download_zip/${job.job_id}"><i class="fas fa-download"></i> Download</a>`;
     }
-    return '<span class="ts">—</span>';
+    } else if (job.status === 'downloaded') {
+        return '<span class="ts">—</span>';
+    }
+    return '<span class="badge badge-not-ready">Not ready</span>';
 }
 
 function filesHtml(files) {

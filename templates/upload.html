@@ -26,6 +26,20 @@
         }
     }
 
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            max-height: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            max-height: 600px;
+            transform: translateY(0);
+        }
+    }
+
     .upload-container h2 {
         color: var(--black);
         font-size: 32px;
@@ -191,7 +205,7 @@
     </div>
 
     <!-- Processing Pipeline Options -->
-    <div style="margin-top:20px;background:#f8f9fc;border:1px solid #e0e4f0;border-radius:12px;padding:18px;">
+    <div id="processingPipeline" style="display:none;margin-top:20px;background:#f8f9fc;border:1px solid #e0e4f0;border-radius:12px;padding:18px;animation:slideDown 0.3s ease;">
         <div
             style="font-size:13px;font-weight:700;color:#4361ee;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:14px;">
             Processing Pipeline — select one or more steps (run in order)
@@ -210,6 +224,34 @@
                     numbered reference list. Highlights mismatches.</div>
             </div>
         </label>
+
+        <!-- Citation Format Selector — only visible when Number Validation is checked -->
+        <div id="citationFormatRow"
+            style="display:none;margin:4px 0 12px 36px;padding:10px 14px;background:#eef2ff;border-radius:8px;">
+            <label style="font-size:13px;font-weight:600;color:#4361ee;display:block;margin-bottom:8px;">How are citations formatted in your document?</label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="styled" checked style="accent-color:#4361ee;">
+                    <span>Already styled with <code>cite_bib</code> character style (no changes needed)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="superscript" style="accent-color:#4361ee;">
+                    <span>Superscript numbers (e.g., <sup>1</sup>, <sup>2-4</sup>)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="bracket" style="accent-color:#4361ee;">
+                    <span>Bracketed numbers (e.g., [1], [2-4])</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="paren" style="accent-color:#4361ee;">
+                    <span>Parenthetical numbers (e.g., (1), (2-4))</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="plain" style="accent-color:#4361ee;">
+                    <span>Plain numbers (⚠ high false-positive risk)</span>
+                </label>
+            </div>
+        </div>
 
         <label
             style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;"
@@ -298,6 +340,7 @@
         const gemini = document.getElementById('runGeminiRequest');
         const repOnly = document.getElementById('reportOnlyRequest');
         const tsRow = document.getElementById('targetStyleRow');
+        const cfRow = document.getElementById('citationFormatRow');
         const summary = document.getElementById('pipelineSummary');
         const stepsEl = document.getElementById('pipelineSteps');
 
@@ -314,6 +357,9 @@
 
         // Show Target Style only when Step 3 is selected
         if (tsRow) tsRow.style.display = (gemini && gemini.checked) ? 'block' : 'none';
+
+        // Show Citation Format only when Step 1 is selected
+        if (cfRow) cfRow.style.display = (numVal && numVal.checked) ? 'block' : 'none';
 
         if (steps.length === 0) {
             if (summary) summary.style.display = 'none';
@@ -363,14 +409,18 @@
 
         function renderFileList() {
             fileList.innerHTML = "";
+            const pipelineSection = document.getElementById('processingPipeline');
+
             if (selectedFiles.length === 0) {
                 startUpload.style.display = 'none';
                 clearAll.style.display = 'none';
+                if (pipelineSection) pipelineSection.style.display = 'none';
                 return;
             }
 
             startUpload.style.display = 'inline-block';
             clearAll.style.display = 'inline-block';
+            if (pipelineSection) pipelineSection.style.display = 'block';
 
             selectedFiles.forEach((file, idx) => {
                 const item = document.createElement("div");
@@ -401,6 +451,8 @@
             fileList.innerHTML = "";
             startUpload.style.display = 'none';
             clearAll.style.display = 'none';
+            const pipelineSection = document.getElementById('processingPipeline');
+            if (pipelineSection) pipelineSection.style.display = 'none';
             const container = document.getElementById('successMessageContainer');
             if (container) container.innerHTML = '';
         }
@@ -440,6 +492,11 @@
             const runValidation = document.getElementById("runValidationRequest").checked;
             if (runValidation) {
                 formData.append("run_validation", "true");
+                // Get citation format
+                const citationFormat = document.querySelector('input[name="citation_format"]:checked');
+                if (citationFormat) {
+                    formData.append("citation_format", citationFormat.value);
+                }
             } else {
                 formData.append("run_validation", "false");
             }

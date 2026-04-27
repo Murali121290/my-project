@@ -7,10 +7,12 @@ edition using the Google Gemini API.
 
 from __future__ import annotations
 
+import collections
 import json
 import logging
 import os
 import re
+import threading
 import time
 import functools
 from enum import Enum
@@ -34,6 +36,27 @@ logger.addHandler(logging.NullHandler())
 DEFAULT_MODEL = "gemini-2.0-flash"
 _MAX_RETRIES = 5
 _RETRY_BASE_DELAY = 5.0  # seconds
+
+# Global sliding-window rate limiter — shared across all worker threads.
+# Keeps calls under 12 RPM to stay safely within Gemini free-tier quota (15 RPM).
+_rl_lock = threading.Lock()
+_rl_timestamps: collections.deque = collections.deque()
+_RL_MAX_CALLS = 12
+_RL_WINDOW = 60.0
+
+
+def _acquire_api_slot() -> None:
+    """Block until a Gemini API call slot is available (12 RPM sliding window)."""
+    while True:
+        with _rl_lock:
+            now = time.time()
+            while _rl_timestamps and now - _rl_timestamps[0] > _RL_WINDOW:
+                _rl_timestamps.popleft()
+            if len(_rl_timestamps) < _RL_MAX_CALLS:
+                _rl_timestamps.append(now)
+                return
+            wait = _RL_WINDOW - (now - _rl_timestamps[0]) + 0.05
+        time.sleep(wait)
 
 
 # ─────────────────────────────────────────────
@@ -1223,6 +1246,7 @@ def _call_gemini(
     last_exc: Optional[Exception] = None
     for attempt in range(1, max_retries + 1):
         try:
+            _acquire_api_slot()
             response = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
@@ -1260,6 +1284,18 @@ def _call_gemini(
                 last_exc = ValueError("Empty response text")
                 _backoff(attempt, max_retries)
                 continue
+
+            try:
+                from utils.gemini_cost_tracker import log_usage as _log_gemini
+                _um = response.usage_metadata
+                if _um:
+                    _log_gemini(
+                        "reference_conversion", model_name,
+                        getattr(_um, "prompt_token_count", 0) or 0,
+                        getattr(_um, "candidates_token_count", 0) or 0,
+                    )
+            except Exception:
+                pass
 
             return raw_json
 

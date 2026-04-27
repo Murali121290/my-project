@@ -140,7 +140,12 @@ def wrap_paragraph_content_in_del(paragraph, author="RefBot", date=None):
     for child in children_to_move:
         p.remove(child)
         del_tag.append(child)
-        
+
+    # Rename <w:t> to <w:delText> inside all moved runs (OOXML spec compliance)
+    for r_elem in del_tag:
+        for t_elem in r_elem.findall(qn('w:t')):
+            t_elem.tag = qn('w:delText')
+
     # Append del to p
     p.append(del_tag)
 

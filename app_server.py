@@ -25,6 +25,7 @@ import traceback
 import uuid
 import json
 import re
+import difflib
 import sqlite3
 import socket
 import time
@@ -1177,15 +1178,25 @@ class BatchQueueManager:
 
         status = row['status']
         if status == 'pending':
+            # Get temp_dir from payload before deleting
             try:
                 with self._db.get_connection() as db:
-                    db.execute(
-                        "UPDATE job_queue SET status='cancelled', completed_at=? WHERE job_id=?",
-                        (_now_utc(), job_id)
-                    )
+                    payload_row = db.execute(
+                        "SELECT payload FROM job_queue WHERE job_id=?", (job_id,)
+                    ).fetchone()
+                    temp_dir = json.loads(payload_row['payload'] or '{}').get('temp_dir') if payload_row else None
+                    db.execute("DELETE FROM job_queue WHERE job_id=?", (job_id,))
                     db.commit()
             except Exception as e:
                 return False, f"DB error: {e}"
+            # Clean up filesystem
+            try:
+                if temp_dir and os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+            # Clean up in-memory state
+            app.config.get("PROGRESS_DATA", {}).pop(job_id, None)
             return True, "Cancelled"
 
         if status == 'running':
@@ -1198,13 +1209,22 @@ class BatchQueueManager:
                 future.cancel()
             try:
                 with self._db.get_connection() as db:
-                    db.execute(
-                        "UPDATE job_queue SET status='cancelled', completed_at=? WHERE job_id=?",
-                        (_now_utc(), job_id)
-                    )
+                    payload_row = db.execute(
+                        "SELECT payload FROM job_queue WHERE job_id=?", (job_id,)
+                    ).fetchone()
+                    temp_dir = json.loads(payload_row['payload'] or '{}').get('temp_dir') if payload_row else None
+                    db.execute("DELETE FROM job_queue WHERE job_id=?", (job_id,))
                     db.commit()
             except Exception as e:
                 return False, f"DB error: {e}"
+            # Clean up filesystem
+            try:
+                if temp_dir and os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+            # Clean up in-memory state
+            app.config.get("PROGRESS_DATA", {}).pop(job_id, None)
             return True, "Cancelled"
 
         return False, f"Cannot cancel job in status '{status}'"
@@ -1574,6 +1594,8 @@ def inject_current_role():
 # Enhanced Reference Validator (Logic from Referencenumvalidation.py)
 # -----------------------
 
+TRACK_CHANGES_ENABLED = True
+
 def iter_document_paragraphs(doc):
     """
     Iterate through all paragraphs in the document body in order,
@@ -1656,6 +1678,149 @@ def format_numbers(nums):
     return ", ".join(parts)
 
 
+def _ensure_styles(doc):
+    """Create cite_bib and bib_number character styles if they don't exist."""
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.oxml.ns import qn
+    try:
+        doc.styles['cite_bib']
+    except KeyError:
+        style = doc.styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
+        style.font.superscript = True
+    try:
+        doc.styles['bib_number']
+    except KeyError:
+        style = doc.styles.add_style('bib_number', WD_STYLE_TYPE.CHARACTER)
+
+
+BIB_NUMBER_PATTERNS = [
+    re.compile(r'^\s*\[(\d+)\]\.\s+'),   # [1].
+    re.compile(r'^\s*\((\d+)\)\.\s+'),   # (1).
+    re.compile(r'^\s*\[(\d+)\]\s+'),     # [1]
+    re.compile(r'^\s*\((\d+)\)\s+'),     # (1)
+    re.compile(r'^\s*(\d+)\.\s+'),       # 1.
+    re.compile(r'^\s*(\d+)\s+'),         # 1  (space only)
+]
+
+
+def extract_bib_number(text):
+    """Extract bibliography number from text, handling all formats: 1., [1]., (1)., etc."""
+    for pat in BIB_NUMBER_PATTERNS:
+        m = pat.match(text)
+        if m:
+            return int(m.group(1)), pat
+    return None, None
+
+
+def get_numPr(para):
+    """Detect Word auto-numbering. Returns (numId, ilvl) or (None, None)."""
+    from docx.oxml.ns import qn
+    pPr = para._element.find(qn('w:pPr'))
+    if pPr is None:
+        return None, None
+    numPr = pPr.find(qn('w:numPr'))
+    if numPr is None:
+        return None, None
+    ilvl_el = numPr.find(qn('w:ilvl'))
+    numId_el = numPr.find(qn('w:numId'))
+    ilvl = int(ilvl_el.get(qn('w:val'), 0)) if ilvl_el is not None else 0
+    numId = int(numId_el.get(qn('w:val'), 0)) if numId_el is not None else 0
+    return numId, ilvl
+
+
+def compute_list_number(doc, target_para):
+    """Count preceding paragraphs with same numId+ilvl to compute displayed list number."""
+    numId, ilvl = get_numPr(target_para)
+    if numId is None or numId == 0:
+        return None
+    count = 0
+    for para in doc.paragraphs:
+        nid, nlvl = get_numPr(para)
+        if nid == numId and nlvl == ilvl:
+            count += 1
+        if para._element is target_para._element:
+            return count
+    return None
+
+
+def convert_autonumber_to_manual(para, number, doc):
+    """Remove <w:numPr> and insert manual bib_number run with track changes."""
+    from docx.oxml.ns import qn
+    pPr = para._element.find(qn('w:pPr'))
+    if pPr is not None:
+        numPr = pPr.find(qn('w:numPr'))
+        if numPr is not None:
+            pPr.remove(numPr)
+    if number is not None:
+        from utils import track_changes
+        track_changes.add_tracked_text(para, f"{number}.", style='bib_number',
+                                       author='RefBot', doc=doc)
+
+
+def detect_and_tag_unstyled_citations(doc, citation_format):
+    """
+    Scan for unstyled citations and apply cite_bib style based on format.
+    Returns {'tagged': count, 'format_used': citation_format}
+    """
+    tagged_count = 0
+    _ensure_styles(doc)
+
+    if citation_format == 'styled':
+        return {'tagged': 0, 'format_used': 'styled'}
+
+    if citation_format == 'superscript':
+        from docx.oxml.ns import qn
+        for para in iter_document_paragraphs(doc):
+            for run in para.runs:
+                if run.font.superscript and re.match(r'^[\d,\-–—\s]+$', run.text):
+                    if not (run.style and run.style.name == 'cite_bib'):
+                        run.style = doc.styles['cite_bib']
+                        tagged_count += 1
+
+    elif citation_format == 'bracket':
+        for para in iter_document_paragraphs(doc):
+            para_text = para.text
+            if '[' not in para_text:
+                continue
+            if para.style and para.style.name == 'REF-N':
+                continue
+            for run in para.runs:
+                if re.search(r'\[\d+(?:[,\-–—]\d+)*\]', run.text):
+                    if not (run.style and run.style.name == 'cite_bib'):
+                        new_text = re.sub(r'\[(\d+(?:[,\-–—]\d+)*)\]', r'\1', run.text)
+                        run.text = new_text
+                        run.style = doc.styles['cite_bib']
+                        tagged_count += 1
+
+    elif citation_format == 'paren':
+        for para in iter_document_paragraphs(doc):
+            para_text = para.text
+            if '(' not in para_text:
+                continue
+            if para.style and para.style.name == 'REF-N':
+                continue
+            for run in para.runs:
+                if re.search(r'\(\d+(?:[,\-–—]\d+)*\)', run.text) and not re.search(r'\d{4}', run.text):
+                    if not (run.style and run.style.name == 'cite_bib'):
+                        new_text = re.sub(r'\((\d+(?:[,\-–—]\d+)*)\)', r'\1', run.text)
+                        run.text = new_text
+                        run.style = doc.styles['cite_bib']
+                        tagged_count += 1
+
+    elif citation_format == 'plain':
+        for para in iter_document_paragraphs(doc):
+            if para.style and para.style.name in ['REF-N', 'REF-U']:
+                continue
+            for i, run in enumerate(para.runs):
+                if i == 0:
+                    continue
+                if re.match(r'^\d+$', run.text) and not (run.style and run.style.name == 'cite_bib'):
+                    run.style = doc.styles['cite_bib']
+                    tagged_count += 1
+
+    return {'tagged': tagged_count, 'format_used': citation_format}
+
+
 def is_citation_run(run):
     """
     Determine if a run is part of a citation.
@@ -1699,11 +1864,9 @@ class ReferenceProcessor:
                             bib_run = run
                             break
                             
-                # Fallback: Check start of text if no styled run
+                # Fallback: extract from plain text using multi-format patterns
                 if found_id is None:
-                    match = re.match(r'^(\d+)', para.text.strip())
-                    if match:
-                        found_id = int(match.group(1))
+                    found_id, pattern = extract_bib_number(para.text)
                 
                 if found_id is not None:
                     refs_found.add(found_id)
@@ -1810,10 +1973,9 @@ class ReferenceProcessor:
                     continue
                     
                 ratio = difflib.SequenceMatcher(None, ref_a['text'], ref_b['text']).ratio()
-                
-                # Threshold: 0.85 (85% similar)
-                # The user's example is extremely similar, probably > 90%
-                if ratio > 0.85:
+
+                # Threshold: 0.99 (99% similar — very strict, almost identical)
+                if ratio > 0.99:
                     duplicates.append({
                         'id': ref_b['id'], # The later one is the duplicate
                         'text': ref_b['text'][:100] + "...",
@@ -1822,6 +1984,75 @@ class ReferenceProcessor:
                     })
                     
         return duplicates
+
+    def resolve_duplicates(self):
+        """
+        Finds duplicates, remaps citations, and marks bibliography entries for deletion.
+        Returns list of merge records: [{'removed_id': int, 'canonical_id': int, 'citations_updated': int}, ...]
+        """
+        from docx.oxml.ns import qn
+        from utils import track_changes
+
+        bib_refs, ref_objects = self.get_references_in_bibliography()
+        duplicates = self.find_duplicates(ref_objects)
+
+        if not duplicates:
+            return []
+
+        # Build canonical mapping, handling transitive duplicates (A→B, B→C → A→C)
+        mapping = {}  # duplicate_id -> canonical_id
+        for dup in duplicates:
+            dup_id = dup['id']
+            canonical_id = dup['duplicate_of']
+            # Resolve transitively
+            while canonical_id in mapping:
+                canonical_id = mapping[canonical_id]
+            mapping[dup_id] = canonical_id
+
+        merge_log = []
+        citations_updated_count = {dup_id: 0 for dup_id in mapping.keys()}
+
+        # Step 1: Remap citations from duplicate IDs to canonical IDs
+        for para in iter_document_paragraphs(self.doc):
+            for run in para.runs:
+                if is_citation_run(run):
+                    nums = get_numbers(run.text)
+                    new_nums = [mapping.get(n, n) for n in nums]
+                    if new_nums != nums:
+                        # Count how many times each duplicate ID was replaced
+                        for n in nums:
+                            if n in mapping:
+                                citations_updated_count[n] += 1
+
+                        new_text = format_numbers(new_nums)
+                        if TRACK_CHANGES_ENABLED:
+                            track_changes.delete_tracked_run(para, run)
+                            run_del = run._element.getparent()
+                            ins_new = track_changes.add_tracked_text(
+                                para, new_text, style='cite_bib', color='008000', doc=self.doc)
+                            run_del.addnext(ins_new)
+                        else:
+                            run.text = new_text
+
+        # Step 2: Mark duplicate bibliography entries for deletion with track changes
+        bib_refs_new, ref_objects_new = self.get_references_in_bibliography()
+        for obj in ref_objects_new:
+            if obj['id'] in mapping:
+                # This is a duplicate — mark it for deletion
+                track_changes.wrap_paragraph_content_in_del(obj['para'], author='RefBot')
+                # Record the merge
+                canonical_id = mapping[obj['id']]
+                for dup_record in duplicates:
+                    if dup_record['id'] == obj['id']:
+                        merge_log.append({
+                            'removed_id': obj['id'],
+                            'canonical_id': canonical_id,
+                            'score': dup_record['score'],
+                            'citations_updated': citations_updated_count.get(obj['id'], 0)
+                        })
+                        break
+
+        return merge_log
 
     def get_validation_stats(self):
         bib_refs, ref_objects = self.get_references_in_bibliography()
@@ -1868,13 +2099,61 @@ class ReferenceProcessor:
             "is_perfect": (not missing and not unused and not sequence_issues and not duplicates)
         }
 
+    def _ensure_bib_numbers_styled(self):
+        """Ensure all bibliography numbers have bib_number style applied."""
+        from docx.enum.style import WD_STYLE_TYPE
+
+        styles = self.doc.styles
+        try:
+            styles['bib_number']
+        except KeyError:
+            styles.add_style('bib_number', WD_STYLE_TYPE.CHARACTER)
+
+        # Tag all bibliography entry numbers with bib_number style
+        for para in self.doc.paragraphs:
+            if para.style and para.style.name == 'REF-N':
+                # Try to find the number run
+                bib_num, pattern = extract_bib_number(para.text)
+                if bib_num is not None:
+                    # Find the run that contains the number
+                    for run in para.runs:
+                        if str(bib_num) in run.text or any(c.isdigit() for c in run.text):
+                            # Check if this run starts with the number
+                            if run.text.strip() and run.text[0].isdigit():
+                                run.style = styles['bib_number']
+                                break
+
+    def _ensure_bib_numbers_styled(self):
+        """Ensure all bibliography numbers have bib_number style applied."""
+        from docx.enum.style import WD_STYLE_TYPE
+
+        styles = self.doc.styles
+        try:
+            styles['bib_number']
+        except KeyError:
+            styles.add_style('bib_number', WD_STYLE_TYPE.CHARACTER)
+
+        # Tag all bibliography entry numbers with bib_number style
+        for para in self.doc.paragraphs:
+            if para.style and para.style.name == 'REF-N':
+                # Try to find the number run
+                bib_num, pattern = extract_bib_number(para.text)
+                if bib_num is not None:
+                    # Find the run that contains the number
+                    for run in para.runs:
+                        if str(bib_num) in run.text or any(c.isdigit() for c in run.text):
+                            # Check if this run starts with the number
+                            if run.text.strip() and run.text[0].isdigit():
+                                run.style = styles['bib_number']
+                                break
+
     def renumber(self):
         """
         Renumber citations and reorder bibliography.
         Returns: mapping (Old -> New)
         """
         _, appearance_order = self.get_citations_in_text()
-        
+
         # Create Mapping
         mapping = {} 
         new_id = 1
@@ -1979,36 +2258,66 @@ class ReferenceProcessor:
         for obj in uncited_refs:
             body.insert(insert_idx, obj['para']._element)
             insert_idx += 1
-            
+
+        # Ensure all bibliography numbers have bib_number style applied
+        self._ensure_bib_numbers_styled()
+
         return mapping
 
 
-def process_document(file_path):
+def process_document(file_path, citation_format='styled'):
     doc = Document(file_path)
     processor = ReferenceProcessor(doc)
-    
+
+    # PRE-PROCESS: Ensure styles exist
+    _ensure_styles(doc)
+
+    # PRE-PROCESS: Convert Word auto-numbered reference lists to manual
+    auto_converted = 0
+    for para in doc.paragraphs:
+        if para.style and para.style.name == 'REF-N':
+            numId, ilvl = get_numPr(para)
+            if numId:
+                n = compute_list_number(doc, para)
+                convert_autonumber_to_manual(para, n, doc)
+                auto_converted += 1
+
+    # PRE-PROCESS: Detect and tag unstyled citations
+    cite_tag_result = {}
+    if citation_format != 'styled':
+        cite_tag_result = detect_and_tag_unstyled_citations(doc, citation_format)
+
     # Check BEFORE
     before_stats = processor.get_validation_stats()
-    
+    before_stats['auto_converted'] = auto_converted
+    before_stats['citations_tagged'] = cite_tag_result.get('tagged', 0)
+
     # DECISION:
     # 1. If Unused References exist -> ABORT renumbering.
     if before_stats["unused_references"]:
-        return doc, before_stats, before_stats, {}, "Failed: Document validation failed due to unused references."
+        return doc, before_stats, before_stats, {}, "Failed: Document validation failed due to unused references.", []
 
     # 2. If Perfect -> No need.
     if before_stats["is_perfect"]:
-        return doc, before_stats, before_stats, {}, "Validation completed."
-        
+        return doc, before_stats, before_stats, {}, "Validation completed.", []
+
     # 3. If Missing Refs -> Can't safely renumber usually
     if before_stats["missing_references"]:
-         return doc, before_stats, before_stats, {}, "Failed: Missing references detected."
+        return doc, before_stats, before_stats, {}, "Failed: Missing references detected.", []
+
+    # PROCESS 2: Resolve duplicates with track changes
+    merge_log = []
+    if not before_stats["missing_references"] and not before_stats["unused_references"]:
+        merge_log = processor.resolve_duplicates()
+        # Re-validate after merge to get fresh stats
+        before_stats = processor.get_validation_stats()
 
     # DO RENUMBER
     mapping = processor.renumber()
-    
+
     # Check AFTER (Validate result)
     after_stats = processor.get_validation_stats()
-    
+
     # Determine status message
     changes_made = False
     if mapping:
@@ -2017,16 +2326,19 @@ def process_document(file_path):
                 changes_made = True
                 break
 
-    if before_stats["duplicate_references"]:
+    if merge_log:
+        count = len(merge_log)
+        status_msg = f"Renumbering completed with {count} duplicate reference{'s' if count > 1 else ''} merged."
+    elif before_stats["duplicate_references"]:
         count = len(before_stats['duplicate_references'])
         prefix = "Renumbering" if changes_made else "Validation"
         status_msg = f"{prefix} completed with {count} duplicate{'s' if count > 1 else ''}."
     elif changes_made:
         status_msg = "Renumbering completed successfully."
     else:
-        status_msg = "Validation completed." # Fallback if no changes and no duplicates but not 'perfect' initially (e.g. sequence issues resolved to identity?)
+        status_msg = "Validation completed."
 
-    return doc, before_stats, after_stats, mapping, status_msg
+    return doc, before_stats, after_stats, mapping, status_msg, merge_log
 
 
 
@@ -2555,7 +2867,20 @@ def login():
 
         flash("Invalid username or password", "error")
 
-    return render_template('login.html')
+    metrics = {'total_files': 0, 'total_macro': 0, 'active_jobs': 0}
+    overview_stats = {'total': 0, 'validation': 0, 'by_route': {}}
+    try:
+        with db_pool.get_connection() as db:
+            metrics['total_files'] = db.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            metrics['total_macro'] = db.execute("SELECT COUNT(*) FROM macro_processing").fetchone()[0]
+            metrics['active_jobs'] = db.execute("SELECT COUNT(*) FROM job_queue WHERE status IN ('pending','running')").fetchone()[0]
+
+            overview_stats['total'] = (db.execute("SELECT COUNT(*) FROM files").fetchone()[0] +
+                                      db.execute("SELECT COUNT(*) FROM macro_processing").fetchone()[0])
+    except Exception:
+        pass
+
+    return render_template('login.html', metrics=metrics, overview_stats=overview_stats)
 
 
 @app.route("/register", methods=["GET", "POST"], strict_slashes=False)
@@ -2696,6 +3021,18 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
                         max_output_tokens=65536
                     )
                 )
+
+                try:
+                    from utils.gemini_cost_tracker import log_usage as _log_gemini
+                    _um = response.usage_metadata
+                    if _um:
+                        _log_gemini(
+                            "book_indexer", model_name,
+                            getattr(_um, "prompt_token_count", 0) or 0,
+                            getattr(_um, "candidates_token_count", 0) or 0,
+                        )
+                except Exception:
+                    pass
 
                 partial_text = ""
                 try:
@@ -3616,7 +3953,8 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     update_progress({"status": f"Validating {filename}..."})
                     log_buffer.append("\n--- NUMERICAL VALIDATION ---")
                     try:
-                        doc, before, after, mapping, val_msg = process_document(current_filepath)
+                        citation_format = options.get('citation_format', 'styled')
+                        doc, before, after, mapping, val_msg, merge_log = process_document(current_filepath, citation_format=citation_format)
                         log_buffer.append(f"Result: {val_msg}")
                         log_buffer.append(f"Before Stats: {before}")
                         
@@ -3689,6 +4027,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         'before': before,
                         'after': after,
                         'mapping': mapping,
+                        'merge_log': merge_log if 'merge_log' in locals() else [],
                         'structuring_log': structuring_log_content,
                         'apa_log': apa_log_content
                     }
@@ -3888,7 +4227,8 @@ def validate_file():
                 'run_structuring': str(request.form.get('run_structuring')).lower() in ['true', 'on', '1'],
                 'run_name_year': str(request.form.get('run_name_year_validation')).lower() in ['true', 'on', '1'],
                 'run_gemini': str(request.form.get('run_gemini')).lower() in ['true', 'on', '1'],
-                'target_style': request.form.get('target_style', 'Auto')
+                'target_style': request.form.get('target_style', 'Auto'),
+                'citation_format': request.form.get('citation_format', 'styled')
             }
             
             # Use report only flag to force validation logic if not explicitly checked but needed
@@ -5378,6 +5718,31 @@ def alttext_downloads():
     except Exception:
         files = []
     return render_template("alttext/download.html", title="Generated Outputs", files=files)
+
+
+# -----------------------
+# Gemini API Cost Dashboard
+# -----------------------
+
+@app.route("/gemini-cost/dashboard")
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def gemini_cost_dashboard():
+    return render_template("gemini_cost_dashboard.html", title="Gemini API Cost Dashboard")
+
+
+@app.route("/gemini-cost/api/stats")
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def gemini_cost_stats_api():
+    from utils.gemini_cost_tracker import get_stats
+    return jsonify(get_stats())
+
+
+@app.route("/gemini-cost/api/usage/history")
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def gemini_cost_history_api():
+    limit = request.args.get('limit', 20, type=int)
+    from utils.gemini_cost_tracker import get_recent_usage
+    return jsonify({'usage': get_recent_usage(limit)})
 
 
 # -----------------------

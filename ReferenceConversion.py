@@ -20,6 +20,29 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────
+# BIBLIOGRAPHY NUMBER PREFIX PATTERNS
+# ─────────────────────────────────────────────
+
+BIB_NUMBER_PATTERNS = [
+    re.compile(r'^\s*\[(\d+)\]\.\s+'),   # [1].
+    re.compile(r'^\s*\((\d+)\)\.\s+'),   # (1).
+    re.compile(r'^\s*\[(\d+)\]\s+'),     # [1]
+    re.compile(r'^\s*\((\d+)\)\s+'),     # (1)
+    re.compile(r'^\s*(\d+)\.\s+'),       # 1.
+    re.compile(r'^\s*(\d+)\s+'),         # 1  (space only)
+]
+
+
+def extract_bib_number(text):
+    """Extract bibliography number from text, handling all formats: 1., [1]., (1)., etc."""
+    for pat in BIB_NUMBER_PATTERNS:
+        m = pat.match(text)
+        if m:
+            return int(m.group(1)), pat.pattern
+    return None, None
+
+
+# ─────────────────────────────────────────────
 # REFERENCE TYPE DETECTION (fallback if Gemini fails)
 # ─────────────────────────────────────────────
 
@@ -570,14 +593,24 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
     _clear_paragraph_text(para)
     styles = doc.styles if doc is not None else None
 
-    import re
-    match = re.match(r'^(\d+)(\.?)([\t\s]*)', original_text)
+    # Extract bibliography number using multi-format patterns (handles 1., [1]., (1)., etc.)
     prefix_num = ""
     prefix_sep = ""
-    if match:
-        prefix_num     = match.group(1)
-        prefix_sep     = match.group(2) + match.group(3)
-        original_text  = original_text[len(prefix_num) + len(prefix_sep):]
+    remaining_text = original_text
+
+    bib_num, pattern = extract_bib_number(original_text)
+    if bib_num is not None:
+        prefix_num = str(bib_num)
+        # Find where the number ends in the original text and extract separator
+        match = None
+        for pat in BIB_NUMBER_PATTERNS:
+            match = pat.match(original_text)
+            if match:
+                break
+        if match:
+            full_match = match.group(0)
+            prefix_sep = full_match[len(match.group(match.lastindex if match.lastindex else 1)):]
+            remaining_text = original_text[len(full_match):]
 
     if prefix_num:
         run = para.add_run(prefix_num)
@@ -588,6 +621,8 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
             pass
     if prefix_sep:
         para.add_run(prefix_sep)
+
+    original_text = remaining_text
 
     try:
         from utils.track_changes import add_tracked_deletion, add_tracked_text
@@ -749,12 +784,19 @@ def _set_paragraph_text(para, text: str, doc=None, original_text: str = None, is
     _clear_paragraph_text(para)
     styles = doc.styles if doc is not None else None
 
-    import re
-    match = re.match(r'^(\d+\.[\t\s]*)', original_text)
+    # Extract bibliography number using multi-format patterns (handles 1., [1]., (1)., etc.)
     prefix_text = ""
-    if match:
-        prefix_text   = match.group(1)
-        original_text = original_text[len(prefix_text):]
+    remaining_text = original_text
+
+    bib_num, pattern = extract_bib_number(original_text)
+    if bib_num is not None:
+        # Find the full prefix including separator
+        for pat in BIB_NUMBER_PATTERNS:
+            match = pat.match(original_text)
+            if match:
+                prefix_text = match.group(0)
+                remaining_text = original_text[len(prefix_text):]
+                break
 
     if prefix_text:
         run = para.add_run(prefix_text)
@@ -763,6 +805,8 @@ def _set_paragraph_text(para, text: str, doc=None, original_text: str = None, is
             run.style = style_val
         except Exception:
             pass
+
+    original_text = remaining_text
 
     try:
         from utils.track_changes import add_tracked_deletion, add_tracked_text
@@ -1807,7 +1851,7 @@ def process_conversion(
     if tasks:
         logger.info(f"Starting parallel conversions for {len(tasks)} references...")
         # Reduced max_workers from 5 to 2 to prevent Gemini API 429 (Too Many Requests) errors
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(process_task, t) for t in tasks]
             for future in as_completed(futures):
                 try:

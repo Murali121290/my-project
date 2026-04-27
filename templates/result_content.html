@@ -111,6 +111,20 @@
         </div>
         {% endif %}
 
+        {% if res.merge_log and res.merge_log|length > 0 %}
+        <div class="mapping-box" style="border-left: 5px solid #ff9800;">
+            <h4 style="color: #ff9800;">Duplicate References Merged</h4>
+            <ul style="list-style: none; padding: 0;">
+                {% for merge in res.merge_log %}
+                <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                    <strong>Reference {{ merge.removed_id }}</strong> merged into <strong>Reference {{ merge.canonical_id }}</strong>
+                    ({{ merge.score }}% similar){% if merge.citations_updated %}, {{ merge.citations_updated }} citation(s) updated{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
         {% if res.structuring_log %}
         <div class="mapping-box">
             <h4>Reference Structuring Log</h4>
