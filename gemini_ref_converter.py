@@ -33,15 +33,15 @@ logger.addHandler(logging.NullHandler())
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DEFAULT_MODEL = "gemini-2.0-flash"
-_MAX_RETRIES = 5
-_RETRY_BASE_DELAY = 5.0  # seconds
+DEFAULT_MODEL = os.environ.get("REFERENCE_CONVERTER_GEMINI_MODEL", "gemini-2.5-flash")
+_MAX_RETRIES = int(os.environ.get("REFERENCE_CONVERTER_MAX_RETRIES", "5"))
+_RETRY_BASE_DELAY = float(os.environ.get("REFERENCE_CONVERTER_RETRY_BASE_DELAY", "5.0"))
 
 # Global sliding-window rate limiter — shared across all worker threads.
 # Keeps calls under 12 RPM to stay safely within Gemini free-tier quota (15 RPM).
 _rl_lock = threading.Lock()
 _rl_timestamps: collections.deque = collections.deque()
-_RL_MAX_CALLS = 12
+_RL_MAX_CALLS = int(os.environ.get("REFERENCE_CONVERTER_RPM", "12"))
 _RL_WINDOW = 60.0
 
 
@@ -1326,7 +1326,11 @@ def _backoff(attempt: int, max_retries: int, is_rate_limit: bool = False) -> Non
 
 
 def _resolve_api_key() -> Optional[str]:
-    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    return (
+        os.environ.get("REFERENCE_CONVERTER_GEMINI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+    )
 
 
 # ─────────────────────────────────────────────
@@ -1352,7 +1356,10 @@ def convert_reference(
 
     api_key = _resolve_api_key()
     if not api_key:
-        logger.error("API key not found (checked GEMINI_API_KEY and GOOGLE_API_KEY).")
+        logger.error(
+            "API key not found (checked REFERENCE_CONVERTER_GEMINI_API_KEY, "
+            "GEMINI_API_KEY, and GOOGLE_API_KEY)."
+        )
         return None
 
     schema   = _get_response_schema()
@@ -1436,7 +1443,10 @@ def validate_reference(
 
     api_key = _resolve_api_key()
     if not api_key:
-        logger.error("API key not found (checked GEMINI_API_KEY and GOOGLE_API_KEY).")
+        logger.error(
+            "API key not found (checked REFERENCE_CONVERTER_GEMINI_API_KEY, "
+            "GEMINI_API_KEY, and GOOGLE_API_KEY)."
+        )
         return None
 
     schema   = _get_validation_schema()

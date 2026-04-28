@@ -53,7 +53,7 @@
     .hdr-info { display: flex; flex-direction: column; gap: 2px; align-items: left; flex: 1; margin-left: 24px; }
     .hdr-title {
       font-family: 'Playfair Display', serif;
-      font-size: 1.6rem; font-weight: 700;
+      font-size: 2.6rem; font-weight: 700;
       color: var(--navy); line-height: 1.1;
     }
     .hdr-title .red { color: var(--coral); }
@@ -310,7 +310,7 @@
       </a>
     </div>
     <div class="hdr-info">
-      <div class="hdr-title">Prep<span class="red">Ops</span> | Pre-Production Hub</div>
+      <div class="hdr-title">Prep<span class="red">Ops</span></div>
     </div>
     <div class="hdr-tagline">Your Partner in Publishing Excellence</div>
   </header>
@@ -323,7 +323,7 @@
       <div class="hero-overlay"></div>
       <div class="hero-content">
         <div class="hero-badge fu">LIVE PRODUCTION SYSTEM</div>
-        <h1 class="hero-h fu">Intelligent<br/><em>Pre-Production</em><br/>at Scale</h1>
+        <h1 class="hero-h fu">Intelligent<br/><em>Pre-Production Hub</em><br/></h1>
         <p class="hero-p fu">
             Automate pre-editing, mechanical editing, reference validation, alt-text generation, and more — with
             real-time SLA visibility and AI-assisted QA across every imprint.
@@ -334,8 +334,8 @@
     <!-- Login Panel -->
     <aside class="login-panel">
       <div class="login-card">
-        <img class="card-logo" src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4Carlisle"/>
-        <div class="card-title fu">Welcome back</div>
+       <!-- <img class="card-logo" src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4Carlisle"/>-->
+        <div class="card-title fu">Welcome to PrepOps</div>
         <div class="card-sub fu">Sign in to your PrepOps workspace</div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -384,7 +384,7 @@
     <div class="perf-label">Platform Metrics</div>
     <div class="kpis">
       <div class="kpi">
-        <div class="kpi-val">{{ "{:,}".format(overview_stats.total) if overview_stats.total else "0" }}</div>
+        <div class="kpi-val" id="metric-total-files">{{ "{:,}".format(overview_stats.total) if overview_stats.total else "0" }}</div>
         <div class="kpi-lbl">Total Files Processed</div>
       </div>
       <div class="kpi">
@@ -392,7 +392,7 @@
         <div class="kpi-lbl">SLA Adherence</div>
       </div>
       <div class="kpi">
-        <div class="kpi-val">{{ metrics.total_macro if metrics.total_macro else "0" }}</div>
+        <div class="kpi-val" id="metric-preproduction-jobs">{{ metrics.total_macro if metrics.total_macro else "0" }}</div>
         <div class="kpi-lbl">Preproduction Jobs</div>
       </div>
     </div>
@@ -417,5 +417,44 @@
     </div>
   </footer>
 </div>
+
+<script>
+function formatNumber(num) {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function updateMetrics() {
+  fetch('/api/metrics')
+    .then(response => {
+      console.log('API Response Status:', response.status);
+      return response.json();
+    })
+    .then(data => {
+      console.log('Metrics data:', data);
+      const totalFilesEl = document.getElementById('metric-total-files');
+      const preprodJobsEl = document.getElementById('metric-preproduction-jobs');
+
+      if (totalFilesEl) {
+        const newValue = formatNumber(data.overview_stats.total);
+        console.log('Updating total-files to:', newValue);
+        totalFilesEl.textContent = newValue;
+      }
+      if (preprodJobsEl) {
+        const newValue = formatNumber(data.metrics.total_macro);
+        console.log('Updating preproduction-jobs to:', newValue);
+        preprodJobsEl.textContent = newValue;
+      }
+    })
+    .catch(error => console.error('Metrics update error:', error));
+}
+
+console.log('Login page loaded, starting metrics updates...');
+
+// Update metrics immediately on page load
+updateMetrics();
+
+// Then update every 3 seconds
+setInterval(updateMetrics, 3000);
+</script>
 </body>
 </html>

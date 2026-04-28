@@ -36,6 +36,7 @@ import uuid
 import concurrent.futures
 import threading
 import html
+import copy
 from docx.shared import Pt
 import difflib
 
@@ -55,9 +56,9 @@ except ImportError:
 # INPUT_DOCX = Path("...") # Removed hardcoded path
 
 # Timeouts and parameters (tweakable)
-CROSSREF_TIMEOUT = 12
-PUBMED_TIMEOUT = 30
-CROSSREF_ROWS = 6
+CROSSREF_TIMEOUT = int(os.environ.get("REF_STRUCT_CROSSREF_TIMEOUT", "6"))
+PUBMED_TIMEOUT = int(os.environ.get("REF_STRUCT_PUBMED_TIMEOUT", "12"))
+CROSSREF_ROWS = int(os.environ.get("REF_STRUCT_CROSSREF_ROWS", "4"))
 
 # thresholds
 # thresholds
@@ -79,6 +80,7 @@ REF_CACHE = {
     "journal_abbrev": {}
 }
 CACHE_LOCK = threading.Lock()
+METADATA_MATCH_CACHE: Dict[Tuple[str, str], Tuple[Optional[Dict[str, Any]], str, float]] = {}
 
 # --- GOOGLE GEMINI CONFIG ---
 # Load API Key from environment or hardcode if necessary
@@ -3169,6 +3171,13 @@ def detect_reference_style(raw_text: str) -> str:
 
 def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Optional[Dict[str, Any]], str, float]:
     raw_ref = normalize_whitespace(raw_ref)
+    cache_key = (style_name or "", raw_ref)
+    with CACHE_LOCK:
+        cached = METADATA_MATCH_CACHE.get(cache_key)
+    if cached:
+        item, source, score = cached
+        return copy.deepcopy(item) if item else None, source, score
+
     detected_style = detect_reference_style(raw_ref)
     
     # Input Type Detection
@@ -3264,7 +3273,10 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
                              # No ISBN, but keep a clean Open Library link as fallback
                              gb_res['URL'] = f"https://openlibrary.org/search?q={requests.utils.quote(found_title)}"
                          # else: keep original URL so citation has some link
-                     return gb_res, 'google_books', sim
+                     result = (gb_res, 'google_books', sim)
+                     with CACHE_LOCK:
+                         METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(gb_res), 'google_books', sim)
+                     return result
              
              # If Google Books fails, return manual_skip BUT with parsed metadata
              if style_name == 'REF-N': p_tmp = parse_ama_reference_raw(raw_ref)
@@ -3272,6 +3284,8 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
              p_tmp['manual_type'] = manual_type
              p_tmp['type'] = manual_type
              p_tmp['detected_style'] = detected_style
+             with CACHE_LOCK:
+                 METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(p_tmp), 'manual_skip', 1.0)
              return p_tmp, 'manual_skip', 1.0
              
 
@@ -3282,6 +3296,8 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
          p_tmp['manual_type'] = manual_type
          p_tmp['type'] = manual_type
          p_tmp['detected_style'] = detected_style
+         with CACHE_LOCK:
+             METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(p_tmp), 'manual_skip', 1.0)
          return p_tmp, 'manual_skip', 1.0
 
     # API Validation Path
@@ -3296,11 +3312,15 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
         if pm_doi_item:
             # Convert to unified/Crossref-like structure
             unified = pubmed_to_crossref_like(pm_doi_item)
+            with CACHE_LOCK:
+                METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(unified), 'doi_pubmed', 1.0)
             return unified, 'doi_pubmed', 1.0
         
         # Try CrossRef second
         cr = crossref_get_by_doi(doi)
         if cr:
+            with CACHE_LOCK:
+                METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(cr), 'doi_crossref', 1.0)
             return cr, 'doi_crossref', 1.0
 
     # 2. Search Fallback (Priority: PubMed -> CrossRef)
@@ -3341,7 +3361,10 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
     # User said "first pubmed then cross ref site".
     # Assuming "strict priority", if PubMed finds a high confidence match, we use it.
     if best_pm and best_pm_score >= 0.85:
-        return pubmed_to_crossref_like(best_pm), 'pubmed', best_pm_score
+        result_item = pubmed_to_crossref_like(best_pm)
+        with CACHE_LOCK:
+            METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(result_item), 'pubmed', best_pm_score)
+        return result_item, 'pubmed', best_pm_score
 
     # B. CrossRef Search (if PubMed failed or low score)
     cr_candidates = crossref_search(title, journal, year, rows=CROSSREF_ROWS)
@@ -3382,10 +3405,16 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
             reject = False
             if sim_pure < 0.98: reject = True
             if len(chosen_title) > len(title) * 1.5: reject = True
-            if reject: return None, 'filtered_book_mismatch', 0.0
+            if reject:
+                with CACHE_LOCK:
+                    METADATA_MATCH_CACHE[cache_key] = (None, 'filtered_book_mismatch', 0.0)
+                return None, 'filtered_book_mismatch', 0.0
         
         if is_web_input and 'journal' in res_type:
-             if final_score < 0.98: return None, 'filtered_web_mismatch', 0.0
+             if final_score < 0.98:
+                 with CACHE_LOCK:
+                     METADATA_MATCH_CACHE[cache_key] = (None, 'filtered_web_mismatch', 0.0)
+                 return None, 'filtered_web_mismatch', 0.0
 
     # Fallback to web link detection if nothing found
     if not final_best:
@@ -3401,6 +3430,8 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
                 'URL': url,
                 'DOI': doi
             }
+            with CACHE_LOCK:
+                METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(web_item), 'web', 0.5)
             return web_item, 'web', 0.5
             
         return None, '', 0.0

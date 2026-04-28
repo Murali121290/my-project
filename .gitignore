@@ -18,3 +18,4 @@ Backup/
 *.dotm
 .env
 backups/ref_cache.json
+.bak

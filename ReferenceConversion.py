@@ -10,13 +10,16 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 import copy
 
-from gemini_ref_converter import convert_reference, CitationStyle, BIB_FIELDS, CONVERSION_MAP
+from gemini_ref_converter import convert_reference, CitationStyle, BIB_FIELDS, CONVERSION_MAP, DEFAULT_MODEL
 
 # ─────────────────────────────────────────────
 # LOGGING
 # ─────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+SKIP_SAME_STYLE = os.environ.get("REFERENCE_CONVERTER_SKIP_SAME_STYLE", "1").strip().lower() not in ("0", "false", "no")
+MAX_CONVERSION_WORKERS = int(os.environ.get("REFERENCE_CONVERTER_MAX_WORKERS", "2"))
 
 
 # ─────────────────────────────────────────────
@@ -67,6 +70,105 @@ def detect_ref_type_from_metadata(metadata: Dict) -> str:
     return metadata.get("bib_reftype") or "unknown"
 
 
+def _blank_metadata() -> Dict:
+    meta = {field: "" for field in BIB_FIELDS}
+    meta["bib_reftype"] = "unknown"
+    return meta
+
+
+def _lookup_year(item: Dict) -> str:
+    for date_key in ("published-print", "published-online", "issued", "created"):
+        dp = (item.get(date_key) or {}).get("date-parts")
+        if dp and dp[0] and dp[0][0]:
+            return str(dp[0][0])
+    if item.get("year"):
+        return str(item["year"])
+    return ""
+
+
+def _lookup_ref_type(item: Dict) -> str:
+    raw_type = (item.get("type") or "").lower()
+    if raw_type in ("journal-article", "journal"):
+        return "journal"
+    if raw_type in ("book",):
+        return "book"
+    if raw_type in ("book-chapter", "chapter"):
+        return "book_chapter"
+    if raw_type in ("proceedings-article", "conference-paper"):
+        return "conference"
+    if raw_type in ("dissertation", "thesis"):
+        return "thesis"
+    if raw_type in ("report",):
+        return "report"
+    if raw_type in ("website", "webpage", "posted-content"):
+        return "website"
+    if item.get("container-title") and (item.get("volume") or item.get("page")):
+        return "journal"
+    if item.get("publisher"):
+        return "book"
+    if item.get("URL"):
+        return "website"
+    return "unknown"
+
+
+def _page_parts(page: str) -> Tuple[str, str]:
+    if not page:
+        return "", ""
+    page = str(page).strip()
+    match = re.split(r"[-–—]", page, maxsplit=1)
+    if len(match) == 2:
+        return match[0].strip(), match[1].strip()
+    return page, ""
+
+
+def _metadata_from_lookup(item: Dict, target_style: CitationStyle) -> Dict:
+    meta = _blank_metadata()
+    ref_type = _lookup_ref_type(item)
+    title_val = item.get("title") or ""
+    title = title_val[0] if isinstance(title_val, list) and title_val else str(title_val or "")
+    container_val = item.get("container-title") or ""
+    container = container_val[0] if isinstance(container_val, list) and container_val else str(container_val or "")
+    short_container_val = item.get("short-container-title") or ""
+    short_container = short_container_val[0] if isinstance(short_container_val, list) and short_container_val else ""
+    page = item.get("page") or ""
+    fpage, lpage = _page_parts(page)
+
+    authors = item.get("author") or []
+    surnames = []
+    fnames = []
+    for author in authors:
+        family = (author.get("family") or "").strip()
+        given = (author.get("given") or "").strip()
+        literal = (author.get("literal") or "").strip()
+        if family or given:
+            surnames.append(family or given)
+            fnames.append(given if family else "")
+        elif literal:
+            surnames.append(literal)
+            fnames.append("")
+
+    meta["bib_reftype"] = ref_type
+    meta["bib_title"] = title
+    meta["bib_article"] = title
+    meta["bib_book"] = title if ref_type in ("book", "edited_book") else ""
+    meta["bib_journal"] = short_container if target_style == CitationStyle.AMA and short_container else container
+    meta["bib_surname"] = "|".join(surnames)
+    meta["bib_fname"] = "|".join(fnames)
+    meta["bib_year"] = _lookup_year(item)
+    meta["bib_volume"] = str(item.get("volume") or "")
+    meta["bib_issue"] = str(item.get("issue") or "")
+    meta["bib_fpage"] = fpage
+    meta["bib_lpage"] = lpage
+    meta["bib_doi"] = str(item.get("DOI") or "").replace("https://doi.org/", "").replace("doi:", "").strip()
+    meta["bib_url"] = str(item.get("URL") or "").strip()
+    meta["bib_publisher"] = str(item.get("publisher") or "")
+    meta["bib_institution"] = str(item.get("institution") or item.get("publisher") or "")
+    meta["bib_school"] = str(item.get("school") or "")
+    meta["bib_conference"] = str(item.get("event") or item.get("container-title") or "")
+    meta["bib_reportnum"] = str(item.get("report-number") or "")
+    return meta
+
+
 # ─────────────────────────────────────────────
 # TITLE CASE / SENTENCE CASE HELPERS  (#34, #38)
 # ─────────────────────────────────────────────
@@ -88,43 +190,64 @@ _PROPER_NOUNS = re.compile(
 # Matches dotted country/org abbreviations like U.S., U.K., U.S.A., U.N. — must NOT be lowercased
 _DOTTED_ABBREV_RE = re.compile(r'[A-Z](?:\.[A-Z])+\.?')
 
+# Words guaranteed NOT to be proper nouns — only these are lowercased in Title Case input
+_SC_SMALL_WORDS = frozenset({
+    "a", "an", "the", "and", "but", "or", "for", "nor", "on", "at",
+    "to", "by", "in", "of", "up", "as", "is", "it", "its", "via",
+    "per", "vs", "et", "with", "from", "into", "onto", "than",
+})
+
 def _to_sentence_case(text: str) -> str:
     """
-    Sentence case: capitalise only the first word, first word after colon/em-dash,
-    and known proper nouns. Safety net — Gemini usually does this, but applied
-    locally to catch any misses.
+    Sentence case conversion that preserves proper nouns.
+
+    Strategy: detect input case type rather than trying to identify proper nouns.
+    - ALL CAPS (>70% uppercase): aggressive lowercase, then restore acronyms.
+    - Title Case: only lowercase known small words (articles/prepositions/conjunctions).
+      Everything else keeps its original capitalisation — this naturally preserves
+      proper nouns (names, places, brands) without needing a whitelist.
     """
     if not text:
         return text
-        
-    alpha_count = sum(1 for c in text if c.isalpha())
-    upper_count = sum(1 for c in text if c.isupper())
-    
-    # If more than 50% of alphabetical characters are uppercase, it's likely ALL CAPS.
-    # In that case, we don't preserve acronyms to allow proper sentence casing.
-    preserve_acronyms = True
-    if alpha_count > 0 and (upper_count / alpha_count) > 0.5:
-        preserve_acronyms = False
 
-    acronym_spans = []
-    if preserve_acronyms:
-        # Match words with at least 2 uppercase letters, or specific lower-upper patterns like mRNA
+    alpha_chars = [c for c in text if c.isalpha()]
+    if not alpha_chars:
+        return text
+
+    upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
+    is_all_caps = upper_ratio > 0.7
+
+    if is_all_caps:
+        # Aggressive path: lowercase everything, then restore acronyms and known proper nouns
+        acronym_spans = []
         acronym_pattern = r'\b(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[a-z][A-Z][A-Za-z0-9]*)\b'
-        acronym_spans = [(m.start(), m.end(), m.group()) for m in re.finditer(acronym_pattern, text)]
-        # Also preserve dotted abbreviations like U.S., U.K., U.S.A.
+        for m in re.finditer(acronym_pattern, text):
+            acronym_spans.append((m.start(), m.end(), m.group()))
         for m in _DOTTED_ABBREV_RE.finditer(text):
             acronym_spans.append((m.start(), m.end(), m.group()))
+        proper_spans = [(m.start(), m.end(), m.group()) for m in _PROPER_NOUNS.finditer(text)]
+        result = text[0].upper() + text[1:].lower() if len(text) > 1 else text.upper()
+        for start, end, word in acronym_spans:
+            result = result[:start] + word + result[end:]
+        for start, end, word in proper_spans:
+            result = result[:start] + word + result[end:]
+    else:
+        # Conservative path: only lowercase known small words; preserve all other capitalisation
+        words = text.split(" ")
+        result_words = []
+        for i, word in enumerate(words):
+            if i == 0:
+                # Always capitalise first word
+                result_words.append(word[0].upper() + word[1:] if word else word)
+            elif word.lower() in _SC_SMALL_WORDS and word == word.capitalize():
+                # Definite small word — lowercase it
+                result_words.append(word.lower())
+            else:
+                # Preserve original capitalisation (proper nouns, acronyms, etc.)
+                result_words.append(word)
+        result = " ".join(result_words)
 
-    proper_spans = [(m.start(), m.end(), m.group()) for m in _PROPER_NOUNS.finditer(text)]
-    
-    result = text[0].upper() + text[1:].lower() if len(text) > 1 else text.upper()
-    
-    for start, end, word in acronym_spans:
-        result = result[:start] + word + result[end:]
-        
-    for start, end, word in proper_spans:
-        result = result[:start] + word + result[end:]
-        
+    # Capitalise first word after colon / em-dash in both paths
     result = re.sub(r'([:;—]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), result)
     return result
 
@@ -183,6 +306,19 @@ def _normalise_quotes(text: str) -> str:
         .replace('\u2018', "'").replace('\u2019', "'")
         .replace('\u201c', '"').replace('\u201d', '"')
     )
+
+
+def _normalise_double_periods(text: str) -> str:
+    """
+    Collapse accidental double periods while preserving ellipses.
+    Examples:
+    - '2nd ed.. Publisher' -> '2nd ed. Publisher'
+    - 'Title..' -> 'Title.'
+    - '..., ' remains unchanged
+    """
+    if not text:
+        return text
+    return re.sub(r'(?<!\.)\.\.(?!\.)', '.', text)
 
 
 # ─────────────────────────────────────────────
@@ -1012,7 +1148,8 @@ def _validate_converted_reference(
         issues.append("author missing")
 
     # Format sanity checks on the final text
-    if ".." in final_text:
+    text_without_urls = re.sub(r'https?://\S+', '', final_text)
+    if re.search(r'(?<!\.)\.\.(?!\.)', text_without_urls):
         issues.append("double period in output")
 
     if target_style == "APA" and ref_type not in ("website", "ereference", "thesis"):
@@ -1066,6 +1203,15 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
                meta.get("bib_institution") or
                (meta.get("bib_surname") if not meta.get("bib_fname") else "") or
                "")
+        if not org:
+            # Books/reports: Gemini stores org author in bib_publisher when identical to author
+            if ref_type in ("book", "edited_book", "report"):
+                org = (meta.get("bib_publisher") or "").strip()
+            # Websites: Gemini stores org author in bib_journal (site name field)
+            elif ref_type in ("website", "ereference"):
+                site_val = (meta.get("bib_journal") or meta.get("bib_book") or "").strip()
+                if site_val and not _is_url(site_val):
+                    org = site_val
         if org:
             segs.append((org.rstrip("."), "bib_organization"))
             segs.append((".", None))
@@ -1098,7 +1244,13 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         if n_auth > 6:
             segs.append((", ", None))
             segs.append(("et al.", "bib_etal"))
-    segs.append((". ", None))
+    # Smart separator: only add ". " if author block doesn't already end with a period
+    if segs:
+        last_text = segs[-1][0].rstrip()
+        if last_text.endswith("."):
+            segs.append((" ", None))
+        else:
+            segs.append((". ", None))
 
     chapter_title = meta.get("bib_chaptertitle") or ""
     main_title    = meta.get("bib_title") or ""
@@ -1144,7 +1296,8 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((" ", None))
             segs.append((year, "bib_year"))
         if volume:
-            segs.append((";", None))
+            if year:  # Only add ; before volume if year exists
+                segs.append((";", None))
             segs.append((volume, "bib_volume"))
         if issue:
             segs.append(("(", None))
@@ -1169,7 +1322,12 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((". ", None))
         if edition and _ordinal(edition) not in ("1st", "1"):
             segs.append((_ordinal(edition) + " ed. ", "bib_editionno"))
-        if publisher:
+        # Skip publisher if already emitted as org author (AMA: omit when identical to author)
+        org_used_as_author = (n_auth == 0 and publisher and
+                              not meta.get("bib_organization") and
+                              not meta.get("bib_institution") and
+                              not (meta.get("bib_surname") if not meta.get("bib_fname") else ""))
+        if publisher and not org_used_as_author:
             segs.append((publisher, "bib_publisher"))
             segs.append(("; ", None))
         if year:
@@ -1238,7 +1396,12 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             clean_title = _to_sentence_case(title.rstrip("."))
             segs.append((clean_title, "bib_title"))
             segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
-        if site:
+        # Skip site name if already emitted as org author (AMA: omit when identical to author)
+        org_used_as_author = (n_auth == 0 and site and
+                              not meta.get("bib_organization") and
+                              not meta.get("bib_institution") and
+                              not (meta.get("bib_surname") if not meta.get("bib_fname") else ""))
+        if site and not org_used_as_author:
             segs.append((site, "bib_journal"))
             segs.append((". ", None))
         if pub and pub.lower() != site.lower():
@@ -1260,7 +1423,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         inst   = _strip_publisher_suffixes(meta.get("bib_institution") or "")
         year   = meta.get("bib_year") or ""
         if inst:
-            segs.append((inst, "bib_publisher"))
+            segs.append((inst, "bib_institution"))
             segs.append(("; ", None))
         if year:
             segs.append((year, "bib_year"))
@@ -1359,6 +1522,15 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
                meta.get("bib_institution") or
                (meta.get("bib_surname") if not meta.get("bib_fname") else "") or
                "")
+        if not org:
+            # Books/reports: Gemini stores org author in bib_publisher when identical to author
+            if ref_type in ("book", "edited_book", "report"):
+                org = (meta.get("bib_publisher") or "").strip()
+            # Websites: Gemini stores org author in bib_journal (site name field)
+            elif ref_type == "website":
+                site_val = (meta.get("bib_journal") or meta.get("bib_book") or "").strip()
+                if site_val and not _is_url(site_val):
+                    org = site_val
         if org:
             segs.append((org.rstrip("."), "bib_organization"))
             segs.append((".", None))
@@ -1392,6 +1564,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
     if is_edited_book_primary and n_auth > 0:
         ed_label = " (Ed.)" if n_auth == 1 else " (Eds.)"
         segs.append((ed_label, None))
+        segs.append((".", None))
 
     # Add a period after the author block if it doesn't already end with one 
     # (e.g., if the last element was an organization without initials)
@@ -1522,7 +1695,8 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         if journal:
             segs.append((journal, "bib_journal"))  # italic via _ITALIC_STYLES
         if volume:
-            segs.append((", ", None))
+            if journal:  # Only add comma before volume if journal name exists
+                segs.append((", ", None))
             segs.append((volume, "bib_volume"))    # italic via _ITALIC_STYLES  (#32)
         if issue:
             segs.append(("(", None))
@@ -1547,7 +1721,12 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((" (", None))
             segs.append((_ordinal(edition) + " ed.", "bib_editionno"))
             segs.append((").", None))
-        if publisher:
+        # Skip publisher if already emitted as org author (APA: omit when identical to author)
+        org_used_as_author = (n_auth == 0 and publisher and
+                              not meta.get("bib_organization") and
+                              not meta.get("bib_institution") and
+                              not (meta.get("bib_surname") if not meta.get("bib_fname") else ""))
+        if publisher and not org_used_as_author:
             segs.append((" ", None))
             segs.append((publisher, "bib_publisher"))
             segs.append((".", None))
@@ -1559,7 +1738,12 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         # Guard: Gemini sometimes stores a URL in the site name field
         if _is_url(site):
             site = ""
-        if site:
+        # Skip site name if already emitted as org author (APA: omit when identical to author)
+        org_used_as_author = (n_auth == 0 and site and
+                              not meta.get("bib_organization") and
+                              not meta.get("bib_institution") and
+                              not (meta.get("bib_surname") if not meta.get("bib_fname") else ""))
+        if site and not org_used_as_author:
             segs.append((_to_title_case(site), "bib_journal"))
             segs.append((".", None))
         if accessed and url:
@@ -1626,7 +1810,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((" (Report No. " + repnum + ").", None))
         if inst:
             segs.append((" ", None))
-            segs.append((inst, "bib_publisher"))
+            segs.append((inst, "bib_institution"))
             segs.append((".", None))
 
     # ── DOI / URL ─────────────────────────────────────────────────
@@ -1678,7 +1862,7 @@ def process_conversion(
     output_dir: Optional[Path] = None,
     source_style: str = "Auto",
     target_style: str = "APA",
-    model_name: str = "gemini-2.0-flash",
+    model_name: str = DEFAULT_MODEL,
     prefer_gemini_output: bool = True,
 ) -> Dict[str, Path]:
     input_docx = Path(input_docx)
@@ -1725,7 +1909,7 @@ def process_conversion(
     in_ref_section  = False
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from ReferencesStructing import find_best_metadata_for_reference, detect_reference_style
+    from ReferencesStructing import find_best_metadata_for_reference
 
     tasks = []
 
@@ -1780,7 +1964,7 @@ def process_conversion(
     def process_task(task: dict):
         raw_text = task['raw_text']
         count    = task['count']
-        logger.info(f"[{count}] Conversion API Call: {raw_text[:80]}...")
+        logger.info(f"[{count}] Gemini API Call: {raw_text[:80]}...")
 
         if source_style.upper() == "AUTO":
             para_style = task.get('para_style', '')
@@ -1807,41 +1991,37 @@ def process_conversion(
         else:
             t_enum = CitationStyle.APA if target_style.upper() == "APA" else CitationStyle.AMA
 
-        if detected_source == t_enum:
-            logger.info(f"  [{count}] [Formatting Validation] Already in {t_enum.value}")
-
-        cr_item = None
-        try:
-            temp_cr, source_db, score = find_best_metadata_for_reference(raw_text, detected_source.value)
-            is_journal = False
-            if temp_cr:
-                if 'pubmed' in source_db.lower():
-                    is_journal = True
-                elif 'crossref' in source_db.lower() and temp_cr.get('type', '').lower() in ('journal-article', 'journal'):
-                    is_journal = True
-                elif 'crossref' in source_db.lower() and not temp_cr.get('type') and temp_cr.get('container-title'):
-                    is_journal = True
-
-            # Lowered PubMed threshold to 0.65 for more reliable matching  (#42)
-            if is_journal and score >= 0.65:
-                cr_item = temp_cr
-                logger.info(f"  [{count}] [DB Match] Journal via {source_db} (Score: {score:.2f})")
-            elif temp_cr and score >= 0.75:
-                cr_item = temp_cr
-                logger.info(f"  [{count}] [DB Match] General via {source_db} (Score: {score:.2f})")
-            elif temp_cr:
-                logger.info(f"  [{count}] [DB Match] Ignored {source_db} (Score: {score:.2f}) — below threshold")
-                cr_item = None
-        except Exception as e:
-            logger.warning(f"  [{count}] Failed to query CrossRef/PubMed: {e}")
+        logger.info(f"  [{count}] Processing via Gemini API")
 
         result = convert_reference(
             raw_text=raw_text,
             source_style=detected_source,
             target_style=t_enum,
             model_name=model_name,
-            cr_item=cr_item,
+            cr_item=None,
         )
+
+        # DB lookup for enrichment only — fills missing DOI/fields after Gemini
+        cr_item = None
+        try:
+            temp_cr, source_db, score = find_best_metadata_for_reference(raw_text, detected_source.value)
+            if temp_cr:
+                is_journal = (
+                    'pubmed' in source_db.lower()
+                    or ('crossref' in source_db.lower() and temp_cr.get('type', '').lower() in ('journal-article', 'journal'))
+                    or ('crossref' in source_db.lower() and not temp_cr.get('type') and temp_cr.get('container-title'))
+                )
+                if is_journal and score >= 0.65:
+                    cr_item = temp_cr
+                    logger.info(f"  [{count}] [DB Enrich] Journal via {source_db} (Score: {score:.2f})")
+                elif score >= 0.75:
+                    cr_item = temp_cr
+                    logger.info(f"  [{count}] [DB Enrich] General via {source_db} (Score: {score:.2f})")
+                else:
+                    logger.info(f"  [{count}] [DB Enrich] Ignored {source_db} (Score: {score:.2f}) — below threshold")
+        except Exception as e:
+            logger.warning(f"  [{count}] DB enrichment lookup failed: {e}")
+
         task['target_enum'] = t_enum
         task['result']      = result
         task['cr_item']     = cr_item
@@ -1850,8 +2030,9 @@ def process_conversion(
 
     if tasks:
         logger.info(f"Starting parallel conversions for {len(tasks)} references...")
-        # Reduced max_workers from 5 to 2 to prevent Gemini API 429 (Too Many Requests) errors
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        worker_count = min(MAX_CONVERSION_WORKERS, max(1, len(tasks)))
+        logger.info(f"Using {worker_count} conversion worker(s).")
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(process_task, t) for t in tasks]
             for future in as_completed(futures):
                 try:
@@ -1875,10 +2056,10 @@ def process_conversion(
             entry = ConversionLogEntry(
                 original=raw_text, converted="[FAILED]",
                 ref_type="unknown", source_style=detected_source.value,
-                target_style=target_style, error="Gemini returned no result",
+                target_style=target_style, error="No DB match and Gemini call skipped/failed",
             )
             log_entries.append(entry)
-            logger.warning(f"  Gemini failed for reference {count}")
+            logger.warning(f"  No usable conversion result for reference {count}")
             continue
 
         metadata   = result.get("metadata", {})
@@ -1966,6 +2147,7 @@ def process_conversion(
 
         # Strip curly quotes — Word manages smart quotes; pre-curled quotes create TC noise  (#35)
         final_text = _normalise_quotes(final_text)
+        final_text = _normalise_double_periods(final_text)
 
         if not final_text.strip():
             error_count += 1
@@ -2080,7 +2262,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir",       type=str,                                          help="Output directory (default: same as input)")
     parser.add_argument("--source-style",     type=str, default="Auto", choices=["AMA","APA","CGRN","Auto"], help="Source citation style")
     parser.add_argument("--target-style",     type=str, default="APA",  choices=["AMA","APA","CGRN"],        help="Target citation style")
-    parser.add_argument("--model",            type=str, default="gemini-2.0-flash",              help="Gemini model name")
+    parser.add_argument("--model",            type=str, default=DEFAULT_MODEL,                    help="Gemini model name")
     parser.add_argument("--no-gemini-output", action="store_true",                                help="Rebuild from metadata instead of Gemini formatted output")
     args = parser.parse_args()
 

@@ -27,11 +27,11 @@ def get_unique_id():
     # Word IDs usually should be unique.
     return str(random.randint(1, 2147483647))
 
-def add_tracked_text(paragraph, text, style=None, author="S4c", date=None, color=None, doc=None):
+def add_tracked_text(paragraph, text, style=None, author="S4c", date=None, color=None, doc=None, superscript=False):
     """
     Appends a new run with `text` inside a <w:ins> element to `paragraph`.
     Simulates "Track Changes" insertion.
-    
+
     Args:
         paragraph: The paragraph to append to
         text: The text to insert
@@ -40,38 +40,39 @@ def add_tracked_text(paragraph, text, style=None, author="S4c", date=None, color
         date: ISO format date string
         color: Color value for text
         doc: Document object (used to resolve style names to style IDs)
+        superscript: If True, makes the text superscript
     """
     if not text:
         return None
-        
+
     if date is None:
         date = get_current_iso_time()
-    
+
     # Create <w:ins>
     ins = create_element('w:ins')
-    ins.set(qn('w:id'), get_unique_id()) 
+    ins.set(qn('w:id'), get_unique_id())
     ins.set(qn('w:author'), author)
     ins.set(qn('w:date'), date)
-    
+
     # Create Run
     run = create_element('w:r')
-    
+
     # Add Text
     t = create_element('w:t')
     t.text = text
     # Preserve whitespace if needed
     if text.strip() != text or ' ' in text:
          t.set(qn('xml:space'), 'preserve')
-        
+
     # Add Style/Properties
-    if style or color:
+    if style or color or superscript:
         rPr = create_element('w:rPr')
-        
+
         if style:
             rStyle = create_element('w:rStyle')
             # Resolve style name to style ID using doc.styles if available
             style_id = None
-            
+
             if hasattr(style, 'style_id'):
                 # It's already a Style object
                 style_id = style.style_id
@@ -86,22 +87,27 @@ def add_tracked_text(paragraph, text, style=None, author="S4c", date=None, color
             else:
                 # No doc provided, use the style string as-is
                 style_id = str(style)
-            
+
             rStyle.set(qn('w:val'), style_id)
             rPr.append(rStyle)
-            
+
         if color:
             c = create_element('w:color')
             c.set(qn('w:val'), color)
             rPr.append(c)
 
+        if superscript:
+            vertAlign = create_element('w:vertAlign')
+            vertAlign.set(qn('w:val'), 'superscript')
+            rPr.append(vertAlign)
+
         run.append(rPr)
-        
+
     run.append(t)
-    
+
     # Append run to ins
     ins.append(run)
-    
+
     # Append to paragraph
     paragraph._element.append(ins)
     return ins
@@ -157,17 +163,16 @@ def delete_tracked_run(paragraph, run, author="RefBot", date=None):
     if date is None:
         date = get_current_iso_time()
         
-    # Create <w:del>
-    # Note: Structure is <w:p> ... <w:del><w:r>...</w:r></w:del> ... </w:p>
-    # We need to replace the run in the parent with the del wrapping it.
-    
     p = paragraph._element
     r = run._element
+    parent = r.getparent()
     
-    if r.getparent() != p:
-        # Run might be inside a hyperlink or other structure?
-        # If so, we skip complex nesting for now or handle carefully.
-        return False
+    if parent.tag == qn('w:ins'):
+        # If it is inside an insertion, deleting an insertion just removes it
+        parent.remove(r)
+        if len(parent) == 0:
+            parent.getparent().remove(parent)
+        return True
         
     # Create del
     del_tag = create_element('w:del')
@@ -175,10 +180,8 @@ def delete_tracked_run(paragraph, run, author="RefBot", date=None):
     del_tag.set(qn('w:author'), author)
     del_tag.set(qn('w:date'), date)
     
-    # Replace r with del_tag in p
-    # Insert del_tag before r
+    # Replace r with del_tag in its parent
     r.addprevious(del_tag)
-    # Move r inside del_tag
     del_tag.append(r)
     
     # Text inside w:del should be w:delText, not w:t

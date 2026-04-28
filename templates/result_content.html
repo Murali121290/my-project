@@ -98,11 +98,26 @@
         </div>
         {% endif %}
 
-        {% if res.mapping %}
-        <div class="mapping-box">
-            <h4>Renumbering Mapping (Old &rarr; New)</h4>
+        {% if res.mapping_pass1 %}
+        <div class="mapping-box" style="border-left: 5px solid #2196F3;">
+            <h4 style="color: #2196F3;">Pass 1: Initial Renumbering (Old &rarr; New)</h4>
+            <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">Based on citation order and bibliography reordering</p>
             <div class="mapping-list">
-                {% for old, new in res.mapping.items()|sort(attribute='1') %}
+                {% for old, new in res.mapping_pass1.items()|sort(attribute='1') %}
+                {% if old != new %}
+                <span class="map-item">{{ old }} &rarr; {{ new }}</span>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if res.mapping_pass2 %}
+        <div class="mapping-box" style="border-left: 5px solid #4CAF50;">
+            <h4 style="color: #4CAF50;">Pass 2: Final Renumbering (Old &rarr; New)</h4>
+            <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">After duplicate removal and dual renumbering</p>
+            <div class="mapping-list">
+                {% for old, new in res.mapping_pass2.items()|sort(attribute='1') %}
                 {% if old != new %}
                 <span class="map-item">{{ old }} &rarr; {{ new }}</span>
                 {% endif %}

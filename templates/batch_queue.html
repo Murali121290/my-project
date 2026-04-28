@@ -242,7 +242,6 @@ function actionsHtml(job) {
         return `<button class="btn-sm btn-cancel" onclick="cancelJob('${job.job_id}')"><i class="fas fa-times"></i> Cancel</button>`;
     } else if (job.status === 'completed') {
         return `<a class="btn-sm btn-download" href="/download_zip/${job.job_id}"><i class="fas fa-download"></i> Download</a>`;
-    }
     } else if (job.status === 'downloaded') {
         return '<span class="ts">—</span>';
     }

@@ -11,6 +11,7 @@ import utils.url_validator
 import ReferenceConversion
 import utils.track_changes
 from ReferenceConversion import _looks_like_inline_citation
+import Referencenumvalidation as numerical_validation
 
 load_dotenv()
 
@@ -1613,6 +1614,29 @@ def iter_document_paragraphs(doc):
                         yield p
 
 
+def get_visible_runs(para):
+    """
+    Yields all runs in a paragraph that are not deleted (not inside <w:del>).
+    This allows us to see runs added via track changes (<w:ins>).
+    """
+    from docx.text.run import Run
+    from docx.oxml.ns import qn
+    runs = []
+    for element in para._element.iter():
+        if element.tag == qn('w:r'):
+            # Check if any parent is w:del
+            parent = element.getparent()
+            is_deleted = False
+            while parent is not None and parent != para._element.getparent():
+                if parent.tag == qn('w:del'):
+                    is_deleted = True
+                    break
+                parent = parent.getparent()
+            if not is_deleted:
+                runs.append(Run(element, para))
+    return runs
+
+
 def get_numbers(text):
     """
     Extract numbers from text like '1', '2-5', '1, 3, 5'.
@@ -1896,7 +1920,7 @@ class ReferenceProcessor:
             # 1. Process runs
             current_group = []
             
-            for run in para.runs:
+            for run in get_visible_runs(para):
                 if is_citation_run(run):
                     current_group.append(run)
                 else:
@@ -1935,54 +1959,46 @@ class ReferenceProcessor:
 
     def find_duplicates(self, ref_objects):
         """
-        Finds duplicate references using fuzzy matching (difflib).
+        Finds 100% exact duplicate references (ignoring leading numbers).
+        Strips all number formats: 1. [1]. (1). [1] (1) before comparing.
         Returns a list of dicts: {'id': int, 'text': str, 'duplicate_of': int, 'score': float}
         """
+        # Strip any leading number prefix: 1. [1]. (1). [1] (1) 1
+        _strip_prefix = re.compile(
+            r'^\s*(?:\[\d+\]\.?\s*|\(\d+\)\.?\s*|\d+\.?\s+)'
+        )
+
         duplicates = []
-        processed_refs = [] # list of (id, clean_text)
-        
-        # 1. Pre-process all candidates
+        processed_refs = []
+
         for obj in ref_objects:
             full_text = obj['para'].text.strip()
-            # Remove leading numbering like "1. ", "[1] "
-            clean_text = re.sub(r'^\[?\d+\]?[\.\s]*', '', full_text)
+            clean_text = _strip_prefix.sub('', full_text).strip()
             processed_refs.append({'id': obj['id'], 'text': clean_text})
-            
-        # 2. Compare O(N^2)
-        # We only check forward to avoid double reporting (A=B, B=A)
-        # We assume the *earlier* ID is the "original" and later is "duplicate"
+
         n = len(processed_refs)
+
         for i in range(n):
             ref_a = processed_refs[i]
-            
-            # Skip if strict duplicate logic already caught it? 
-            # No, let's just do fuzzy for all.
-            
+            text_a = ref_a['text']
+            if not text_a:
+                continue
+
             for j in range(i + 1, n):
                 ref_b = processed_refs[j]
-                
-                # Metric: similarity ratio
-                # Quick check: length difference shouldn't be too huge
-                len_a = len(ref_a['text'])
-                len_b = len(ref_b['text'])
-                if len_a == 0 or len_b == 0: 
+                text_b = ref_b['text']
+                if not text_b:
                     continue
-                    
-                # Optimization: Length ratio check
-                if min(len_a, len_b) / max(len_a, len_b) < 0.6:
-                    continue
-                    
-                ratio = difflib.SequenceMatcher(None, ref_a['text'], ref_b['text']).ratio()
 
-                # Threshold: 0.99 (99% similar — very strict, almost identical)
-                if ratio > 0.99:
+                # 100% exact match only (ignore leading numbers)
+                if text_a == text_b:
                     duplicates.append({
-                        'id': ref_b['id'], # The later one is the duplicate
+                        'id': ref_b['id'],
                         'text': ref_b['text'][:100] + "...",
                         'duplicate_of': ref_a['id'],
-                        'score': round(ratio * 100, 1)
+                        'score': 100.0
                     })
-                    
+
         return duplicates
 
     def resolve_duplicates(self):
@@ -2014,7 +2030,7 @@ class ReferenceProcessor:
 
         # Step 1: Remap citations from duplicate IDs to canonical IDs
         for para in iter_document_paragraphs(self.doc):
-            for run in para.runs:
+            for run in get_visible_runs(para):
                 if is_citation_run(run):
                     nums = get_numbers(run.text)
                     new_nums = [mapping.get(n, n) for n in nums]
@@ -2034,12 +2050,17 @@ class ReferenceProcessor:
                         else:
                             run.text = new_text
 
-        # Step 2: Mark duplicate bibliography entries for deletion with track changes
+        # Step 2: Physically remove duplicate bibliography entries
         bib_refs_new, ref_objects_new = self.get_references_in_bibliography()
+        body = self.doc._element.body
+
         for obj in ref_objects_new:
             if obj['id'] in mapping:
-                # This is a duplicate — mark it for deletion
-                track_changes.wrap_paragraph_content_in_del(obj['para'], author='RefBot')
+                # This is a duplicate — physically remove it
+                para_element = obj['para']._element
+                if para_element.getparent() == body:
+                    body.remove(para_element)
+
                 # Record the merge
                 canonical_id = mapping[obj['id']]
                 for dup_record in duplicates:
@@ -2109,43 +2130,36 @@ class ReferenceProcessor:
         except KeyError:
             styles.add_style('bib_number', WD_STYLE_TYPE.CHARACTER)
 
-        # Tag all bibliography entry numbers with bib_number style
         for para in self.doc.paragraphs:
             if para.style and para.style.name == 'REF-N':
-                # Try to find the number run
-                bib_num, pattern = extract_bib_number(para.text)
-                if bib_num is not None:
-                    # Find the run that contains the number
-                    for run in para.runs:
-                        if str(bib_num) in run.text or any(c.isdigit() for c in run.text):
-                            # Check if this run starts with the number
-                            if run.text.strip() and run.text[0].isdigit():
-                                run.style = styles['bib_number']
-                                break
+                bib_num, _ = extract_bib_number(para.text)
+                if bib_num is None:
+                    continue
+                for run in para.runs:
+                    run_num, _ = extract_bib_number(run.text)
+                    if run_num == bib_num:
+                        run.style = styles['bib_number']
+                        break
 
-    def _ensure_bib_numbers_styled(self):
-        """Ensure all bibliography numbers have bib_number style applied."""
+    def _ensure_citations_styled(self):
+        """Ensure all citation runs that are superscript with numbers have cite_bib style."""
         from docx.enum.style import WD_STYLE_TYPE
 
         styles = self.doc.styles
         try:
-            styles['bib_number']
+            styles['cite_bib']
         except KeyError:
-            styles.add_style('bib_number', WD_STYLE_TYPE.CHARACTER)
+            s = styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
+            s.font.superscript = True
 
-        # Tag all bibliography entry numbers with bib_number style
-        for para in self.doc.paragraphs:
+        for para in iter_document_paragraphs(self.doc):
             if para.style and para.style.name == 'REF-N':
-                # Try to find the number run
-                bib_num, pattern = extract_bib_number(para.text)
-                if bib_num is not None:
-                    # Find the run that contains the number
-                    for run in para.runs:
-                        if str(bib_num) in run.text or any(c.isdigit() for c in run.text):
-                            # Check if this run starts with the number
-                            if run.text.strip() and run.text[0].isdigit():
-                                run.style = styles['bib_number']
-                                break
+                continue
+            for run in para.runs:
+                if (run.font.superscript and
+                        re.match(r'^[\d,\-–—\s]+$', run.text.strip()) and
+                        not (run.style and run.style.name == 'cite_bib')):
+                    run.style = styles['cite_bib']
 
     def renumber(self):
         """
@@ -2167,7 +2181,7 @@ class ReferenceProcessor:
         for para in iter_document_paragraphs(self.doc):
             current_group = []
             
-            for run in para.runs:
+            for run in get_visible_runs(para):
                 if is_citation_run(run):
                     current_group.append(run)
                 else:
@@ -2262,6 +2276,9 @@ class ReferenceProcessor:
         # Ensure all bibliography numbers have bib_number style applied
         self._ensure_bib_numbers_styled()
 
+        # Ensure all citation runs have cite_bib style
+        self._ensure_citations_styled()
+
         return mapping
 
 
@@ -2292,54 +2309,56 @@ def process_document(file_path, citation_format='styled'):
     before_stats['auto_converted'] = auto_converted
     before_stats['citations_tagged'] = cite_tag_result.get('tagged', 0)
 
-    # DECISION: Skip duplicate resolution and renumbering if document has issues
-    # 1. If Unused References exist -> ABORT (don't renumber or merge duplicates)
-    if before_stats["unused_references"]:
-        return doc, before_stats, before_stats, {}, "Failed: Document validation failed due to unused references.", []
-
-    # 2. If Missing Refs exist -> ABORT (don't renumber or merge duplicates)
+    # STEP 2: Missing check — STOP if any missing references
     if before_stats["missing_references"]:
-        return doc, before_stats, before_stats, {}, "Failed: Missing references detected.", []
+        return doc, before_stats, before_stats, {}, {}, \
+            f"Stopped: Missing references detected: {before_stats['missing_references']}", []
 
-    # 3. If Perfect -> No changes needed
+    # If Perfect -> No changes needed
     if before_stats["is_perfect"]:
-        return doc, before_stats, before_stats, {}, "Validation completed.", []
+        return doc, before_stats, before_stats, {}, {}, "Validation completed.", []
 
-    # Only proceed with duplicate resolution and renumbering if document is consistent
-    # PROCESS 2: Resolve duplicates with track changes
+    # TWO-PASS VALIDATION PIPELINE
+    # ===========================
+
+    # PASS 1: Renumber based on citation order and reorder bibliography
+    # -----------------------------------------------------------------
+    mapping_pass1 = processor.renumber()
+    pass1_stats = processor.get_validation_stats()
+
+    # STEP 4: Check for 100% duplicates after reordering (PASS 2)
     merge_log = []
-    merge_log = processor.resolve_duplicates()
-    if merge_log:
-        # Re-validate after merge to get fresh stats
-        before_stats = processor.get_validation_stats()
+    mapping_pass2 = {}
 
-    # Renumber citations and bibliography entries
-    mapping = processor.renumber()
+    if pass1_stats["duplicate_references"]:
+        merge_log = processor.resolve_duplicates()
+        mapping_pass2 = processor.renumber()
+        pass1_stats = processor.get_validation_stats()
 
-    # Check AFTER (Validate result)
+    # Final validation stats
     after_stats = processor.get_validation_stats()
 
     # Determine status message
-    changes_made = False
-    if mapping:
-        for k, v in mapping.items():
-            if k != v:
-                changes_made = True
-                break
-
+    status_parts = []
     if merge_log:
         count = len(merge_log)
-        status_msg = f"Renumbering completed with {count} duplicate reference{'s' if count > 1 else ''} merged."
-    elif before_stats["duplicate_references"]:
-        count = len(before_stats['duplicate_references'])
-        prefix = "Renumbering" if changes_made else "Validation"
-        status_msg = f"{prefix} completed with {count} duplicate{'s' if count > 1 else ''}."
-    elif changes_made:
-        status_msg = "Renumbering completed successfully."
-    else:
-        status_msg = "Validation completed."
+        status_parts.append(f"{count} duplicate reference{'s' if count > 1 else ''} removed")
 
-    return doc, before_stats, after_stats, mapping, status_msg, merge_log
+    pass1_changes = any(k != v for k, v in mapping_pass1.items()) if mapping_pass1 else False
+    pass2_changes = any(k != v for k, v in mapping_pass2.items()) if mapping_pass2 else False
+
+    if pass1_changes or pass2_changes or merge_log:
+        if merge_log:
+            status_msg = f"Two-pass validation: Pass 1 renumbered, Pass 2 {', '.join(status_parts)} and renumbered."
+        elif pass1_changes:
+            status_msg = "Two-pass validation: Pass 1 renumbered and sequence fixed."
+        else:
+            status_msg = "Two-pass validation completed."
+    else:
+        status_msg = "Validation completed - no changes needed."
+
+    # Return 7 values: doc, before_stats, after_stats, mapping_pass1, mapping_pass2, status_msg, merge_log
+    return doc, before_stats, after_stats, mapping_pass1, mapping_pass2, status_msg, merge_log
 
 
 
@@ -2882,6 +2901,27 @@ def login():
         pass
 
     return render_template('login.html', metrics=metrics, overview_stats=overview_stats)
+
+
+@app.route('/api/metrics', methods=['GET'], strict_slashes=False)
+def get_metrics():
+    """API endpoint for real-time metrics (no auth required for login page)"""
+    metrics = {'total_files': 0, 'total_macro': 0, 'active_jobs': 0}
+    overview_stats = {'total': 0, 'validation': 0}
+    try:
+        with db_pool.get_connection() as db:
+            metrics['total_files'] = db.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            metrics['total_macro'] = db.execute("SELECT COUNT(*) FROM macro_processing").fetchone()[0]
+            metrics['active_jobs'] = db.execute("SELECT COUNT(*) FROM job_queue WHERE status IN ('pending','running')").fetchone()[0]
+            overview_stats['total'] = (db.execute("SELECT COUNT(*) FROM files").fetchone()[0] +
+                                      db.execute("SELECT COUNT(*) FROM macro_processing").fetchone()[0])
+    except Exception as e:
+        app.logger.error(f"Error fetching metrics: {e}")
+
+    return jsonify({
+        'metrics': metrics,
+        'overview_stats': overview_stats
+    })
 
 
 @app.route("/register", methods=["GET", "POST"], strict_slashes=False)
@@ -3724,12 +3764,20 @@ def book_indexer_ui():
 @csrf.exempt
 @role_required(ROUTE_PERMISSIONS.get('book_indexer', ['ADMIN', 'USER']))
 def book_indexer_extract():
-    api_key = request.form.get('api_key') or os.getenv('GEMINI_API_KEY')
+    api_key = (
+        request.form.get('api_key')
+        or os.getenv('BOOK_INDEXER_GEMINI_API_KEY')
+        or os.getenv('GEMINI_API_KEY')
+        or os.getenv('GOOGLE_API_KEY')
+    )
     model_name = request.form.get('model', 'gemini-2.5-pro')
     pdf_files = request.files.getlist('pdf_files')
 
     if not api_key:
-        return jsonify({"error": "Missing Gemini API key in request and .env"}), 400
+        return jsonify({
+            "error": "Missing Gemini API key in request and env "
+                     "(checked BOOK_INDEXER_GEMINI_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY)"
+        }), 400
 
     if not pdf_files or len(pdf_files) == 0 or pdf_files[0].filename == '':
         return jsonify({"error": "No PDF files provided"}), 400
@@ -3955,11 +4003,14 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     log_buffer.append("\n--- NUMERICAL VALIDATION ---")
                     try:
                         citation_format = options.get('citation_format', 'styled')
-                        doc, before, after, mapping, val_msg, merge_log = process_document(current_filepath, citation_format=citation_format)
+                        doc, before, after, mapping_pass1, mapping_pass2, val_msg, merge_log = numerical_validation.process_document(
+                            current_filepath,
+                            citation_format=citation_format
+                        )
                         log_buffer.append(f"Result: {val_msg}")
                         log_buffer.append(f"Before Stats: {before}")
                         
-                        has_citations = bool(mapping)
+                        has_citations = bool(mapping_pass1 or mapping_pass2)
                         is_perfect = before.get('is_perfect', False)
                         
                         # If validation changes things or we just need to pass the doc forward
@@ -4027,7 +4078,8 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                         'error': None,
                         'before': before,
                         'after': after,
-                        'mapping': mapping,
+                        'mapping_pass1': mapping_pass1,
+                        'mapping_pass2': mapping_pass2,
                         'merge_log': merge_log if 'merge_log' in locals() else [],
                         'structuring_log': structuring_log_content,
                         'apa_log': apa_log_content
