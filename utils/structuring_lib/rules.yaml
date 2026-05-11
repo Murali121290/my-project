@@ -1,0 +1,373 @@
+# Document Styling Rules Configuration
+# This file defines all patterns, tags, and styles for document elements
+# Non-developers can easily modify this without touching Python code
+
+# Block markers that start/end logical sections
+blocks:
+  start_markers:
+    OBJECTIVES: LEARNING_OBJECTIVES_BLOCK
+    REFERENCES: REFERENCES_BLOCK
+  
+  end_patterns:
+    - pattern: "^(?:FIGURE|Figure)\\s+\\d+"
+      description: "Start of figures section"
+    - pattern: "^(?:TABLE|Table)\\s+\\d+"
+      description: "Start of tables section"
+    - pattern: "^(?:BOX|Box)\\s+\\d+"
+      description: "Start of boxes section"
+    - pattern: "^[A-Z][A-Z\\s]{3,}$"
+      description: "All-caps section heading"
+
+# Paragraph-level patterns with priority (lower number = higher priority)
+paragraphs:
+  - priority: 10
+    pattern: "^(?:CHAPTER|Chapter)\\s+\\d+"
+    tag: CN
+    style: CN
+    description: "Chapter numberes"
+
+  # Figures, tables, boxes (High priority to prevent misclassification as Headings)
+  - priority: 11
+    pattern: "^<FIG\\d+"
+    tag: PMI
+    style: PMI
+    description: "Figure placeholders"
+
+  - priority: 12
+    pattern: "^(?:FIGURE|Figure|figure)\\s+\\d+(?:\\.\\d+)?[:.]?\\s+.*$"
+    tag: FIG-LEG
+    style: FIG-LEG
+    description: "Figure captions"
+
+  - priority: 13
+    pattern: "^(?:TABLE|Table|table)\\s+\\d+(?:\\.\\d+)?[:.]?\\s+.*$"
+    tag: T1
+    style: T1
+    description: "Table titles"
+
+  - priority: 14
+    pattern: "^(?:EQUATION|Equation|equation)\\s+\\d+"
+    tag: EQ
+    style: EQ
+    description: "Equations"
+
+  - priority: 15
+    pattern: "^[—–-]\\s*[A-Z].{1,50}$"
+    tag: EPI-ATT
+    style: EPI-ATT
+    description: "Epigraph/Quote Attribution"
+
+  - priority: 16
+    pattern: "^[\"“].{50,}[\"”]$"
+    tag: EXT
+    style: EXT
+    description: "Long quoted text (Extract)"
+
+  - priority: 17
+    pattern: "^(?:OBJECTIVES|Objectives|LEARNING OUTCOMES|Learning Outcomes|LEARNING OBJECTIVES|Learning Objectives)$"
+    tag: OBJ1
+    style: OBJ1
+    description: "Objective heading"
+
+  - priority: 18
+    pattern: "^(?:REFERENCES|References)$"
+    tag: REFH1
+    style: REFH1
+    description: "Reference heading"
+
+  - priority: 19
+    pattern: "^(?:INTRODUCTION|SUMMARY|CONCLUSION|APPENDIX|ACKNOWLEDGMENTS|Introduction|Summary|Conclusion|Appendix|Acknowledgments)$"
+    tag: H1
+    style: H1
+    description: "Common section headings"
+
+  - priority: 20
+    pattern: "^(?:\\d+(?:\\.\\d+)*|[IVX]+|[A-Z])\\.\\s+[A-Z].{1,100}$"
+    tag: H1
+    style: H1
+    description: "Numbered section headings"
+
+  - priority: 21
+    pattern: "^[A-Z][A-Z\\s]{1,49}$"
+    tag: H1
+    style: H1
+    description: "Main section headings (ALL CAPS, up to 50 chars)"
+
+  - priority: 22
+    pattern: "^[A-Z][a-zA-Z0-9]*(?:\\s+(?:a|an|the|and|but|or|for|nor|on|at|to|from|by|with|of|in|[A-Z][a-zA-Z0-9]*)){1,100}$"
+    tag: H2
+    style: H2
+    description: "Subsection headings (Title Case, with or without apostrophes)"
+
+  - priority: 23
+    pattern: "^[A-Z][a-z].{0,60}:\\s+.+$"
+    tag: H3
+    style: H3
+    description: "Topic headings with colon"
+
+  - priority: 33
+    pattern: "^Box\\s+\\d+\\."
+    tag: NBX1-TTL
+    style: NBX1-TTL
+    description: "Box titles"
+
+  # References
+  - priority: 40
+    pattern: "^(?:\\[\\d+\\]|\\d+\\.)\\s+"
+    tag: REF-N
+    style: REF-N
+    description: "Numbered reference entries"
+
+# List-specific patterns (detected via Word list formatting)
+lists:
+  bullet_pattern: "^[•\\-\\–▪■●○➢>*]\\s+"
+  number_pattern: "^\\d+\\.\\s+"
+  roman_pattern: "^(?i:[ivxlcdm]+)[\\.)]\\s+"
+  
+  # Context-specific list handling
+  learning_objectives:
+    tag: OBJ-BL-MID
+    style: OBJ-BL-MID
+    block: LEARNING_OBJECTIVES_BLOCK
+
+  learning_objectives_body:
+    tag: OBJ-TXT
+    style: OBJ-TXT
+
+  references_numbered:
+    tag: REF-N
+    style: REF-N
+    block: REFERENCES_BLOCK
+
+  references_unnumbered:
+    tag: REF-U
+    style: REF-U
+    block: REFERENCES_BLOCK
+
+  general_bulleted:
+    tag: BL-MID
+    style: BL-MID
+
+  general_numbered:
+    tag: NL-MID
+    style: NL-MID
+
+  general_roman:
+    tag: RL-MID
+    style: RL-MID
+
+  general:
+    tag: BL-MID
+    style: BL-MID
+
+# Table detection configuration
+tables:
+  # Header detection logic
+  header_detection:
+    - method: uppercase_only
+      weight: 0.8
+      description: "Cell text is ALL CAPS"
+    
+    - method: short_text
+      weight: 0.3
+      description: "Cell text is short (< 50 chars)"
+    
+    - method: row_position
+      weight: 0.7
+      description: "First row of table"
+    
+    - method: content_pattern
+      weight: 0.5
+      description: "Matches column name patterns"
+
+  # Threshold for classifying as header
+  header_threshold: 1.2
+  
+  # Styles
+  header_style: TBCH
+  body_style: TB
+  bullet_style: TBL-MID
+  number_style: TNL-MID
+  roman_style: TRL-MID
+
+# Box and explicit-tag normalization
+boxes:
+  open_patterns:
+    - "^BX\\d+(?:\\.\\d+)?$"
+    - "^BXOBJ$"
+    - "^BXM$"
+    - "^BX$"
+  close_patterns:
+    - "^/BX$"
+    - "^/BXOBJ$"
+    - "^/BXM$"
+  open_style: PMI
+  close_style: PMI
+  title_style: NBX1-TTL
+  body_style: NBX-TXT
+  first_body_style: NBX-TXT-FIRST
+
+keyterms:
+  explicit_styles:
+    - KT
+
+normalization:
+  source_style_map:
+    SUM: H1
+    H1-INTRO: H1
+    Intro: H1
+    TITLE: NBX1-TTL
+    OBJ-TTL: OBJ1
+    OBJ-TITLE: OBJ1
+    BXOBJ: PMI
+    BXM: PMI
+  explicit_tag_map:
+    SUM: H1
+    H1: H1
+    H2: H2
+    H3: H3
+    H4: H4
+    INTRO: H1
+    Intro: H1
+    OBJ-TTL: OBJ1
+    OBJ-TITLE: OBJ1
+    KT: KT
+    BXOBJ: PMI
+    BXM: PMI
+
+# Heading hierarchy rules (STM Standards)
+heading_hierarchy:
+  # Stage 2: Heading Level Assignment Rules
+  levels:
+    H1: H1   # Major section
+    H2: H2   # Subsection
+    H3: H3   # Sub-subsection
+    H4: H4   # Run-in heading
+
+  # Validation & Hierarchy Constraints
+  constraints:
+    max_depth: 4
+    no_skipping_levels: true  # Do not allow skipping levels (e.g. H1 -> H3)
+    require_h1_first: true    # H2 cannot appear before first H1
+
+  # STM-Mandated Section Control
+  # These sections must always be H1 (lock them)
+  mandatory_h1_sections:
+    - Abstract
+    - Introduction
+    - Methods
+    - Materials and Methods
+    - Results
+    - Discussion
+    - Conclusion
+    - References
+
+  # Synonym Normalization
+  # Map author text synonymous to default STM sections
+  synonym_normalization:
+    Methodology: Methods
+    Findings: Results
+    Summary: Conclusion
+
+  # Valid transitions for hierarchy validation
+  valid_transitions:
+    - from: null
+      to: [H1, CT]
+    - from: CT
+      to: [H1, TXT-FLUSH]
+    - from: H1
+      to: [H2, TXT-FLUSH]
+    - from: H2
+      to: [H3, TXT-FLUSH]
+    - from: H3
+      to: [H4, TXT-FLUSH]
+    - from: H4
+      to: [TXT-FLUSH]
+
+  # What to do on invalid transitions
+  enforcement: auto_fix  # Can be 'warn', 'error', or 'auto_fix' to standardize
+
+# Block nesting configuration
+block_nesting:
+  LEARNING_OBJECTIVES_BLOCK:
+    allowed_children:
+      - LEARNING_OBJECTIVE_ITEM
+      - LIST_ITEM
+      - BODY_TEXT
+  
+  REFERENCES_BLOCK:
+    allowed_children:
+      - REFERENCE_ENTRY
+      - BODY_TEXT
+
+# Cross-reference configuration
+cross_references:
+  # Handle figure references
+  figure_references:
+    pattern: "(?:Figure|Fig\\.?|see Fig)\\s+\\d+(?:[\\.-]\\d+)*(?:[A-Za-z])?(?:\\s*-\\s*\\d+(?:[\\.-]\\d+)*)?"
+    link_to: FIGURE_CAPTION
+    tag: FIGURE_REFERENCE
+    style: Hyperlink
+
+  # Handle table references
+  table_references:
+    pattern: "(?:Table|Tbl\\.?)\\s+\\d+(?:[\\.-]\\d+)*(?:[A-Za-z])?(?:\\s*-\\s*\\d+(?:[\\.-]\\d+)*)?"
+    link_to: TABLE_TITLE
+    tag: TABLE_REFERENCE
+    style: Hyperlink
+
+# Block state machine configuration
+state_machine:
+  states:
+    NORMAL: "Default document state"
+    IN_LEARNING_OBJECTIVES: "Inside learning objectives block"
+    IN_REFERENCES: "Inside references block"
+    IN_FIGURE_SECTION: "Inside figures section"
+  
+  transitions:
+    NORMAL:
+      - trigger: "OBJECTIVES marker found"
+        next_state: IN_LEARNING_OBJECTIVES
+      
+      - trigger: "REFERENCES marker found"
+        next_state: IN_REFERENCES
+    
+    IN_LEARNING_OBJECTIVES:
+      - trigger: "New section heading"
+        next_state: NORMAL
+      
+      - trigger: "End pattern detected"
+        next_state: NORMAL
+    
+    IN_REFERENCES:
+      - trigger: "New section heading"
+        next_state: NORMAL
+      
+      - trigger: "End pattern detected"
+        next_state: NORMAL
+
+# Default text handling
+defaults:
+  empty_paragraph:
+    tag: EMPTY
+    style: PMI
+    skip: false  # Include empty paragraphs in output
+  
+  unmatched_text:
+    tag: TXT
+    style: TXT
+
+# Validation settings
+validation:
+  # Check if all referenced styles exist in template
+  check_styles: true
+  
+  # Log warnings for unmatched patterns
+  log_unmatched: true
+  
+  # Validate regex patterns on load
+  validate_patterns: true
+  
+  # Maximum pattern complexity to prevent DOS
+  max_pattern_length: 200
+

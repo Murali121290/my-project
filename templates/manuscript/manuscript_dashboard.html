@@ -1,0 +1,759 @@
+{% extends "base.html" %}
+{% block title %}Manuscript Analysis Dashboard{% endblock %}
+
+{% block extra_css %}
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'sans-serif'] },
+        colors: {
+          brand: {
+            blue: '#00408E',
+            blueLight: '#2563EB',
+            blueSoft: '#E6F0FA',
+            orange: '#C55A00',
+            orangeLight: '#F59E0B'
+          }
+        }
+      }
+    }
+  }
+</script>
+<style>
+  * {
+    font-family: 'Inter', sans-serif;
+  }
+
+  body {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    min-height: 100vh;
+  }
+
+  /* Glassmorphism card styles */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  }
+
+  .glass-card:hover {
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.12);
+    transform: translateY(-2px);
+  }
+
+  /* Modern metric card styles */
+  .metric-card {
+    position: relative;
+    overflow: hidden;
+    border: none;
+    cursor: pointer;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent, rgba(255,255,255,0.1));
+    pointer-events: none;
+  }
+
+  .metric-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12) !important;
+  }
+
+  .metric-card.active {
+    border: 2px solid #2563eb !important;
+    background: linear-gradient(135deg, #f0f9ff 0%, rgba(255,255,255,0.8) 100%) !important;
+  }
+
+  .metric-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    transition: all 0.3s;
+  }
+
+  .metric-card:hover .metric-icon {
+    transform: scale(1.1);
+  }
+
+  .metric-value {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .metric-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .metric-trend {
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+
+  .trend-up {
+    color: #16a34a;
+  }
+
+  .trend-down {
+    color: #dc2626;
+  }
+
+  /* Header styles */
+  .header-gradient {
+    background: linear-gradient(135deg, #00408E 0%, #2563EB 50%, #059669 100%);
+  }
+
+  .header-text {
+    color: white;
+    font-weight: 800;
+  }
+
+  /* Section header */
+  .section-header {
+    position: relative;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  .section-header h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  }
+
+  /* Modern data table */
+  table.modern-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  table.modern-table thead {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  table.modern-table th {
+    padding: 16px;
+    text-align: left;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+  }
+
+  table.modern-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #334155;
+  }
+
+  table.modern-table tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  table.modern-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Badge styles */
+  .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-error {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .badge-warn {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  .badge-info {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .badge-success {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  /* Button styles */
+  .btn-modern {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #2563EB 0%, #1d4ed8 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+  }
+
+  .btn-secondary {
+    background: white;
+    color: #2563eb;
+    border: 2px solid #e2e8f0;
+  }
+
+  .btn-secondary:hover {
+    border-color: #2563eb;
+    background: #f0f9ff;
+  }
+
+  /* Chart container */
+  .chart-container {
+    position: relative;
+    height: 300px;
+    margin-top: 20px;
+  }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #94a3b8;
+  }
+
+  .empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .metric-card {
+      padding: 20px;
+    }
+
+    .metric-value {
+      font-size: 1.5rem;
+    }
+
+    .section-header h2 {
+      font-size: 1.25rem;
+    }
+
+    table.modern-table th, table.modern-table td {
+      padding: 10px;
+      font-size: 0.85rem;
+    }
+  }
+
+  /* Smooth transitions */
+  * {
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Header Section -->
+<div class="header-gradient pt-8 pb-12" data-session-id="{{ session_id }}" data-job-id="{{ job_id }}" data-project-name="{{ project_name }}" data-client-name="{{ client_name }}">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="flex items-start justify-between">
+      <div>
+        <h1 class="header-text text-4xl font-bold mb-2">Manuscript Analysis</h1>
+        <p class="text-blue-100 text-lg">Comprehensive editing report and recommendations</p>
+      </div>
+      <div class="text-blue-100 text-sm">
+        {% if data.status %}
+          <span class="badge badge-info">{{ data.status }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div class="max-w-7xl mx-auto px-6 py-12" data-session-id="{{ session_id }}">
+  <!-- Metric Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+    <!-- Total Findings -->
+    <div class="glass-card metric-card rounded-2xl p-6 shadow-lg" id="card-findings" onclick="filterByMetric('all')">
+      <div class="flex items-start justify-between mb-4">
+        <div class="metric-icon" style="background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #1e40af;">📊</div>
+        <span style="font-size: 12px; color: #94a3b8;">Click to filter</span>
+      </div>
+      <div class="metric-label">Total Findings</div>
+      <div class="metric-value">{{ "{:,}".format(data.meta.total_findings) }}</div>
+      <div class="metric-trend trend-up">✓ Ready for review</div>
+    </div>
+
+    <!-- Inconsistencies -->
+    <div class="glass-card metric-card rounded-2xl p-6 shadow-lg" id="card-inconsistencies" onclick="filterByMetric('inconsistency')">
+      <div class="flex items-start justify-between mb-4">
+        <div class="metric-icon" style="background: linear-gradient(135deg, #fed7aa 0%, #fecaca 100%); color: #92400e;">⚠️</div>
+        <span style="font-size: 12px; color: #94a3b8;">Click to filter</span>
+      </div>
+      <div class="metric-label">Inconsistencies</div>
+      <div class="metric-value">{{ data.meta.total_inconsistencies }}</div>
+      <div class="metric-trend trend-down">{{ (data.meta.total_inconsistencies / (data.meta.total_findings if data.meta.total_findings > 0 else 1) * 100)|round(1) }}%</div>
+    </div>
+
+    <!-- Bias Terms -->
+    <div class="glass-card metric-card rounded-2xl p-6 shadow-lg" id="card-bias" onclick="filterByMetric('bias')">
+      <div class="flex items-start justify-between mb-4">
+        <div class="metric-icon" style="background: linear-gradient(135deg, #fecaca 0%, #fda29b 100%); color: #991b1b;">🎯</div>
+        <span style="font-size: 12px; color: #94a3b8;">Click to filter</span>
+      </div>
+      <div class="metric-label">Bias Terms</div>
+      <div class="metric-value">{{ data.category_totals.get('bias', 0) }}</div>
+      <div class="metric-trend trend-down">Inclusive language</div>
+    </div>
+
+    <!-- Spelling -->
+    <div class="glass-card metric-card rounded-2xl p-6 shadow-lg" id="card-spelling" onclick="filterByMetric('spelling')">
+      <div class="flex items-start justify-between mb-4">
+        <div class="metric-icon" style="background: linear-gradient(135deg, #a5f3fc 0%, #67e8f9 100%); color: #0c4a6e;">📝</div>
+        <span style="font-size: 12px; color: #94a3b8;">Click to filter</span>
+      </div>
+      <div class="metric-label">US/UK Mix</div>
+      <div class="metric-value">{{ data.spelling_summary.us_percent }}%</div>
+      <div class="metric-trend trend-down">{{ data.spelling_summary.uk_percent }}% UK</div>
+    </div>
+  </div>
+
+  <!-- Action Buttons Section -->
+  <div class="mb-12">
+    <div class="section-header">
+      <h2>
+        <span class="section-icon">⚙️</span>
+        Workflow Actions
+      </h2>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <!-- Discovery UI Button -->
+      <button onclick="goToDiscovery()" class="btn-modern bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl rounded-xl p-6 text-center transition-all h-full flex flex-col items-center justify-center gap-3">
+        <span style="font-size: 32px;">🎯</span>
+        <span class="font-bold text-lg">Select Rules</span>
+        <span class="text-sm text-blue-100">Discovery UI</span>
+        <span class="text-xs text-blue-200 mt-2">Step 1: Choose which rules to apply</span>
+      </button>
+
+      <!-- Save Selection Button -->
+      <button onclick="goToSelections()" class="btn-modern bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg hover:shadow-xl rounded-xl p-6 text-center transition-all h-full flex flex-col items-center justify-center gap-3">
+        <span style="font-size: 32px;">💾</span>
+        <span class="font-bold text-lg">Save Selection</span>
+        <span class="text-sm text-green-100">Rule Configuration</span>
+        <span class="text-xs text-green-200 mt-2">Step 2: Save your rule choices</span>
+      </button>
+
+      <!-- Download Excel Button -->
+      <button onclick="downloadExcel()" class="btn-modern bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white shadow-lg hover:shadow-xl rounded-xl p-6 text-center transition-all h-full flex flex-col items-center justify-center gap-3">
+        <span style="font-size: 32px;">📊</span>
+        <span class="font-bold text-lg">Download Excel</span>
+        <span class="text-sm text-orange-100">IA Report</span>
+        <span class="text-xs text-orange-200 mt-2">Export findings and statistics</span>
+      </button>
+
+      <!-- Download HTML Button -->
+      <button onclick="downloadHTML()" class="btn-modern bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl rounded-xl p-6 text-center transition-all h-full flex flex-col items-center justify-center gap-3">
+        <span style="font-size: 32px;">📄</span>
+        <span class="font-bold text-lg">Download HTML</span>
+        <span class="text-sm text-purple-100">Detailed Report</span>
+        <span class="text-xs text-purple-200 mt-2">View in browser or share</span>
+      </button>
+    </div>
+
+    <!-- Info Box -->
+    <div class="mt-6 bg-blue-50 border-l-4 border-blue-500 rounded-lg p-4">
+      <div class="flex gap-3">
+        <span style="font-size: 20px;">ℹ️</span>
+        <div>
+          <p class="font-semibold text-blue-900 mb-1">Workflow Guide</p>
+          <p class="text-sm text-blue-800">
+            <strong>Step 2:</strong> Click "Select Rules" to choose which rules to apply based on your manuscript needs.
+            <br/>
+            <strong>Step 3:</strong> Click "Save Selection" to store your rule configuration for reuse.
+            <br/>
+            <strong>Downloads:</strong> Export the analysis in Excel (data) or HTML (formatted report) format.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Section -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
+    <!-- Findings by Category -->
+    <div class="glass-card rounded-2xl p-6 shadow-lg lg:col-span-2">
+      <div class="section-header">
+        <h3 class="text-lg font-bold text-gray-800">Findings Distribution</h3>
+      </div>
+      <div class="chart-container">
+        <canvas id="categoryChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="glass-card rounded-2xl p-6 shadow-lg">
+      <div class="section-header">
+        <h3 class="text-lg font-bold text-gray-800">Quick Stats</h3>
+      </div>
+      <div class="space-y-4">
+        <div class="flex justify-between items-center pb-3 border-b border-gray-100">
+          <span class="text-gray-600 font-500">Chapters</span>
+          <span class="text-xl font-bold text-gray-900">{{ data.chapters|length }}</span>
+        </div>
+        <div class="flex justify-between items-center pb-3 border-b border-gray-100">
+          <span class="text-gray-600 font-500">IA Points Found</span>
+          <span class="text-xl font-bold text-gray-900">{{ data.ia_report.rows|length if data.ia_report else 0 }}</span>
+        </div>
+        <div class="flex justify-between items-center pb-3 border-b border-gray-100">
+          <span class="text-gray-600 font-500">Missing Captions</span>
+          <span class="text-xl font-bold text-red-600">{{ data.meta.total_missing_captions|default(0) }}</span>
+        </div>
+        <div class="flex justify-between items-center pb-3 border-b border-gray-100">
+          <span class="text-gray-600 font-500">Missing Citations</span>
+          <span class="text-xl font-bold text-orange-600">{{ data.meta.total_missing_citations|default(0) }}</span>
+        </div>
+        <div class="flex justify-between items-center pb-3 border-b border-gray-100">
+          <span class="text-gray-600 font-500">Rules Matched</span>
+          <span class="text-xl font-bold text-blue-600">{{ data.findings|length }}</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-600 font-500">Overall Health</span>
+          <span class="inline-block px-3 py-1 rounded-full text-sm font-bold" style="background: #dcfce7; color: #166534;">Good</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chapters Overview -->
+  {% if data.chapters %}
+  <div class="glass-card rounded-2xl p-6 shadow-lg mb-12">
+    <div class="section-header flex items-center justify-between">
+      <h2>
+        <div class="section-icon">📖</div>
+        <span>Chapter Analysis</span>
+      </h2>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for chapter in data.chapters[:6] %}
+      <div class="glass-card rounded-xl p-4 border-l-4" style="border-left-color: #2563eb;">
+        <div class="font-semibold text-gray-800 mb-2">{{ chapter.name }}</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="text-center">
+            <div class="text-2xl font-bold text-blue-600">{{ chapter.finding_count }}</div>
+            <div class="text-xs text-gray-600">Findings</div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-bold text-orange-600">{{ chapter.inconsistency_count }}</div>
+            <div class="text-xs text-gray-600">Issues</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Findings Table -->
+  {% if data.findings %}
+  <div class="glass-card rounded-2xl p-6 shadow-lg">
+    <div class="section-header flex items-center justify-between">
+      <h2>
+        <div class="section-icon">📋</div>
+        <span>Detailed Findings</span>
+      </h2>
+      <span class="text-sm text-gray-600">{{ data.findings|length }} total</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="modern-table">
+        <thead>
+          <tr>
+            <th>Chapter</th>
+            <th>Rule</th>
+            <th>Category</th>
+            <th>Match</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for finding in data.findings[:20] %}
+          <tr>
+            <td>
+              <span class="font-semibold text-gray-800">Ch{{ finding.chapter_index }}</span>
+            </td>
+            <td>
+              <span class="text-gray-700">{{ finding.rule_label }}</span>
+            </td>
+            <td>
+              {% if finding.category == 'te_point' %}
+                <span class="badge badge-info">TE Point</span>
+              {% elif finding.category == 'inconsistency' %}
+                <span class="badge badge-warn">Inconsistency</span>
+              {% elif finding.category == 'bias' %}
+                <span class="badge badge-error">Bias</span>
+              {% else %}
+                <span class="badge badge-info">{{ finding.category|title }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem;">
+                {{ finding.surface[:30] }}{% if finding.surface|length > 30 %}...{% endif %}
+              </code>
+            </td>
+            <td>
+              {% if finding.replacement %}
+                <span class="badge badge-success">✓ Fixable</span>
+              {% else %}
+                <span class="badge badge-warn">⚠ Review</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if data.findings|length > 20 %}
+    <div class="mt-6 text-center">
+      <button class="btn-modern btn-secondary">
+        View All {{ data.findings|length }} Findings
+      </button>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="glass-card rounded-2xl p-12 shadow-lg text-center">
+    <div class="empty-state">
+      <div class="empty-state-icon">📄</div>
+      <h3 class="text-xl font-bold text-gray-700 mb-2">No findings yet</h3>
+      <p class="text-gray-600">Run analysis on your manuscript to get started</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+// Filter functionality
+function filterByMetric(category) {
+  const cards = document.querySelectorAll('.metric-card');
+  cards.forEach(card => card.classList.remove('active'));
+
+  if (category === 'all') {
+    document.getElementById('card-findings').classList.add('active');
+  } else if (category === 'inconsistency') {
+    document.getElementById('card-inconsistencies').classList.add('active');
+  } else if (category === 'bias') {
+    document.getElementById('card-bias').classList.add('active');
+  } else if (category === 'spelling') {
+    document.getElementById('card-spelling').classList.add('active');
+  }
+}
+
+// Initialize charts
+document.addEventListener('DOMContentLoaded', function() {
+  const categoryData = {
+    'TE Points': {{ data.category_totals.get('te_point', 0) }},
+    'Inconsistencies': {{ data.category_totals.get('inconsistency', 0) }},
+    'Bias Terms': {{ data.category_totals.get('bias', 0) }},
+    'Spelling': {{ data.category_totals.get('spelling', 0) }},
+    'Other': {{ data.meta.total_findings - data.category_totals.get('te_point', 0) - data.category_totals.get('inconsistency', 0) - data.category_totals.get('bias', 0) - data.category_totals.get('spelling', 0) }}
+  };
+
+  const ctx = document.getElementById('categoryChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: Object.keys(categoryData),
+        datasets: [{
+          data: Object.values(categoryData),
+          backgroundColor: [
+            '#3b82f6',
+            '#f59e0b',
+            '#ef4444',
+            '#10b981',
+            '#8b5cf6'
+          ],
+          borderColor: 'white',
+          borderWidth: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              font: { family: "'Inter', sans-serif", size: 13, weight: '600' },
+              padding: 20,
+              usePointStyle: true
+            }
+          }
+        }
+      }
+    });
+  }
+});
+
+// ============================================
+// Workflow Action Buttons
+// ============================================
+
+// Get session_id from page data or URL
+function getSessionId() {
+  // Try to get from page data attribute
+  const pageData = document.querySelector('[data-session-id]');
+  if (pageData && pageData.getAttribute('data-session-id')) {
+    return pageData.getAttribute('data-session-id');
+  }
+
+  // Fallback to job_id attribute
+  if (pageData && pageData.getAttribute('data-job-id')) {
+    return pageData.getAttribute('data-job-id');
+  }
+
+  // Try to get from window object
+  if (window.sessionData && window.sessionData.session_id) {
+    return window.sessionData.session_id;
+  }
+
+  // Extract from URL if available
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('session_id')) return urlParams.get('session_id');
+
+  // Extract from analysis data on page
+  const analysisBox = document.querySelector('[data-analysis-id]');
+  if (analysisBox) return analysisBox.getAttribute('data-analysis-id');
+
+  // Fallback: use current job_id or filename
+  const jobId = document.querySelector('.job-id, [data-job-id]');
+  if (jobId) return jobId.textContent.trim();
+
+  alert('Session ID not found. Please complete the analysis first.');
+  return null;
+}
+
+// Navigate to Discovery UI (Step 2: Select Rules)
+function goToDiscovery() {
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+
+  // Get project and client names from page data
+  const pageData = document.querySelector('[data-session-id]');
+  const projectName = pageData?.getAttribute('data-project-name') || 'Project';
+  const clientName = pageData?.getAttribute('data-client-name') || 'Client';
+
+  // Store in sessionStorage for discovery.js to access
+  sessionStorage.setItem('project_name', projectName);
+  sessionStorage.setItem('client_name', clientName);
+
+  const discoveryUrl = `/manuscript/discovery?session_id=${sessionId}`;
+  console.log('Navigating to Discovery UI:', discoveryUrl);
+  console.log(`Project: ${projectName}, Client: ${clientName}`);
+  window.location.href = discoveryUrl;
+}
+
+// Navigate to Rule Selections (Step 3: Save Selection)
+function goToSelections() {
+  const url = `/manuscript/rule-selections`;
+  console.log('Navigating to Rule Selections:', url);
+  window.location.href = url;
+}
+
+// Download Excel Report
+function downloadExcel() {
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+
+  console.log('Downloading Excel report for session:', sessionId);
+  window.location.href = `/manuscript/download/${sessionId}/ia_report.xlsx`;
+}
+
+// Download HTML Report
+function downloadHTML() {
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+
+  console.log('Downloading HTML report for session:', sessionId);
+  window.location.href = `/manuscript/download/${sessionId}/sheet.html`;
+}
+
+// Show notification to user
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white z-50 ${
+    type === 'error' ? 'bg-red-500' :
+    type === 'success' ? 'bg-green-500' :
+    'bg-blue-500'
+  }`;
+  notification.textContent = message;
+  document.body.appendChild(notification);
+
+  setTimeout(() => {
+    notification.remove();
+  }, 3000);
+}
+</script>
+{% endblock %}

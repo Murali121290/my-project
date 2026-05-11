@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PrepOps | S4Carlisle Pre-Production Hub - Register</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:   #1a2742;
+      --navy2:  #223059;
+      --coral:  #e8604a;
+      --orange: #e87722;
+      --gold:   #e8b84b;
+      --ice:    #f0f4fb;
+      --white:  #ffffff;
+      --muted:  #8492a6;
+      --border: #dde3ef;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--ice);
+      color: var(--navy);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* -- Decorative blobs -- */
+    .page { position: relative; overflow: hidden; flex: 1; display: flex; flex-direction: column; }
+    .b1, .b2, .b3 {
+      position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0;
+    }
+    .b1 { width: 520px; height: 520px; background: rgba(232,96,74,.18); top: -160px; left: -160px; }
+    .b2 { width: 400px; height: 400px; background: rgba(232,135,34,.14); bottom: -120px; right: -100px; }
+    .b3 { width: 300px; height: 300px; background: rgba(26,39,66,.12); top: 40%; left: 38%; }
+
+    /* -- Header -- */
+    header.hdr {
+      position: relative; z-index: 10;
+      background: var(--white);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 36px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.08);
+      border-bottom: 1px solid var(--border);
+    }
+    .hdr-logo { display: flex; align-items: center; }
+    .hdr-logo img { height: 42px; width: auto; }
+    .hdr-info { display: flex; flex-direction: column; gap: 2px; align-items: center; flex: 1; }
+    .hdr-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.6rem; font-weight: 700;
+      color: var(--navy); line-height: 1.1;
+    }
+    .hdr-title .red { color: var(--coral); }
+    .hdr-tagline {
+      font-size: .75rem; font-weight: 600;
+      color: var(--muted); letter-spacing: .08em; text-transform: uppercase;
+    }
+
+    /* -- Main two-column grid -- */
+    main {
+      position: relative; z-index: 5;
+      display: grid; grid-template-columns: 1fr 420px;
+      flex: 1; min-height: 0;
+    }
+
+    /* -- Hero -- */
+    section.hero { position: relative; overflow: hidden; min-height: 480px; }
+    .hero-img {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; object-position: center;
+    }
+    .hero-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(26,39,66,.82) 0%, rgba(232,119,34,.55) 100%);
+    }
+    .hero-content {
+      position: relative; z-index: 2;
+      display: flex; flex-direction: column; justify-content: center;
+      height: 100%; padding: 56px 48px;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(232,184,75,.18); border: 1px solid rgba(232,184,75,.4);
+      color: var(--gold); font-size: .75rem; font-weight: 600;
+      letter-spacing: .08em; padding: 6px 14px; border-radius: 100px;
+      margin-bottom: 22px; width: fit-content;
+      animation: pulse 3s ease-in-out infinite;
+    }
+    .hero-badge::before { content: '?'; font-size: .5rem;animation:pulse 1.8s infinite }
+    .hero-h {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2rem, 3.5vw, 3rem);
+      font-weight: 700; line-height: 1.15;
+      color: var(--white); margin-bottom: 18px;
+    }
+    .hero-h em { color: var(--gold); font-style: normal; }
+    .hero-p {
+      font-size: .97rem; color: rgba(255,255,255,.75);
+      line-height: 1.7; max-width: 440px;
+    }
+
+    /* -- Login Panel -- */
+    aside.login-panel {
+      background: var(--white);
+      display: flex; align-items: center; justify-content: center;
+      padding: 40px 36px;
+      box-shadow: -4px 0 24px rgba(0,0,0,.08);
+    }
+    .login-card { width: 100%; max-width: 340px; }
+    .card-logo {
+      display: block; margin: 0 auto 18px;
+      height: 36px; width: auto;
+    }
+    .card-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.45rem; font-weight: 700;
+      color: var(--navy); text-align: center; margin-bottom: 4px;
+    }
+    .card-sub {
+      font-size: .83rem; color: var(--muted);
+      text-align: center; margin-bottom: 28px;
+    }
+
+    /* Flash messages */
+    .flash-messages { margin-bottom: 16px; }
+    .alert {
+      padding: 10px 14px; border-radius: 8px;
+      font-size: .85rem; margin-bottom: 8px;
+    }
+    .alert-error, .alert-danger {
+      background: rgba(232,96,74,.1); color: var(--coral);
+      border: 1px solid rgba(232,96,74,.3);
+    }
+    .alert-success {
+      background: rgba(34,176,100,.1); color: #22b064;
+      border: 1px solid rgba(34,176,100,.3);
+    }
+
+    /* Fields */
+    .field { margin-bottom: 18px; }
+    .field label {
+      display: block; font-size: .78rem; font-weight: 600;
+      color: var(--navy); margin-bottom: 6px; letter-spacing: .04em;
+    }
+    .iw { position: relative; }
+    .iw i {
+      position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+      color: var(--muted); font-size: .88rem; pointer-events: none;
+    }
+    .iw input {
+      width: 100%; padding: 11px 14px 11px 36px;
+      border: 1.5px solid var(--border); border-radius: 9px;
+      font-family: 'DM Sans', sans-serif; font-size: .92rem;
+      color: var(--navy); background: var(--ice);
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .iw input:focus {
+      outline: none; border-color: var(--coral);
+      box-shadow: 0 0 0 3px rgba(232,96,74,.15);
+      background: var(--white);
+    }
+
+    .forgot {
+      text-align: right; font-size: .78rem;
+      margin-top: -10px; margin-bottom: 22px;
+    }
+    .forgot a { color: var(--coral); text-decoration: none; font-weight: 500; }
+    .forgot a:hover { text-decoration: underline; }
+
+    .btn-login {
+      width: 100%; padding: 12px;
+      background: linear-gradient(135deg, var(--coral), var(--orange));
+      color: var(--white); border: none; border-radius: 9px;
+      font-family: 'DM Sans', sans-serif; font-size: .95rem; font-weight: 600;
+      cursor: pointer; letter-spacing: .03em;
+      transition: opacity .2s, transform .15s, box-shadow .2s;
+      box-shadow: 0 4px 14px rgba(232,96,74,.35);
+    }
+    .btn-login:hover { opacity: .9; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(232,96,74,.4); }
+    .btn-login:active { transform: translateY(0); }
+
+    .card-footer {
+      margin-top: 22px; text-align: center;
+      font-size: .8rem; color: var(--muted);
+    }
+    .card-footer a { color: var(--coral); text-decoration: none; font-weight: 600; }
+    .card-footer a:hover { text-decoration: underline; }
+
+    /* -- Performance Strip -- */
+    section.perf {
+      position: relative; z-index: 10;
+      background: var(--navy);
+      padding: 16px 32px;
+      display: flex; flex-wrap: wrap; gap: 16px 24px;
+      align-items: center;
+    }
+    .perf-section { display: flex; flex-direction: column; gap: 6px; }
+    .perf-label {
+      font-size: .63rem; font-weight: 700; letter-spacing: .8px;
+      text-transform: uppercase; color: #f07a62;
+    }
+    .kpis { display: flex; gap: 28px; flex-wrap: wrap; }
+    .kpi { display: flex; flex-direction: column; align-items: center; }
+    .kpi-val {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.45rem; font-weight: 700; color: var(--gold); line-height: 1;
+    }
+    .kpi-lbl { font-size: .68rem; color: rgba(255,255,255,.5); margin-top: 3px; text-align: center; }
+
+    .perf-div { width: 1px; height: 40px; background: rgba(255,255,255,.12); }
+
+    .svc-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+    .svc-item { display: flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--white); }
+    .svc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--coral); }
+    .svc-text { display: flex; align-items: center; gap: 6px; }
+    .svc-link { color: var(--gold); cursor: pointer; text-decoration: none; font-size: .65rem; margin-left: 4px; }
+    .svc-link:hover { text-decoration: underline; }
+
+    /* -- Footer -- */
+    footer.ftr {
+      position: relative; z-index: 5;
+      background: var(--navy2);
+      padding: 14px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: .76rem; color: rgba(255,255,255,.4);
+      flex-wrap: wrap; gap: 10px;
+    }
+    .ftr a { color: rgba(255,255,255,.45); text-decoration: none; margin-left: 16px; }
+    .ftr a:hover { color: var(--gold); }
+    .fbrand { font-weight: 700; color: var(--gold); letter-spacing: .04em; }
+
+    /* -- Animations -- */
+    @keyframes fu {
+      from { opacity: 0; transform: translateY(22px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(232,184,75,.35); }
+      50%       { box-shadow: 0 0 0 8px rgba(232,184,75,0); }
+    }
+    @keyframes fill {
+      to { width: 78%; }
+    }
+
+    .fu { opacity: 0; animation: fu .55s ease forwards; }
+    .fu:nth-child(1) { animation-delay: .05s; }
+    .fu:nth-child(2) { animation-delay: .15s; }
+    .fu:nth-child(3) { animation-delay: .25s; }
+    .fu:nth-child(4) { animation-delay: .35s; }
+    .fu:nth-child(5) { animation-delay: .45s; }
+    .fu:nth-child(6) { animation-delay: .55s; }
+    .fu:nth-child(7) { animation-delay: .65s; }
+
+    /* -- Responsive -- */
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      section.hero { min-height: 260px; }
+      .hero-content { padding: 36px 28px; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="b1"></div>
+  <div class="b2"></div>
+  <div class="b3"></div>
+
+  <!-- Header -->
+  <header class="hdr">
+    <div class="hdr-logo">
+      <a href="{{ url_for('index') }}">
+        <img src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4Carlisle Logo"/>
+      </a>
+    </div>
+    <div class="hdr-info">
+      <div class="hdr-title">Prep<span class="red">Ops</span> | Pre-Production Hub</div>
+    </div>
+    <div class="hdr-tagline">Your Partner in Publishing Excellence</div>
+  </header>
+
+  <!-- Main -->
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <img class="hero-img" src="{{ url_for('static', filename='images/hero-bg.jpg') }}" alt=""/>
+      <div class="hero-overlay"></div>
+      <div class="hero-content">
+        <div class="hero-badge fu">LIVE PRODUCTION SYSTEM</div>
+        <h1 class="hero-h fu">Intelligent<br/><em>Pre-Production</em><br/>at Scale</h1>
+        <p class="hero-p fu">
+            Automate pre-editing, mechanical editing, reference validation, alt-text generation, and more — with
+            real-time SLA visibility and AI-assisted QA across every imprint.
+        </p>
+      </div>
+    </section>
+
+    <!-- Login Panel -->
+    <aside class="login-panel">
+      <div class="login-card">
+        <img class="card-logo" src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4Carlisle"/>
+        <div class="card-title fu">Create an account</div>
+        <div class="card-sub fu">Join the PrepOps workspace</div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-messages">
+              {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('register') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+          <div class="field fu">
+            <label for="username">Username</label>
+            <div class="iw">
+              <i class="fa-regular fa-user"></i>
+              <input type="text" id="username" name="username" placeholder="your.username" required/>
+            </div>
+          </div>
+
+          <div class="field fu">
+            <label for="email">Email</label>
+            <div class="iw">
+              <i class="fa-regular fa-envelope"></i>
+              <input type="email" id="email" name="email" placeholder="you@example.com" required/>
+            </div>
+          </div>
+
+          <div class="field fu">
+            <label for="password">Password</label>
+            <div class="iw">
+              <i class="fa-solid fa-lock"></i>
+              <input type="password" id="password" name="password" placeholder="••••••••" required/>
+            </div>
+          </div>
+
+          <div class="field fu">
+            <label for="confirm_password">Confirm Password</label>
+            <div class="iw">
+              <i class="fa-solid fa-lock"></i>
+              <input type="password" id="confirm_password" name="confirm_password" placeholder="••••••••" required/>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-login fu">Register &rarr;</button>
+        </form>
+
+        <div class="card-footer fu">
+          Already have an account? <a href="{{ url_for('login') }}">Sign in here</a>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Performance Strip -->
+  <section class="perf">
+    <div class="perf-label">Platform Metrics</div>
+    <div class="kpis">
+      <div class="kpi">
+        <div class="kpi-val">{{ "{:,}".format(overview_stats.total) if overview_stats.total else "0" }}</div>
+        <div class="kpi-lbl">Total Files Processed</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-val">98.7%</div>
+        <div class="kpi-lbl">SLA Adherence</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-val">{{ metrics.total_macro if metrics.total_macro else "0" }}</div>
+        <div class="kpi-lbl">Preproduction Jobs</div>
+      </div>
+    </div>
+    <div class="perf-section">
+      <p class="perf-label">Service Catalog Quick View</p>
+      <div class="svc-grid">
+        <div class="svc-item"><span class="svc-dot"></span><span class="svc-text">Pre-Editing &amp; Standardization<span class="svc-link">Learn More</span></span></div>
+        <div class="svc-item"><span class="svc-dot"></span><span class="svc-text">Style Guide Implementation<span class="svc-link">Learn More</span></span></div>
+        <div class="svc-item"><span class="svc-dot"></span><span class="svc-text">Mechanical Editing &amp; Formatting<span class="svc-link">Learn More</span></span></div>
+        <div class="svc-item"><span class="svc-dot"></span><span class="svc-text">Language &amp; Tone Refinement<span class="svc-link">Learn More</span></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="ftr">
+    <div>&copy; 2026 <span class="fbrand">S4Carlisle Publishing Services Pvt Ltd</span>. All rights reserved.</div>
+    <div>
+      <a href="#">Privacy Policy</a>
+      <a href="#">Terms of Use</a>
+      <a href="#">Support</a>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

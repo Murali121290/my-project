@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block title %}File History{% endblock %}
+
+{% block extra_css %}
+<style>
+ .history-container {
+        background: rgba(255, 255, 255, 0.9);
+        padding: 30px;
+        border-radius: 16px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        animation: fadeIn 0.6s ease-out forwards;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .history-container h2 {
+        color: var(--black);
+        font-size: 28px;
+        margin-bottom: 25px;
+        padding-bottom: 10px;
+        border-bottom: 3px solid;
+        border-image: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-4)) 1;
+    }
+
+    .file-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+
+    .file-table th {
+        background: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-3));
+        color: black;
+        padding: 15px;
+        text-align: left;
+    }
+
+    .file-table td {
+        padding: 15px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .file-table tr:hover {
+        background-color: rgba(255, 255, 255, 0.6);
+    }
+
+    .btn-small {
+        padding: 8px 16px;
+        background: linear-gradient(45deg, var(--rainbow-3), var(--rainbow-4));
+        border: none;
+        color: black;
+        font-size: 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-small:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(43, 134, 197, 0.3);
+    }
+
+    .pagination {
+        display: flex;
+        justify-content: center;
+        margin-top: 30px;
+        gap: 8px;
+    }
+
+    .pagination a {
+        padding: 10px 16px;
+        text-decoration: none;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+
+    .pagination a:not(.active):not(.disabled) {
+        background: rgba(255, 255, 255, 0.8);
+        color: var(--rainbow-2);
+        border: 1px solid rgba(120, 75, 160, 0.2);
+    }
+
+    .pagination a.active {
+        background: linear-gradient(45deg, var(--rainbow-2), var(--rainbow-4));
+        color: black;
+        box-shadow: 0 4px 8px rgba(120, 75, 160, 0.3);
+    }
+
+    .pagination a:not(.disabled):hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(120, 75, 160, 0.2);
+    }
+
+    .pagination a.disabled {
+        color: #ccc;
+        pointer-events: none;
+    }
+
+    .no-files {
+        text-align: center;
+        padding: 40px;
+        color: var(--black);
+        font-size: 18px;
+    }
+
+    .no-files a {
+        color: var(--rainbow-2);
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .no-files a:hover {
+        text-decoration: underline;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="history-container">
+    <h2>{% if session.get('is_admin') %}All Files{% else %}Your File History{% endif %}</h2>
+
+    <!-- ✅ Fixed filter -->
+    <div class="route-filter">
+        <span class="filter-label">Filter by:</span>
+        <select class="filter-select"
+            onchange="window.location.href='{{ url_for('file_history', page=1) }}&route='+this.value">
+            <option value="all" {% if route_filter == 'all' %}selected{% endif %}>All Activities</option>
+            <option value="validation" {% if route_filter == 'validation' %}selected{% endif %}>Validations Only</option>
+            {% if route_macros %}
+                {% for route_type, config in route_macros.items() %}
+                <option value="{{ route_type }}" {% if route_filter == route_type %}selected{% endif %}>
+                    {{ config.name }}
+                </option>
+                {% endfor %}
+            {% endif %}
+        </select>
+    </div>
+
+    {% if history %}
+        <table class="file-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Filename(s)</th>
+                    {% if session.get('is_admin') %}
+                        <th>User</th>
+                    {% endif %}
+                    <th>Date</th>
+                    <th>Details</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in history %}
+                <tr>
+                    {% if record.type == 'macro' %}
+                        <td>
+                            <span class="badge badge-macro">Editing Process</span>
+                            <br>
+                            {% set tasks = record.selected_tasks|from_json %}
+                            {% if tasks and tasks.macro_names %}
+                                <small>{{ tasks.macro_names|join(', ') }}</small>
+                            {% elif tasks and tasks.task_indices %}
+                                <small>
+                                {% for task_index in tasks.task_indices %}
+                                    {{ route_macros[record.route_type].macros[task_index|int] if record.route_type and route_macros[record.route_type] else 'Task ' ~ task_index }}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                                </small>
+                            {% else %}
+                                <small>{{ record.route_type|title if record.route_type else 'Processing' }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% set filenames = record.original_filenames|from_json %}
+                            {{ filenames|join(', ') }}
+                        </td>
+                        {% if session.get('is_admin') %}
+                            <td>{{ record.username }}</td>
+                        {% endif %}
+                        <td>{{ record.date|format_date }}</td>
+                        <td>
+                            {% if tasks and tasks.macro_names %}
+                                {{ tasks.macro_names|join(', ') }}
+                            {% elif tasks and tasks.task_indices %}
+                                {% for task_index in tasks.task_indices %}
+                                    {{ route_macros[record.route_type].macros[task_index|int] if record.route_type and route_macros[record.route_type] else 'Task ' ~ task_index }}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('macro_download', token=record.token) }}" class="btn-small">
+                                <i class="fas fa-download"></i> Download
+                            </a>
+                        </td>
+                    {% else %}
+                        <td><span class="badge badge-validation">Validation</span></td>
+                        <td>{{ record.original_filename }}</td>
+                        {% if session.get('is_admin') %}
+                            <td>{{ record.username }}</td>
+                        {% endif %}
+                        <td>{{ record.date|format_date }}</td>
+                        <td>
+                            References: {{ record.total_references if record.total_references is not none else 'N/A' }},
+                            Citations: {{ record.total_citations if record.total_citations is not none else 'N/A' }}
+                        </td>
+                        <td>
+                            {% if record.report_filename %}
+                                <a href="{{ url_for('download_report', filename=record.report_filename) }}" class="btn-small">
+                                    <i class="fas fa-download"></i> Report
+                                </a>
+                            {% else %}
+                                <span class="no-report">No report</span>
+                            {% endif %}
+                        </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('file_history', page=page-1, route=route_filter) }}">&laquo; Previous</a>
+            {% else %}
+                <a class="disabled">&laquo; Previous</a>
+            {% endif %}
+
+            {% for p in range(1, total_pages + 1) %}
+                {% if p == page %}
+                    <a class="active">{{ p }}</a>
+                {% else %}
+                    <a href="{{ url_for('file_history', page=p, route=route_filter) }}">{{ p }}</a>
+                {% endif %}
+            {% endfor %}
+
+            {% if page < total_pages %}
+                <a href="{{ url_for('file_history', page=page+1, route=route_filter) }}">Next &raquo;</a>
+            {% else %}
+                <a class="disabled">Next &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="no-files">
+            <p>No files processed yet. <a href="{{ url_for('validate_file') }}">Upload your first document</a> to get started.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

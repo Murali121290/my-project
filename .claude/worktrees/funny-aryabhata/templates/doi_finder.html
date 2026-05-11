@@ -1,0 +1,1813 @@
+{% extends "base.html" %}
+
+{% block title %}Bulk DOI Finder - S4carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 2rem;
+        text-align: center;
+        margin: 1.5rem 0;
+        transition: var(--transition);
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone:hover {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: var(--primary-dark);
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+        transform: scale(1.02);
+    }
+
+    .file-list {
+        margin-top: 1.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 0.5rem;
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .file-icon {
+        color: var(--primary);
+        font-size: 1.2rem;
+    }
+
+    .remove-file {
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+
+    .remove-file:hover {
+        background: rgba(239, 71, 111, 0.1);
+    }
+
+    .search-section {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius);
+    }
+
+    .search-input {
+        width: 100%;
+        padding: 1rem;
+        border: 2px solid var(--gray-300);
+        border-radius: var(--border-radius);
+        margin-bottom: 1rem;
+        transition: var(--transition);
+    }
+
+    .search-input:focus {
+        border-color: var(--primary);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+    }
+
+    .search-button {
+        width: 100%;
+        padding: 1rem;
+    }
+
+    .results-container {
+        margin-top: 2rem;
+    }
+
+    .result-card {
+        background: white;
+        border-radius: var(--border-radius);
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: var(--shadow-sm);
+        border-left: 4px solid var(--primary);
+    }
+
+    .citation {
+        background: var(--gray-100);
+        padding: 1rem;
+        border-radius: var(--border-radius-sm);
+        margin: 1rem 0;
+        font-family: monospace;
+        white-space: pre-wrap;
+    }
+
+    .metadata-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+    }
+
+    .metadata-table th,
+    .metadata-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid var(--gray-300);
+    }
+
+    .metadata-table th {
+        background: var(--gray-200);
+        font-weight: 600;
+    }
+
+    .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(67, 97, 238, 0.3);
+        border-radius: 50%;
+        border-top-color: var(--primary);
+        animation: spin 1s ease-in-out infinite;
+        margin-left: 10px;
+        vertical-align: middle;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .error-message {
+        background: rgba(239, 71, 111, 0.1);
+        color: var(--danger);
+        padding: 1rem;
+        border-radius: var(--border-radius-sm);
+        border-left: 4px solid var(--danger);
+        margin: 1rem 0;
+    }
+
+    .success-message {
+        background: rgba(6, 214, 160, 0.1);
+        color: var(--success);
+        padding: 1rem;
+        border-radius: var(--border-radius-sm);
+        border-left: 4px solid var(--success);
+        margin: 1rem 0;
+    }
+
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.5rem 0 1rem 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--primary-light);
+    }
+
+    .progress-container {
+        height: 10px;
+        background-color: var(--gray-300);
+        border-radius: 5px;
+        margin: 1rem 0;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        height: 100%;
+        background-color: var(--primary);
+        border-radius: 5px;
+        width: 0%;
+        transition: width 0.3s ease;
+    }
+
+    .reference-item {
+        padding: 1rem;
+        border: 1px solid var(--gray-300);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 1rem;
+        background: white;
+    }
+
+    .reference-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .status-icon {
+        font-size: 1.2rem;
+    }
+
+    .status-pending {
+        color: var(--warning);
+    }
+
+    .status-success {
+        color: var(--success);
+    }
+
+    .status-error {
+        color: var(--danger);
+    }
+
+    .export-buttons {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-card fade-in">
+    <div class="text-center mb-3">
+        <h1
+            style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">
+            Bulk DOI Finder
+        </h1>
+        <p class="text-muted">Upload and validate multiple references, receive APA and AMA formatted citations</p>
+    </div>
+
+    <div class="search-section">
+        <h3 class="mb-2">Upload References</h3>
+        <p class="text-muted">Upload a text file with one reference per line, or paste references directly</p>
+
+        <div class="drop-zone" id="refDropZone">
+            <i class="fas fa-cloud-upload-alt"
+                style="font-size: 2.5rem; color: var(--primary); margin-bottom: 1rem;"></i>
+            <p>Drag & drop your reference file here or click to browse</p>
+            <p class="text-muted">Supports .txt files with one reference per line</p>
+            <input type="file" id="refFile" name="ref_file" accept=".txt" style="display: none;">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Or paste references directly (one per line)</label>
+            <textarea id="refTextArea" class="search-input" placeholder="Paste references here, one per line..."
+                rows="5"></textarea>
+        </div>
+
+        <div class="file-list" id="refFileList"></div>
+
+        <button onclick="processReferences()" class="btn btn-primary search-button">
+            <i class="fas fa-play"></i> Process References
+        </button>
+    </div>
+
+    <div class="search-section">
+        <h3 class="mb-2">Individual DOI or URL Lookup</h3>
+        <input id="inputField" type="text" class="search-input" placeholder="Enter DOI or URL here..." />
+        <button onclick="fetchMetadata()" class="btn btn-primary search-button">
+            <i class="fas fa-search"></i> Get Metadata
+        </button>
+        <div id="output"></div>
+    </div>
+
+    <div class="search-section">
+        <h3 class="mb-2">Individual Title Search</h3>
+        <textarea id="titleInput" class="search-input"
+            placeholder="Paste article title, journal title, book, proceeding, or chapter title here..."
+            rows="3"></textarea>
+        <button onclick="searchPubMedCrossRef()" class="btn btn-primary search-button">
+            <i class="fas fa-search"></i> Search DOI & Metadata
+        </button>
+        <div id="result2"></div>
+    </div>
+
+    <div id="bulkResults" class="results-container" style="display: none;">
+        <div class="section-title">Bulk Processing Results</div>
+        <div class="progress-container">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <div id="progressText" class="text-center text-muted">Processing 0 of 0 references</div>
+        <div id="referencesList"></div>
+
+        <div class="export-buttons">
+            <button onclick="exportResults('apa')" class="btn btn-success">
+                <i class="fas fa-download"></i> Export APA Citations
+            </button>
+            <button class="btn btn-outline-secondary" onclick="exportResults('ama')">
+                <i class="fas fa-file-download mr-1"></i> Download AMA
+            </button>
+            <button class="btn btn-outline-secondary" onclick="exportResults('chicago')">
+                <i class="fas fa-file-download mr-1"></i> Download Chicago
+            </button>
+            <button class="btn btn-outline-primary" onclick="exportResults('all')">
+                <i class="fas fa-download"></i> Export All Data
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Reference processing variables
+    let references = [];
+    let processingResults = [];
+    let currentProcessingIndex = 0;
+
+    // DOM elements
+    const refDropZone = document.getElementById('refDropZone');
+    const refFileInput = document.getElementById('refFile');
+    const refTextArea = document.getElementById('refTextArea');
+    const refFileList = document.getElementById('refFileList');
+    const bulkResults = document.getElementById('bulkResults');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const referencesList = document.getElementById('referencesList');
+
+    // Set up drop zone
+    refDropZone.addEventListener('click', () => refFileInput.click());
+
+    refDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        refDropZone.classList.add('highlight');
+    });
+
+    ['dragleave', 'dragend'].forEach(type => {
+        refDropZone.addEventListener(type, () => {
+            refDropZone.classList.remove('highlight');
+        });
+    });
+
+    refDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        refDropZone.classList.remove('highlight');
+        handleRefFile(e.dataTransfer.files[0]);
+    });
+
+    refFileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleRefFile(e.target.files[0]);
+        }
+    });
+
+    function handleRefFile(file) {
+        if (file && file.name.toLowerCase().endsWith('.txt')) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                refTextArea.value = e.target.result;
+                updateFileList(file);
+            };
+            reader.readAsText(file);
+        } else {
+            showAlert('Only .txt files are supported', 'error');
+        }
+    }
+
+    function updateFileList(file) {
+        refFileList.innerHTML = '';
+        if (file) {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <div class="file-info">
+                    <i class="fas fa-file-alt file-icon"></i>
+                    <div>
+                        <div>${file.name}</div>
+                        <div class="text-muted">${formatFileSize(file.size)}</div>
+                    </div>
+                </div>
+                <i class="fas fa-times remove-file" onclick="clearFile()"></i>
+            `;
+            refFileList.appendChild(fileItem);
+        }
+    }
+
+    function clearFile() {
+        refFileInput.value = '';
+        refFileList.innerHTML = '';
+        refTextArea.value = '';
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function processReferences() {
+        const refText = refTextArea.value.trim();
+        if (!refText) {
+            showAlert('Please upload a file or paste references', 'error');
+            return;
+        }
+
+        // Split references by new lines and filter out empty lines
+        references = refText.split('\n')
+            .map(ref => ref.trim())
+            .filter(ref => ref.length > 0);
+
+        if (references.length === 0) {
+            showAlert('No valid references found', 'error');
+            return;
+        }
+
+        // Reset processing state
+        processingResults = [];
+        currentProcessingIndex = 0;
+
+        // Show results container
+        bulkResults.style.display = 'block';
+        referencesList.innerHTML = '';
+
+        // Start processing
+        processNextReference();
+    }
+
+    function processNextReference() {
+        if (currentProcessingIndex >= references.length) {
+            // Processing complete
+            progressBar.style.width = '100%';
+            progressText.textContent = `Processing complete! Processed ${references.length} references`;
+            return;
+        }
+
+        // Update progress
+        const progress = ((currentProcessingIndex + 1) / references.length) * 100;
+        progressBar.style.width = `${progress}%`;
+        progressText.textContent = `Processing ${currentProcessingIndex + 1} of ${references.length} references`;
+
+        const reference = references[currentProcessingIndex];
+
+        // Create reference item in UI
+        const refItem = document.createElement('div');
+        refItem.className = 'reference-item';
+        refItem.id = `ref-${currentProcessingIndex}`;
+        refItem.innerHTML = `
+            <div class="reference-status">
+                <i class="fas fa-circle-notch fa-spin status-icon status-pending"></i>
+                <span>Processing: "${reference}"</span>
+            </div>
+            <div class="result-content"></div>
+        `;
+        referencesList.appendChild(refItem);
+
+        // Try to process this reference
+        processReference(reference, currentProcessingIndex)
+            .then(result => {
+                // Update UI with result
+                const resultContent = document.getElementById(`ref-${currentProcessingIndex}`).querySelector('.result-content');
+                const statusIcon = document.getElementById(`ref-${currentProcessingIndex}`).querySelector('.status-icon');
+
+                statusIcon.className = 'fas fa-check-circle status-icon status-success';
+
+                if (result.success) {
+                    let badgeClass = 'bg-primary';
+                    if (result.source.includes('PubMed')) badgeClass = 'bg-info';
+                    else if (result.source.includes('Google')) badgeClass = 'bg-warning text-dark';
+                    else if (result.source.includes('Smart')) badgeClass = 'bg-secondary';
+
+                    resultContent.innerHTML = `
+                        <div class="mb-2"><span class="badge ${badgeClass}">${result.source}</span></div>
+                        <div><strong>DOI/ID:</strong> <a href="${result.doi.startsWith('http') ? result.doi : 'https://doi.org/' + result.doi}" target="_blank">${result.doi}</a></div>
+                        <div><strong>APA Format:</strong><div class="citation">${result.apa}</div></div>
+                        <div><strong>AMA Format:</strong><div class="citation">${result.ama}</div></div>
+                        <div><strong>Chicago Format:</strong><div class="citation">${result.chicago}</div></div>
+                    `;
+                } else {
+                    resultContent.innerHTML = `
+                        <div class="error-message">${result.error}</div>
+                    `;
+                }
+
+                // Store result and process next reference
+                processingResults.push(result);
+                currentProcessingIndex++;
+                processNextReference();
+            })
+            .catch(error => {
+                // Handle error
+                const resultContent = document.getElementById(`ref-${currentProcessingIndex}`).querySelector('.result-content');
+                const statusIcon = document.getElementById(`ref-${currentProcessingIndex}`).querySelector('.status-icon');
+
+                statusIcon.className = 'fas fa-exclamation-circle status-icon status-error';
+                resultContent.innerHTML = `<div class="error-message">Error processing reference: ${error.message}</div>`;
+
+                processingResults.push({
+                    success: false,
+                    error: `Error: ${error.message}`,
+                    reference: reference
+                });
+
+                currentProcessingIndex++;
+                processNextReference();
+            });
+    }
+
+    async function logAction(actionType, details) {
+        try {
+            await fetch('/api/log-action', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
+                },
+                body: JSON.stringify({
+                    action_type: actionType,
+                    details: details
+                })
+            });
+        } catch (e) {
+            console.error('Failed to log action', e);
+        }
+    }
+
+    async function processReference(reference, index) {
+        // Log individual processing attempt
+        logAction('doi_finder', { type: 'bulk_process', query: reference.substring(0, 50) + '...' });
+
+        // 1. Initial Checks (DOI/PMID are definitive)
+        // Check for DOI
+        const doiRegex = /10.\d{4,9}\/[-._;()/:A-Z0-9]+/i;
+        const doiMatch = reference.match(doiRegex);
+
+        if (doiMatch) {
+            try {
+                const doi = doiMatch[0];
+                const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return {
+                        success: true,
+                        source: 'CrossRef (DOI)',
+                        reference: reference,
+                        doi: doi,
+                        apa: generateAPACitation(data.message),
+                        ama: generateAMACitation(data.message),
+                        chicago: generateChicagoCitation(data.message),
+                        data: data.message
+                    };
+                }
+            } catch (e) { console.log('DOI lookup failed, trying others...'); }
+        }
+
+        // Check for PMID
+        const pmidMatch = reference.match(/PMID:\s*(\d+)/i);
+        if (pmidMatch) {
+            try {
+                const pmidRes = await searchPubMedID(pmidMatch[1]);
+                if (pmidRes) return pmidRes;
+            } catch (e) {
+                console.log('PMID lookup failed');
+            }
+        }
+
+        // 2. Heuristic Categorization
+        const category = categorizeReference(reference);
+        let result = null;
+
+        if (category === 'web') {
+            // Priority: URL extraction
+            const urlMatch = reference.match(/https?:\/\/[^\s]+/i);
+            if (urlMatch) {
+                const url = urlMatch[0];
+                const parsedData = manualParse(reference, url);
+                if (parsedData) {
+                    return {
+                        success: true,
+                        source: `Extracted from URL (Web)`,
+                        reference: reference,
+                        doi: 'N/A',
+                        apa: generateAPACitation(parsedData),
+                        ama: generateAMACitation(parsedData),
+                        chicago: generateChicagoCitation(parsedData),
+                        data: parsedData
+                    };
+                }
+            }
+        } else if (category === 'book') {
+            // Priority: Google Books -> (Maybe CrossRef as backup)
+            try {
+                const gbRes = await searchGoogleBooks(reference);
+                if (gbRes) return gbRes;
+            } catch (e) { }
+
+            // Backup for books (some are in CrossRef)
+            try {
+                const crossrefRes = await searchByTitle(reference);
+                if (crossrefRes.success) {
+                    crossrefRes.source = 'CrossRef (Title)';
+                    return crossrefRes;
+                }
+            } catch (e) { }
+
+        } else {
+            // Default/Journal: CrossRef -> PubMed -> GoogleBooks (validated)
+            try {
+                const crossrefRes = await searchByTitle(reference);
+                if (crossrefRes.success) {
+                    crossrefRes.source = 'CrossRef (Title)';
+                    return crossrefRes;
+                }
+            } catch (e) { }
+
+            try {
+                const pubmedRes = await searchPubMed(reference);
+                if (pubmedRes) return pubmedRes;
+            } catch (e) { }
+
+            // Fallback to Google Books even for journals? 
+            // User said "if book use Google Books", implicit "only if book"?
+            // But sometimes Google Books finds journals. 
+            // With our new validation, it is safe to try.
+            try {
+                const gbRes = await searchGoogleBooks(reference);
+                if (gbRes) return gbRes;
+            } catch (e) { }
+        }
+
+        // 3. Final Fallback: Manual Parse / Smart Fallback
+        const manualData = manualParse(reference, null);
+        if (manualData) {
+            // Basic structure preserved, formatted as best as possible
+            return {
+                success: true,
+                source: `Manual Parse (${manualData.type})`,
+                reference: reference,
+                doi: 'N/A',
+                apa: generateAPACitation(manualData),
+                ama: generateAMACitation(manualData),
+                chicago: generateChicagoCitation(manualData),
+                data: manualData
+            };
+        }
+
+        // Smart Fallback (Backend)
+        try {
+            const smartRes = await smartFallback(reference);
+            if (smartRes) return smartRes;
+        } catch (e) { }
+
+        return {
+            success: false,
+            reference: reference,
+            error: "Could not find metadata in any source."
+        };
+    }
+
+    function categorizeReference(text) {
+        // Simple heuristics to guess type
+
+        // WEB: Contains URL and not much else specific to journals (like Vol/Issue)
+        // But some journals have URLs.
+        // If it has a URL but NO "Vol." check?
+        const hasUrl = /https?:\/\//i.test(text);
+        const hasJournalIndicators = /(Vol\.|Volume|No\.|Issue|pp\.|pages|\d+\(\d+\))/i.test(text);
+        const hasBookIndicators = /(Press|Publishing|Publishers|Co\.|Inc\.|Ltd\.|New York|London|Springer|Wiley|Routledge|Sage|Oxford)/i.test(text);
+
+        if (hasUrl && !hasJournalIndicators) return 'web';
+
+        // BOOK vs JOURNAL
+        // If it has (Ed.) or (Eds.), it's likely a book or chapter
+        if (/\(Eds?\.\)/.test(text)) return 'book';
+
+        if (hasJournalIndicators) return 'journal';
+        if (hasBookIndicators) return 'book';
+
+        // Default
+        return 'journal';
+    }
+
+    // --- Manual Parsing Heuristics ---
+    function manualParse(text, url) {
+        // Basic pattern matching for APA-like strings: Author. (Year). Title. Publisher/URL.
+
+        // 1. Extract Year
+        const yearMatch = text.match(/\((\d{4})\)/) || text.match(/\b(19|20)\d{2}\b/);
+        const year = yearMatch ? yearMatch[1] : null;
+
+        if (!year) return null; // Can't parse reliably without year
+
+        // 2. Extract Author (Everything before year)
+        // Split by the year match
+        const parts = text.split(yearMatch[0]);
+        let authorPart = parts[0].trim();
+        // Remove trailing dot or parens
+        authorPart = authorPart.replace(/[.(]+$/, '').trim();
+
+        // 3. Extract Title/Rest
+        let rest = parts.slice(1).join(yearMatch[0]).trim();
+        // Remove leading dot/parens
+        rest = rest.replace(/^[.)]+/, '').trim();
+
+        // If URL provided, remove it from rest
+        let cleanRest = rest;
+        if (url) {
+            cleanRest = rest.replace(url, '').trim();
+        }
+
+        // Split rest by dot to find Title vs Publisher
+        // This is tricky. 
+        // "Title of the book. Publisher."
+        // "Title of article. Journal Name, Vol(Issue)..."
+
+        let title = cleanRest;
+        let publisher = '';
+
+        const dotSplit = cleanRest.split('.');
+        if (dotSplit.length > 1) {
+            title = dotSplit[0].trim();
+            // Publisher is the rest
+            publisher = dotSplit.slice(1).join('.').trim();
+        }
+
+        // Clean up
+        publisher = publisher.replace(/[.,;]+$/, '');
+
+        // Determine type
+        let type = 'book'; // Default for manual parse
+        if (url) type = 'web';
+        if (text.toLowerCase().includes('dissertation') || text.toLowerCase().includes('thesis')) type = 'thesis';
+        if (text.toLowerCase().includes('proceedings')) type = 'conference';
+
+        // Construct data object
+        return {
+            type: type,
+            author: authorPart, // String format is supported by our formatAuthors
+            issued: { 'date-parts': [[year]] },
+            title: title,
+            publisher: publisher,
+            'container-title': publisher, // For journal/web site name fallback
+            URL: url
+        };
+    }
+
+    // --- PubMed Integration ---
+    async function searchPubMedID(pmid) {
+        const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${pmid}&retmode=json`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.result && data.result[pmid]) {
+            const item = data.result[pmid];
+            return formatPubMedItem(item, pmid);
+        }
+        return null;
+    }
+
+    async function searchPubMed(query) {
+        // 1. Search for ID
+        const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=1`;
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
+
+        if (searchData.esearchresult && searchData.esearchresult.idlist.length > 0) {
+            const id = searchData.esearchresult.idlist[0];
+            return await searchPubMedID(id);
+        }
+        return null;
+    }
+
+    function formatPubMedItem(item, id) {
+        // Map PubMed JSON to our structure
+        // item: { title, authors: [{name}], source, pubdate, volume, issue, pages, elocationid ... }
+
+        const authors = (item.authors || []).map(a => {
+            // "Smith J" -> family: Smith, given: J
+            const parts = a.name.split(' ');
+            return { family: parts[0], given: parts.slice(1).join(' ') };
+        });
+
+        const articleObj = {
+            title: [item.title],
+            author: authors,
+            'container-title': [item.source],
+            issued: { 'date-parts': [[item.pubdate.substring(0, 4)]] }, // approximate year
+            volume: item.volume,
+            issue: item.issue,
+            page: item.pages,
+            DOI: item.elocationid ? item.elocationid.replace('doi: ', '') : null
+        };
+
+        return {
+            success: true,
+            source: 'PubMed',
+            reference: item.title,
+            doi: articleObj.DOI || `PMID:${id}`,
+            apa: generateAPACitation(articleObj),
+            ama: generateAMACitation(articleObj),
+            chicago: generateChicagoCitation(articleObj),
+            data: articleObj
+        };
+    }
+
+    // --- Google Books Integration ---
+    async function searchGoogleBooks(query) {
+        // Google Books search can be very fuzzy. We must validate the result.
+        const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.items && data.items.length > 0) {
+            const info = data.items[0].volumeInfo;
+
+            // --- VALIDATION START ---
+            // 1. Title Validation
+            // The input 'query' is the full reference string.
+            // The result 'info.title' should be a substring of the query (roughly).
+            const normQuery = query.toLowerCase().replace(/[^\w\s]/g, '');
+            const normTitle = (info.title || '').toLowerCase().replace(/[^\w\s]/g, '');
+
+            const titleWords = normTitle.split(/\s+/).filter(w => w.length > 3);
+            if (titleWords.length === 0) return null; // No title words to check
+
+            let matchCount = 0;
+            for (const word of titleWords) {
+                if (normQuery.includes(word)) matchCount++;
+            }
+
+            // Require significant overlap (e.g. 70% of book title words must exist in the reference string)
+            const overlap = matchCount / titleWords.length;
+            if (overlap < 0.7) {
+                console.log(`Google Books rejected: Title overlap ${Math.round(overlap * 100)}% too low for "${info.title}"`);
+                return null;
+            }
+
+            // 2. Author Validation (if authors exist)
+            if (info.authors && info.authors.length > 0) {
+                // Check if at least one author's last name is in the query
+                const authorFound = info.authors.some(authName => {
+                    const parts = authName.trim().split(' ');
+                    const lastName = parts[parts.length - 1].toLowerCase().replace(/[^\w]/g, '');
+                    return lastName.length > 2 && normQuery.includes(lastName);
+                });
+
+                if (!authorFound) {
+                    console.log(`Google Books rejected: No author match for "${info.authors.join(', ')}"`);
+                    return null;
+                }
+            }
+            // --- VALIDATION END ---
+
+            // Map to structure
+            const authors = (info.authors || []).map(name => {
+                const parts = name.split(' ');
+                // Very naive split
+                return { family: parts[parts.length - 1], given: parts.slice(0, parts.length - 1).join(' ') };
+            });
+
+            const bookObj = {
+                title: [info.title],
+                author: authors,
+                publisher: info.publisher,
+                issued: { 'date-parts': [[info.publishedDate ? info.publishedDate.substring(0, 4) : '']] },
+                type: 'book'
+            };
+
+            return {
+                success: true,
+                source: 'Google Books',
+                reference: info.title,
+                doi: info.industryIdentifiers ? (info.industryIdentifiers.find(i => i.type === 'ISBN_13')?.identifier || info.industryIdentifiers[0].identifier) : 'ISBN',
+                apa: generateAPACitation(bookObj),
+                ama: generateAMACitation(bookObj),
+                chicago: generateChicagoCitation(bookObj),
+                data: bookObj
+            };
+        }
+        return null;
+    }
+
+    // --- Smart Fallback (Backend) ---
+    async function smartFallback(reference) {
+        const res = await fetch('/api/smart-format', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({ reference: reference, style: 'apa' })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            // We need AMA too?
+            // The API currently returns one format based on input style.
+            // We initiate two calls or update API to return both?
+            // Let's call for AMA as well or just assume client wants both.
+            // To save time, let's just make a second call or change API.
+            // Wait, the API returns 'formatted' HTML.
+
+            const amaRes = await fetch('/api/smart-format', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content },
+                body: JSON.stringify({ reference: reference, style: 'ama' })
+            });
+            const amaData = await amaRes.json();
+
+            return {
+                success: true,
+                source: `Smart Format (${data.type})`,
+                reference: reference,
+                doi: 'N/A',
+                apa: data.formatted,
+                ama: amaData.formatted,
+                chicago: "Smart Format Not Available for Chicago",
+                data: {}
+            };
+        }
+        return null;
+    }
+
+    async function searchByTitle(reference) {
+        // Log title search
+        // Clean up reference to get a likely title
+        // Heuristic: remove year in parens, pages? 
+        // CrossRef "query.bibliographic" is better than "query.title" for full ref strings
+
+        try {
+            // Use query.bibliographic for full reference strings
+            const crossrefUrl = 'https://api.crossref.org/works?query.bibliographic=' + encodeURIComponent(reference) + '&rows=2';
+            const crossRefRes = await fetch(crossrefUrl);
+            const crossRefData = await crossRefRes.json();
+
+            if (!crossRefData.message.items || crossRefData.message.items.length === 0) {
+                throw new Error('No results found for this title');
+            }
+
+            // Iterate through top 2 results to find a valid match
+            for (let item of crossRefData.message.items) {
+                if (validateResult(reference, item)) {
+                    const doi = item.DOI || 'No DOI found';
+                    return {
+                        success: true,
+                        reference: reference, // return original ref
+                        doi: doi,
+                        apa: generateAPACitation(item),
+                        ama: generateAMACitation(item),
+                        chicago: generateChicagoCitation(item),
+                        data: item
+                    };
+                }
+            }
+
+            throw new Error('No valid match found after validation');
+
+        } catch (error) {
+            return {
+                success: false,
+                reference: reference,
+                error: `Could not find metadata for reference: ${error.message}`
+            };
+        }
+    }
+
+    function validateResult(inputRef, apiItem) {
+        // Normalize
+        const normInput = inputRef.toLowerCase().replace(/[^\w\s]/g, '');
+        const normTitle = (apiItem.title ? apiItem.title[0] : '').toLowerCase().replace(/[^\w\s]/g, '');
+
+        // 1. Anti-patterns
+        if (normTitle.includes('book review') || normTitle.includes('review of')) {
+            // Only allow if input also mentions review
+            if (!normInput.includes('review')) return false;
+        }
+
+        // 2. Title Similarity (Simple Word Overlap)
+        const inputWords = new Set(normInput.split(/\s+/).filter(w => w.length > 3));
+        const titleWords = new Set(normTitle.split(/\s+/).filter(w => w.length > 3));
+
+        let matchCount = 0;
+        for (let w of titleWords) {
+            if (inputWords.has(w)) matchCount++;
+        }
+
+        const overlap = matchCount / Math.max(1, titleWords.size);
+
+        // If overlap is too low, reject
+        // Book titles might be short, so be careful.
+        if (overlap < 0.4) return false;
+
+        // 3. Year Check (if available and parseable in input)
+        // Extract Year from input (e.g., (2020) or 2020.)
+        const yearMatch = inputRef.match(/\b(19|20)\d{2}\b/);
+        if (yearMatch && apiItem.issued && apiItem.issued['date-parts']) {
+            const refYear = parseInt(yearMatch[0]);
+            const itemYear = apiItem.issued['date-parts'][0][0];
+            if (itemYear && Math.abs(refYear - itemYear) > 2) {
+                // Allow small drift (published vs online), but > 2 years is suspicious
+                // unless it is a reprint?
+                return false;
+            }
+        }
+
+        // 4. Author Check (Heuristic)
+        // If API has authors, at least one should be in input?
+        if (apiItem.author && apiItem.author.length > 0) {
+            const firstAuthor = apiItem.author[0].family;
+            if (firstAuthor && !normInput.includes(firstAuthor.toLowerCase())) {
+                // Try second author?
+                if (apiItem.author.length > 1) {
+                    const secondAuthor = apiItem.author[1].family;
+                    if (secondAuthor && !normInput.includes(secondAuthor.toLowerCase())) {
+                        return false; // Neither of first two authors found
+                    }
+                } else {
+                    return false; // First author not found
+                }
+            }
+        }
+
+        return true;
+    }
+</script>
+
+<!-- Insert the rest of the DOI processing JavaScript code here -->
+
+<script>
+    async function fetchMetadata() {
+        const input = document.getElementById('inputField').value.trim();
+        if (!input) {
+            showAlert('Please enter a DOI or URL', 'error');
+            return;
+        }
+
+        // Log the search action
+        logAction('doi_finder', { type: 'single_lookup', query: input });
+
+        const outputDiv = document.getElementById('output');
+        outputDiv.innerHTML = '<div class="loading"></div> Searching...';
+
+        // Extract DOI if URL is provided
+        let doi = input;
+        if (isValidURL(input)) {
+            const extracted = extractDOIFromURL(input);
+            if (extracted) {
+                doi = extracted;
+            } else {
+                outputDiv.innerHTML = '<div class="error-message">Could not find a valid DOI in the URL</div>';
+                return;
+            }
+        } else if (!isValidDOI(doi)) {
+            // Try to treat as raw DOI even if validation fails slightly, or show error
+            // For now, let's proceed but warn if stricly invalid
+        }
+
+        try {
+            const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`);
+            if (!response.ok) {
+                throw new Error('DOI not found');
+            }
+            const data = await response.json();
+            const message = data.message;
+
+            outputDiv.innerHTML = `
+                <div class="result-card">
+                    <div class="metadata-table">
+                        <div><strong>Title:</strong> ${message.title ? message.title[0] : 'N/A'}</div>
+                        <div><strong>DOI:</strong> <a href="https://doi.org/${message.DOI}" target="_blank">${message.DOI}</a></div>
+                    </div>
+                    <div><strong>APA Style:</strong><div class="citation">${generateAPACitation(message)}</div></div>
+                    <div><strong>AMA Style:</strong><div class="citation">${generateAMACitation(message)}</div></div>
+                    <div><strong>Chicago Style:</strong><div class="citation">${generateChicagoCitation(message)}</div></div>
+                </div>
+            `;
+        } catch (error) {
+            outputDiv.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+        }
+    }
+
+    async function searchPubMedCrossRef() {
+        const title = document.getElementById('titleInput').value.trim();
+        if (!title) {
+            showAlert('Please enter a title', 'error');
+            return;
+        }
+
+        // Log the search action
+        logAction('doi_finder', { type: 'title_search_manual', query: title });
+
+        const resultDiv = document.getElementById('result2');
+        resultDiv.innerHTML = '<div class="loading"></div> Searching...';
+
+        try {
+            const crossrefUrl = 'https://api.crossref.org/works?query.title=' + encodeURIComponent(title) + '&rows=1';
+            const response = await fetch(crossrefUrl);
+            const data = await response.json();
+
+            if (!data.message.items || data.message.items.length === 0) {
+                throw new Error('No results found');
+            }
+
+            const item = data.message.items[0];
+
+            resultDiv.innerHTML = `
+                <div class="result-card">
+                    <div class="metadata-table">
+                        <div><strong>Matched Title:</strong> ${item.title ? item.title[0] : 'N/A'}</div>
+                        <div><strong>DOI:</strong> <a href="https://doi.org/${item.DOI}" target="_blank">${item.DOI}</a></div>
+                        <div><strong>Score:</strong> ${item.score}</div>
+                    </div>
+                    <div><strong>APA Style:</strong><div class="citation">${generateAPACitation(item)}</div></div>
+                    <div><strong>AMA Style:</strong><div class="citation">${generateAMACitation(item)}</div></div>
+                    <div><strong>Chicago Style:</strong><div class="citation">${generateChicagoCitation(item)}</div></div>
+                </div>
+            `;
+        } catch (error) {
+            resultDiv.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+        }
+    }
+    const doiRegex = /^10.\d{4,9}\/[-._;()/:A-Z0-9]+$/i;
+    const doiInUrlRegex = /10.\d{4,9}\/[-._;()/:A-Z0-9]+/i;
+
+    function isValidDOI(doi) {
+        return doiRegex.test(doi);
+    }
+
+    function extractDOIFromURL(url) {
+        const match = url.match(doiInUrlRegex);
+        return match ? match[0] : null;
+    }
+
+    function isValidURL(str) {
+        try {
+            new URL(str);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    // Common journal abbreviations for AMA format
+    const journalAbbreviations = {
+        'New England Journal of Medicine': 'N Engl J Med',
+        'The New England Journal of Medicine': 'N Engl J Med',
+        'Journal of the American Medical Association': 'JAMA',
+        'JAMA': 'JAMA',
+        'The Lancet': 'Lancet',
+        'British Medical Journal': 'BMJ',
+        'Annals of Internal Medicine': 'Ann Intern Med',
+        'Journal of Clinical Investigation': 'J Clin Invest',
+        'Nature': 'Nature',
+        'Science': 'Science',
+        'Cell': 'Cell',
+        'Proceedings of the National Academy of Sciences': 'Proc Natl Acad Sci U S A',
+        'PNAS': 'Proc Natl Acad Sci U S A',
+        'Journal of Immunology': 'J Immunol',
+        'Blood': 'Blood',
+        'Circulation': 'Circulation',
+        'Journal of the American College of Cardiology': 'J Am Coll Cardiol',
+        'Journal of the American Society of Nephrology': 'J Am Soc Nephrol',
+        'Journal of the American Society of Nephrology': 'J Am Soc Nephrol',
+        'JASN': 'J Am Soc Nephrol',
+        'Frontiers in Neurology': 'Front Neurol',
+        'Frontiers in Immunology': 'Front Immunol',
+        'Neurology': 'Neurology',
+        'Annals of Neurology': 'Ann Neurol',
+        'JAMA Neurology': 'JAMA Neurol',
+        'JAMA Psychiatry': 'JAMA Psychiatry',
+        'JAMA Internal Medicine': 'JAMA Intern Med',
+        'JAMA Surgery': 'JAMA Surg',
+        'JAMA Pediatrics': 'JAMA Pediatr',
+        'JAMA Ophthalmology': 'JAMA Ophthalmol',
+        'JAMA Otolaryngology–Head & Neck Surgery': 'JAMA Otolaryngol Head Neck Surg',
+        'JAMA Dermatology': 'JAMA Dermatol',
+        'JAMA Cardiology': 'JAMA Cardiol',
+        'JAMA Oncology': 'JAMA Oncol',
+        'Journal of Neuroscience': 'J Neurosci',
+        'Journal of Neuroinflammation': 'J Neuroinflammation',
+        'Brain': 'Brain',
+        'Brain Research': 'Brain Res',
+        'Neuroscience': 'Neuroscience',
+        'Nature Neuroscience': 'Nat Neurosci',
+        'Nature Medicine': 'Nat Med',
+        'Nature Reviews Neuroscience': 'Nat Rev Neurosci',
+        'Science Translational Medicine': 'Sci Transl Med',
+        'Journal of Clinical Oncology': 'J Clin Oncol',
+        'Journal of the National Cancer Institute': 'J Natl Cancer Inst',
+        'Cancer Research': 'Cancer Res',
+        'Clinical Cancer Research': 'Clin Cancer Res',
+        'American Journal of Respiratory and Critical Care Medicine': 'Am J Respir Crit Care Med',
+        'Chest': 'Chest',
+        'Thorax': 'Thorax',
+        'European Respiratory Journal': 'Eur Respir J',
+        'Diabetes': 'Diabetes',
+        'Diabetes Care': 'Diabetes Care',
+        'Diabetologia': 'Diabetologia',
+        'Journal of Clinical Endocrinology & Metabolism': 'J Clin Endocrinol Metab',
+        'Endocrinology': 'Endocrinology',
+        'Hepatology': 'Hepatology',
+        'Journal of Hepatology': 'J Hepatol',
+        'Gastroenterology': 'Gastroenterology',
+        'Gut': 'Gut',
+        'American Journal of Gastroenterology': 'Am J Gastroenterol',
+        'Rheumatology': 'Rheumatology',
+        'Annals of the Rheumatic Diseases': 'Ann Rheum Dis',
+        'Arthritis & Rheumatology': 'Arthritis Rheumatol',
+        'Kidney International': 'Kidney Int',
+        'American Journal of Kidney Diseases': 'Am J Kidney Dis',
+        'Clinical Journal of the American Society of Nephrology': 'Clin J Am Soc Nephrol',
+        'Nephrology Dialysis Transplantation': 'Nephrol Dial Transplant',
+        'Journal of the American Geriatrics Society': 'J Am Geriatr Soc',
+        'Journal of Gerontology': 'J Gerontol',
+        'Aging Cell': 'Aging Cell',
+        'PLOS ONE': 'PLoS One',
+        'PLOS Medicine': 'PLoS Med',
+        'PLOS Biology': 'PLoS Biol',
+        'BMC Medicine': 'BMC Med',
+        'BMC Biology': 'BMC Biol',
+        'Molecular Psychiatry': 'Mol Psychiatry',
+        'Biological Psychiatry': 'Biol Psychiatry',
+        'American Journal of Psychiatry': 'Am J Psychiatry',
+        'Journal of Affective Disorders': 'J Affect Disord',
+        'Schizophrenia Research': 'Schizophr Res',
+        'Journal of Infectious Diseases': 'J Infect Dis',
+        'Clinical Infectious Diseases': 'Clin Infect Dis',
+        'The Journal of Infectious Diseases': 'J Infect Dis',
+        'Emerging Infectious Diseases': 'Emerg Infect Dis',
+        'Infection and Immunity': 'Infect Immun',
+        'Vaccine': 'Vaccine',
+        'Journal of Virology': 'J Virol',
+        'Antimicrobial Agents and Chemotherapy': 'Antimicrob Agents Chemother',
+        'Journal of Antimicrobial Chemotherapy': 'J Antimicrob Chemother',
+        'Clinical Microbiology Reviews': 'Clin Microbiol Rev',
+        'Journal of Clinical Microbiology': 'J Clin Microbiol'
+    };
+
+    function abbreviateJournalName(journalName) {
+        if (!journalName) return 'No journal available';
+
+        // Check if we have a direct abbreviation
+        if (journalAbbreviations[journalName]) {
+            return journalAbbreviations[journalName];
+        }
+
+        // Try to find a partial match
+        for (const [fullName, abbreviation] of Object.entries(journalAbbreviations)) {
+            if (journalName.includes(fullName) || fullName.includes(journalName)) {
+                return abbreviation;
+            }
+        }
+
+        // Default abbreviation rules for common patterns
+        const abbreviationRules = [
+            { pattern: /Journal of (\w+)/gi, replacement: 'J $1' },
+            { pattern: /American Journal of (\w+)/gi, replacement: 'Am J $1' },
+            { pattern: /British Journal of (\w+)/gi, replacement: 'Br J $1' },
+            { pattern: /European Journal of (\w+)/gi, replacement: 'Eur J $1' },
+            { pattern: /Annals of (\w+)/gi, replacement: 'Ann $1' },
+            { pattern: /Archives of (\w+)/gi, replacement: 'Arch $1' },
+            { pattern: /Clinical (\w+)/gi, replacement: 'Clin $1' },
+            { pattern: /International Journal of (\w+)/gi, replacement: 'Int J $1' },
+            { pattern: /\bof\b/gi, replacement: '' },
+            { pattern: /\bthe\b/gi, replacement: '' },
+            { pattern: /\band\b/gi, replacement: '&' },
+            { pattern: /\s+/g, replacement: ' ' },
+            { pattern: /^ +| +$|( ) +/g, replacement: '$1' }
+        ];
+
+        let abbreviated = journalName;
+        for (const rule of abbreviationRules) {
+            abbreviated = abbreviated.replace(rule.pattern, rule.replacement);
+        }
+
+        // Capitalize first letters and remove extra spaces
+        abbreviated = abbreviated.trim()
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+
+        return abbreviated;
+    }
+
+    // --- Helper to determine Reference Type ---
+    function getRefType(data) {
+        // defined manually or from CrossRef 'type'
+        let type = data.type || data.manual_type || 'journal-article';
+
+        // Normalize CrossRef types
+        if (type === 'monograph' || type === 'reference-book') return 'book';
+        if (type === 'book-chapter') return 'chapter';
+        if (type === 'proceedings-article' || type === 'conference-paper') return 'conference';
+        if (type === 'dissertation' || type === 'thesis') return 'thesis';
+        if (type === 'web' || type === 'webpage' || type === 'dataset') return 'web';
+
+        // Return default
+        return type;
+    }
+
+    // --- Format Authors/Editors ---
+    function formatAuthorsAPA(authors) {
+        if (!authors || authors.length === 0) return '';
+        // Normalize if it's just a string (rare but possible in manual data)
+        if (typeof authors === 'string') return authors;
+
+        const formatName = a => `${a.family}, ${a.given?.charAt(0) || ''}.`;
+
+        if (authors.length === 1) return formatName(authors[0]);
+        if (authors.length === 2) return `${formatName(authors[0])}, & ${formatName(authors[1])}`;
+        if (authors.length <= 20) {
+            const last = authors[authors.length - 1];
+            const others = authors.slice(0, authors.length - 1).map(formatName).join(', ');
+            return `${others}, & ${formatName(last)}`;
+        } else {
+            // > 20 authors: list first 19 ... last
+            const first19 = authors.slice(0, 19).map(formatName).join(', ');
+            const last = authors[authors.length - 1];
+            return `${first19}, ... ${formatName(last)}`;
+        }
+    }
+
+    function formatAuthorsAMA(authors) {
+        if (!authors || authors.length === 0) return '';
+        if (typeof authors === 'string') return authors;
+
+        const formatName = a => `${a.family} ${a.given?.charAt(0) || ''}`;
+
+        if (authors.length <= 6) {
+            return authors.map(formatName).join(', ');
+        } else {
+            const firstThree = authors.slice(0, 3).map(formatName);
+            return `${firstThree.join(', ')}, et al.`;
+        }
+    }
+
+    function formatEditorsAPA(editors) {
+        if (!editors || editors.length === 0) return '';
+        const names = formatAuthorsAPA(editors); // Logic is similar (Name, I.)
+        const suffix = editors.length > 1 ? '(Eds.)' : '(Ed.)';
+        return `${names} ${suffix}`;
+    }
+
+    function formatEditorsAMA(editors) {
+        if (!editors || editors.length === 0) return '';
+        const names = formatAuthorsAMA(editors);
+        const suffix = editors.length > 1 ? 'eds' : 'ed';
+        return `${names}, ${suffix}`;
+    }
+
+    // --- Generate APA Citation ---
+    function generateAPACitation(data) {
+        const type = getRefType(data);
+        const authors = data.author ? formatAuthorsAPA(data.author) : (data.editor ? formatEditorsAPA(data.editor) : 'Unknown');
+
+        // Year
+        let year = 'n.d.';
+        if (data.issued && data.issued['date-parts']) {
+            year = data.issued['date-parts'][0][0];
+        } else if (data.year) {
+            year = data.year;
+        } else if (data.created && data.created['date-parts']) {
+            year = data.created['date-parts'][0][0];
+        }
+
+        // Title
+        let title = data.title ? (Array.isArray(data.title) ? data.title[0] : data.title) : 'No title';
+
+        // Publisher / Container
+        const container = data['container-title'] ? (Array.isArray(data['container-title']) ? data['container-title'][0] : data['container-title']) : '';
+        const publisher = data.publisher || '';
+
+        // DOI / URL
+        let link = '';
+        if (data.DOI) link = ` https://doi.org/${data.DOI}`;
+        else if (data.URL) link = ` ${data.URL}`; // Fallback to URL
+
+        // Formatting by Type
+        if (type === 'book') {
+            // Author. (Year). *Title*. Publisher. DOI
+            return `${authors} (${year}). <i>${title}</i>. ${publisher}.${link}`;
+
+        } else if (type === 'chapter') {
+            // Author. (Year). Title. In Editor (Ed.), *Book Title* (pp. xx-xx). Publisher. DOI
+            const editors = data.editor ? formatEditorsAPA(data.editor) : '';
+            const inPart = editors ? `In ${editors}, ` : 'In ';
+            const bookTitle = container || publisher || 'Unknown Book'; // Container holds book title for chapters usually
+            const pages = data.page ? ` (pp. ${data.page})` : '';
+            return `${authors} (${year}). ${title}. ${inPart}<i>${bookTitle}</i>${pages}. ${publisher}.${link}`;
+
+        } else if (type === 'edited-book') {
+            // Editor (Ed.). (Year). *Title*. Publisher. DOI
+            // (Authors variable handles editors if no author present, but let's be safe)
+            const eds = data.editor ? formatEditorsAPA(data.editor) : authors;
+            return `${eds} (${year}). <i>${title}</i>. ${publisher}.${link}`;
+
+        } else if (type === 'web') {
+            // Author. (Date). *Title*. Site Name. URL
+            // Site name often in container-title or publisher
+            const site = container || publisher || '';
+            // For web, if specific date (Y, M, D) available, use it? APA 7 usually just Year unless news.
+            // Let's stick to Year or (Year, Month Day) if available.
+            return `${authors} (${year}). <i>${title}</i>. ${site}.${link}`;
+
+        } else if (type === 'thesis') {
+            // Author. (Year). *Title* [Doctoral dissertation, Institution]. Archive.
+            const inst = publisher || 'Institution';
+            const genre = data.genre || 'Doctoral dissertation';
+            return `${authors} (${year}). <i>${title}</i> [${genre}, ${inst}].${link}`;
+
+        } else if (type === 'conference') {
+            // Author. (Year). Title. In *Proceedings* (pp.). DOI
+            const proc = container || 'Proceedings';
+            const pages = data.page ? ` (pp. ${data.page})` : '';
+            return `${authors} (${year}). ${title}. In <i>${proc}</i>${pages}.${link}`;
+        }
+
+        // Default: Journal Article
+        const volume = data.volume || '';
+        const issue = data.issue ? `(${data.issue})` : '';
+        const pages = data.page ? `, ${data.page}` : '';
+        return `${authors} (${year}). ${title}. <i>${container}</i>, <i>${volume}</i>${issue}${pages}.${link}`;
+    }
+
+    // --- Generate AMA Citation ---
+    function generateAMACitation(data) {
+        const type = getRefType(data);
+        const authors = data.author ? formatAuthorsAMA(data.author) : (data.editor ? formatEditorsAMA(data.editor) : 'Unknown');
+
+        // Year
+        let year = '';
+        if (data.issued && data.issued['date-parts']) {
+            year = data.issued['date-parts'][0][0];
+        } else if (data.year) {
+            year = data.year;
+        }
+
+        // Title
+        let title = data.title ? (Array.isArray(data.title) ? data.title[0] : data.title) : 'No title';
+
+        // Publisher / Container
+        const container = data['container-title'] ? (Array.isArray(data['container-title']) ? data['container-title'][0] : data['container-title']) : '';
+        const publisher = data.publisher || '';
+
+        // DOI / URL
+        let link = '';
+        if (data.DOI) link = `. doi:${data.DOI}`;
+        else if (data.URL) link = `. ${data.URL}`;
+
+        if (type === 'book') {
+            // Author. *Title*. Publisher; Year.
+            return `${authors}. <i>${title}</i>. ${publisher}; ${year}${link}`;
+
+        } else if (type === 'chapter') {
+            // Author. Title. In: Editor, ed. *Book Title*. Publisher; Year:Pages.
+            const editors = data.editor ? formatEditorsAMA(data.editor) : '';
+            const inPart = editors ? `In: ${editors}, ` : 'In: ';
+            const bookTitle = container || publisher;
+            const pages = data.page ? `:${data.page}` : '';
+            return `${authors}. ${title}. ${inPart}<i>${bookTitle}</i>. ${publisher}; ${year}${pages}${link}`;
+
+        } else if (type === 'edited-book') {
+            const eds = data.editor ? formatEditorsAMA(data.editor) : authors;
+            return `${eds}. <i>${title}</i>. ${publisher}; ${year}${link}`;
+
+        } else if (type === 'web') {
+            // Author. Title. Site Name. Published [Date]. Accessed [Date]. URL.
+            // We'll approximate.
+            const site = container || publisher;
+            const accessDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+            return `${authors}. ${title}. ${site}. Published ${year}. Accessed ${accessDate}. ${data.URL || ''}`;
+
+        } else if (type === 'thesis') {
+            // Author. Title [dissertation]. City, State: Institution; Year.
+            return `${authors}. ${title} [dissertation]. ${publisher}; ${year}${link}`;
+
+        } else if (type === 'conference') {
+            // Author. Title. Presented at: Conference; Date; Location.
+            // Mapping is hard without more data, fallback to close-to-journal
+            const proc = container || 'Proceedings';
+            return `${authors}. ${title}. In: <i>${proc}</i>. ${year}${link}`;
+        }
+
+        // Default: Journal
+        const journal = abbreviateJournalName(container);
+        const volume = data.volume || '';
+        const issue = data.issue ? `(${data.issue})` : '';
+        const pages = data.page ? `:${data.page}` : '';
+
+        return `${authors}. ${title}. <i>${journal}</i>. ${year};${volume}${issue}${pages}${link}`;
+    }
+
+    // --- Generate Chicago Citation ---
+    function formatAuthorsChicago(authors) {
+        if (!authors || authors.length === 0) return 'Unknown';
+        if (typeof authors === 'string') return authors; // Manual parse string
+
+        const formatNameFirst = a => `${a.family}, ${a.given || ''}`;
+        const formatNameSub = a => `${a.given || ''} ${a.family}`;
+
+        if (authors.length === 1) return `${formatNameFirst(authors[0])}.`;
+
+        if (authors.length <= 10) {
+            const first = formatNameFirst(authors[0]);
+            const last = formatNameSub(authors[authors.length - 1]);
+            if (authors.length === 2) return `${first}, and ${last}.`;
+
+            const middle = authors.slice(1, authors.length - 1).map(formatNameSub).join(', ');
+            return `${first}, ${middle}, and ${last}.`;
+        } else {
+            // > 10 authors: list first 7, et al.
+            const first7 = authors.slice(0, 7)
+                .map((a, i) => i === 0 ? formatNameFirst(a) : formatNameSub(a))
+                .join(', ');
+            return `${first7}, et al.`;
+        }
+    }
+
+    function formatEditorsChicago(editors) {
+        if (!editors || editors.length === 0) return '';
+        // Same author formatting but add "ed." or "eds."
+        // Chicago: "Edited by Name" usually in bib, but Author-Date ref list can vary.
+        // Standard Bib: EditorLast, First, ed. Title. OR if chapter: In Title, edited by Name.
+        // Let's assume this is strictly for the Primary Contributor position (Edited Book).
+        const authors = formatAuthorsChicago(editors);
+        // formatAuthors puts a period? Yes.
+        // "Smith, John, and Jane Doe."
+        // For editor: "Smith, John, and Jane Doe, eds."
+        return authors.replace(/\.$/, ', eds.');
+    }
+
+    function generateChicagoCitation(data) {
+        // Chicago 17/18th Bibliography Style
+        const type = getRefType(data);
+        const authors = data.author ? formatAuthorsChicago(data.author) : (data.editor ? formatEditorsChicago(data.editor) : 'Unknown');
+
+        // Year
+        let year = 'n.d.';
+        if (data.issued && data.issued['date-parts']) year = data.issued['date-parts'][0][0];
+        else if (data.year) year = data.year;
+
+        // Title
+        let title = data.title ? (Array.isArray(data.title) ? data.title[0] : data.title) : 'No title';
+
+        // Publisher/Container
+        const container = data['container-title'] ? (Array.isArray(data['container-title']) ? data['container-title'][0] : data['container-title']) : '';
+        const publisher = data.publisher || '';
+
+        // Links
+        let link = '';
+        if (data.DOI) link = ` https://doi.org/${data.DOI}.`;
+        else if (data.URL) link = ` ${data.URL}.`;
+
+        if (type === 'book') {
+            // Author. *Title*. Place: Publisher, Year.
+            // Chicago 18th/17th allow omitting place.
+            return `${authors} <i>${title}</i>. ${publisher}, ${year}.${link}`;
+
+        } else if (type === 'chapter') {
+            // Author. "Chapter Title." In *Book Title*, edited by Editor, pages. Publisher, Year.
+            const editors = data.editor ? data.editor.map(e => `${e.given || ''} ${e.family}`).join(', ') : '';
+            const inPart = editors ? `In <i>${container}</i>, edited by ${editors}` : `In <i>${container}</i>`;
+            const pages = data.page ? `, ${data.page}` : '';
+            return `${authors} "${title}." ${inPart}${pages}. ${publisher}, ${year}.${link}`;
+
+        } else if (type === 'web') {
+            // Author. "Title." Site Name. Last modified Date / Accessed Date. URL.
+            // We'll use Year.
+            return `${authors} "${title}." ${container || publisher}. ${year}.${link}`;
+
+        } else if (type === 'thesis') {
+            // Author. "Title." PhD diss., Institution, Year.
+            const genre = data.genre || 'PhD diss.';
+            return `${authors} "${title}." ${genre}, ${publisher}, ${year}.${link}`;
+        } else if (type === 'conference') {
+            // Author. "Title." Paper presented at...
+            return `${authors} "${title}." Paper presented at ${container}, ${year}.${link}`;
+        }
+
+        // Journal
+        // Author. "Title." *Journal* Vol, no. Issue (Year): Pages.
+        const volume = data.volume ? ` ${data.volume}` : '';
+        const issue = data.issue ? `, no. ${data.issue}` : '';
+        const datePart = ` (${year})`;
+        const pages = data.page ? `: ${data.page}` : '';
+
+        return `${authors} "${title}." <i>${container}</i>${volume}${issue}${datePart}${pages}.${link}`;
+    }
+
+    // Fetch metadata for a DOI or URL
+    async function fetchMetadata() {
+        const input = document.getElementById('inputField').value.trim();
+        const outputDiv = document.getElementById('output');
+        outputDiv.innerHTML = '<div class="text-center">⏳ Processing... <span class="loading"></span></div>';
+
+        if (!input) {
+            outputDiv.innerHTML = '<div class="error-message">⚠️ Please enter a DOI or URL.</div>';
+            return;
+        }
+
+        let doi = input;
+
+        // Check if input is a URL containing a DOI
+        if (isValidURL(input)) {
+            const extractedDOI = extractDOIFromURL(input);
+            if (extractedDOI) {
+                doi = extractedDOI;
+                outputDiv.innerHTML += `<div>Extracted DOI from URL: ${doi}</div>`;
+            } else {
+                outputDiv.innerHTML = '<div class="error-message">❌ No DOI found in the provided URL.</div>';
+                return;
+            }
+        } else if (!isValidDOI(input)) {
+            outputDiv.innerHTML = '<div class="error-message">❌ Invalid DOI format.</div>';
+            return;
+        }
+
+        try {
+            // First try to fetch from CrossRef
+            outputDiv.innerHTML = '<div class="text-center">🔍 Searching CrossRef... <span class="loading"></span></div>';
+
+            const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const message = data.message;
+
+            // Format the response with citations
+            let html = `<div class="success-message">✅ Metadata found for DOI: ${doi}</div>`;
+            html += `<div class="result-card">`;
+            html += `<div class="section-title">Document Details</div>`;
+
+            html += `<table class="metadata-table">`;
+            html += `<tr><th>Title</th><td>${message.title ? message.title[0] : 'Not available'}</td></tr>`;
+
+            if (message.author && message.author.length > 0) {
+                html += `<tr><th>Authors</th><td>${message.author.map(a => `${a.given} ${a.family}`).join(', ')}</td></tr>`;
+            }
+
+            html += `<tr><th>Publisher</th><td>${message.publisher || 'Not available'}</td></tr>`;
+
+            if (message['published-online']) {
+                const dateParts = message['published-online']['date-parts'][0];
+                html += `<tr><th>Published Online</th><td>${dateParts.join('-')}</td></tr>`;
+            } else if (message['published-print']) {
+                const dateParts = message['published-print']['date-parts'][0];
+                html += `<tr><th>Published Print</th><td>${dateParts.join('-')}</td></tr>`;
+            }
+
+            if (message.URL) {
+                html += `<tr><th>URL</th><td><a href="${message.URL}" target="_blank">${message.URL}</a></td></tr>`;
+            }
+            html += `</table>`;
+
+            // Add citation formats
+            html += `<div class="section-title">Citation Formats</div>`;
+            html += `<div><strong>APA Format:</strong><div class="citation">${generateAPACitation(message)}</div></div>`;
+            html += `<div><strong>AMA Format:</strong><div class="citation">${generateAMACitation(message)}</div></div>`;
+
+            html += `</div>`;
+
+            outputDiv.innerHTML = html;
+
+        } catch (error) {
+            outputDiv.innerHTML = `<div class="error-message">❌ Error fetching metadata: ${error.message}</div>`;
+        }
+    }
+
+    // Search PubMed first, then CrossRef
+    async function searchPubMedCrossRef() {
+        const title = document.getElementById('titleInput').value.trim();
+        const result2Div = document.getElementById('result2');
+        result2Div.innerHTML = '<div class="text-center">⏳ Searching... <span class="loading"></span></div>';
+
+        if (!title) {
+            result2Div.innerHTML = '<div class="error-message">⚠️ Please enter a title.</div>';
+            return;
+        }
+
+        try {
+            // --- CrossRef search ---
+            const crossrefUrl = 'https://api.crossref.org/works?query.title=' + encodeURIComponent(title) + '&rows=1';
+            const crossRefRes = await fetch(crossrefUrl);
+            const crossRefData = await crossRefRes.json();
+
+            if (!crossRefData.message.items || crossRefData.message.items.length === 0) {
+                result2Div.innerHTML = '<div class="error-message">❌ No results found for this title.</div>';
+                return;
+            }
+
+            const crossItem = crossRefData.message.items[0];
+            const doi = crossItem.DOI || 'No DOI found';
+            let epubDate = 'No Epub details found';
+
+            if (crossItem['published-online']) {
+                epubDate = formatDateParts(crossItem['published-online']['date-parts']);
+            } else if (crossItem['published-print']) {
+                epubDate = formatDateParts(crossItem['published-print']['date-parts']);
+            }
+
+            // --- Show CrossRef results ---
+            let html = `
+                <div class="success-message">✅ Results Found</div>
+                <div class="result-card">
+                <div class="section-title">Document Info</div>
+            `;
+
+            html += `<table class="metadata-table">`;
+            html += `<tr><th>DOI</th><td><a href="https://doi.org/${doi}" target="_blank">${doi}</a></td></tr>`;
+            html += `<tr><th>Epub Details</th><td>${epubDate}</td></tr>`;
+            html += `<tr><th>Title</th><td>${crossItem.title ? crossItem.title[0] : 'N/A'}</td></tr>`;
+            html += `<tr><th>Publisher</th><td>${crossItem.publisher || 'N/A'}</td></tr>`;
+            html += `</table>`;
+
+            // Add citation formats
+            html += `<div class="section-title">Citation Formats</div>`;
+            html += `<div><strong>APA Format:</strong><div class="citation">${generateAPACitation(crossItem)}</div></div>`;
+            html += `<div><strong>AMA Format:</strong><div class="citation">${generateAMACitation(crossItem)}</div></div>`;
+
+            html += `</div>`;
+
+            result2Div.innerHTML = html;
+
+        } catch (error) {
+            result2Div.innerHTML = '<div class="error-message">❌ Error fetching data: ' + error.message + '</div>';
+        }
+    }
+
+    // --- Utility function for date formatting ---
+    function formatDateParts(dateParts) {
+        if (!dateParts || !dateParts[0]) return 'N/A';
+        const parts = dateParts[0];
+        return parts.join('-');
+    }
+
+    // Add event listeners for Enter key
+    document.getElementById('inputField').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            fetchMetadata();
+        }
+    });
+
+    document.getElementById('titleInput').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            searchPubMedCrossRef();
+        }
+    });
+
+    // Export functions
+    function exportResults(type) {
+        if (!processingResults || processingResults.length === 0) {
+            showAlert('No results to export', 'error');
+            return;
+        }
+
+        let content = '';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        let filename = `citations_${type}_${timestamp}.txt`;
+
+        if (type === 'apa') {
+            content = processingResults
+                .filter(r => r.success)
+                .map(r => r.apa)
+                .join('\n\n');
+        } else if (type === 'ama') {
+            content = processingResults
+                .filter(r => r.success)
+                .map(r => r.ama)
+                .join('\n\n');
+        } else if (type === 'chicago') {
+            content = processingResults
+                .filter(r => r.success)
+                .map(r => r.chicago)
+                .join('\n\n');
+        } else if (type === 'all') {
+            content = processingResults.map(r => {
+                if (r.success) {
+                    return `Reference: ${r.reference}\nDOI: ${r.doi}\nAPA: ${r.apa}\nAMA: ${r.ama}\nChicago: ${r.chicago}\n-------------------`;
+                } else {
+                    return `Reference: ${r.reference}\nError: ${r.error}\n-------------------`;
+                }
+            }).join('\n\n');
+            filename = `citations_all_${timestamp}.txt`;
+        }
+
+        if (!content) {
+            showAlert('No valid citations found to export', 'warning');
+            return;
+        }
+
+        downloadFile(filename, content);
+    }
+
+    function downloadFile(filename, content) {
+        const element = document.createElement('a');
+        element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(content));
+        element.setAttribute('download', filename);
+
+        element.style.display = 'none';
+        document.body.appendChild(element);
+
+        element.click();
+
+        document.body.removeChild(element);
+    }
+</script>
+{% endblock %}

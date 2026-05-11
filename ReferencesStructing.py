@@ -1746,9 +1746,6 @@ def parse_reference_from_styles(para) -> Optional[Dict[str, Any]]:
     flush_author()
     if not has_data:
         return None
-    if data['has_etal'] and len(data['author_list']) < 4:
-        while len(data['author_list']) < 4:
-            data['author_list'].append({'family': '', 'given': ''})
     data['author'] = data['author_list']
     data['year'] = re.sub(r'[^\d]', '', data['year'])
     data['volume'] = data['volume'].strip()
@@ -3490,7 +3487,7 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
     unresolved = []
     all_ref_texts = [] # Track for duplicate detection
 
-    in_ref_section = False
+    ref_section_depth = 0
     
     
     # --- PROCESSING: PHASE 1 (Identify & Submit) ---
@@ -3504,12 +3501,21 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
             
         # Check for section markers
         raw_lower = raw.lower()
-        if '<ref-open>' in raw:
-            in_ref_section = True
-            continue
-        if '<ref-close>' in raw:
-            in_ref_section = False
-            continue
+        if '<ref-open>' in raw_lower or '<ref-close>' in raw_lower:
+            open_count = raw_lower.count('<ref-open>')
+            close_count = raw_lower.count('<ref-close>')
+            
+            if open_count > 0:
+                ref_section_depth += open_count
+            if close_count > 0:
+                ref_section_depth = max(0, ref_section_depth - close_count)
+                
+            raw = re.sub(r'(?i)<ref-open>\s*', '', raw)
+            raw = re.sub(r'(?i)<ref-close>\s*', '', raw).strip()
+            raw_lower = raw.lower()
+            
+            if not raw:
+                continue
             
         # Automatic Section Detection (Robustness) - REMOVED per user request
         # Strict <ref-open> / <ref-close> logic only.
@@ -3521,14 +3527,14 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
             style = None
 
         # Helper to recover from missing close tag if we hit a Heading
-        if in_ref_section and style and style.startswith('Heading'):
+        if ref_section_depth > 0 and style and style.startswith('Heading'):
              # Optional safety: close section if we hit a chapter heading
              if not any(k in raw_lower for k in ('references', 'bibliography', 'works cited', 'literature cited')):
-                 in_ref_section = False
+                 ref_section_depth = 0
                  continue
 
         # STRICT CHECK: Only process if inside explicit reference section
-        if not in_ref_section:
+        if ref_section_depth == 0:
             continue
             
         if not style or style not in ('REF-N', 'REF-U', 'REF'):

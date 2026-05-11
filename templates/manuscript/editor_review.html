@@ -1,0 +1,667 @@
+﻿{% extends "base.html" %}
+{% block title %}Editor Review{% endblock %}
+
+{% block extra_css %}
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Inter', sans-serif; background: #f8fafc; }
+  .context-text { font-family: monospace; font-size: 0.85rem; }
+  .match-hl { background: #fef08a; padding: 0 2px; border-radius: 3px; font-weight: 600; color: #854d0e; }
+  .replacement-tag { background: #dcfce7; color: #166534; padding: 1px 6px; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
+
+  /* New split-panel styles */
+  .editor-split-container {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    height: calc(100vh - 80px);
+    gap: 1px;
+    background: #e2e8f0;
+  }
+  .editor-panel {
+    background: white;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .editor-panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f7fafc;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #1a202c;
+  }
+  .editor-panel-content {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .finding-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    border-left: 4px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .finding-item:hover {
+    background: #f8fafc;
+  }
+  .finding-item.selected {
+    background: #dbeafe;
+    border-left-color: #2563eb;
+  }
+  .finding-item.accepted {
+    background: #dcfce7;
+    border-left-color: #16a34a;
+  }
+  .finding-item.rejected {
+    background: #fee2e2;
+    border-left-color: #dc2626;
+  }
+  .finding-item-label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #1e293b;
+  }
+  .finding-item-meta {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: 4px;
+  }
+  .preview-section {
+    margin-bottom: 16px;
+  }
+  .preview-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .preview-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    font-family: 'Monaco', monospace;
+  }
+  .preview-before {
+    background: #fef3c7;
+    border-color: #fcd34d;
+  }
+  .preview-after {
+    background: #dcfce7;
+    border-color: #86efac;
+  }
+  .match-highlight {
+    background: #fbbf24;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .replacement-highlight {
+    background: #86efac;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .decision-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .btn-accept {
+    padding: 8px 12px;
+    background: #16a34a;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-accept:hover {
+    background: #15803d;
+  }
+  .btn-reject {
+    padding: 8px 12px;
+    background: #dc2626;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-reject:hover {
+    background: #b91c1c;
+  }
+  .arrow-divider {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #cbd5e0;
+    font-size: 18px;
+    margin: 8px 0;
+  }
+  .progress-bar {
+    height: 4px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .progress-fill {
+    height: 100%;
+    background: #2563eb;
+    transition: width 0.3s;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Header Bar -->
+<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+  <div>
+    <h1 class="text-lg font-bold text-slate-800">Editor Review</h1>
+    <p class="text-sm text-slate-500 mt-1">Review and approve fixes before applying</p>
+  </div>
+  <div class="flex items-center gap-3">
+    <span id="progress-text" class="text-sm text-slate-600 font-medium">0 / {{ findings|length }} reviewed</span>
+    <button id="btn-apply" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow transition disabled:opacity-50 disabled:cursor-not-allowed">
+      Apply & Download
+    </button>
+  </div>
+</div>
+
+<!-- Split-panel editor -->
+{% if not findings %}
+  <div class="text-center py-24 text-slate-500 px-6">
+    <p class="text-lg font-medium">No fixable findings</p>
+    <p class="text-sm mt-1">All detected issues require manual review.</p>
+  </div>
+{% else %}
+  <div class="editor-split-container">
+    <!-- LEFT: Findings List -->
+    <div class="editor-panel">
+      <div class="editor-panel-header flex flex-col gap-2">
+        <div class="flex justify-between items-center">
+          <span>Findings <span id="findings-count" class="text-blue-600 font-bold">{{ findings|length }}</span></span>
+        </div>
+        <select id="rule-filter" class="w-full text-xs p-1 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" onchange="filterFindings()">
+          <option value="all">All Rules</option>
+        </select>
+      </div>
+      <div class="editor-panel-content">
+        <div id="findings-list">
+
+          <!-- ── TE POINTS section ── -->
+          {% if te_count > 0 %}
+          <div class="px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700 bg-amber-50 border-b border-amber-200 sticky top-0 z-10">
+            TE Points <span class="font-normal text-amber-500">({{ te_count }})</span>
+          </div>
+          {% for f in findings[:te_count] %}
+          <div class="finding-item" data-finding-idx="{{ loop.index0 }}" data-category="te_point" onclick="selectFinding({{ loop.index0 }})">
+            <div class="flex items-start justify-between">
+              <div class="flex-1">
+                <div class="flex items-center gap-1">
+                  <div class="finding-item-label">{{ f.rule_label }}</div>
+                  {% if not f.replacement %}
+                  <span style="font-size:0.65rem;background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:3px;padding:1px 4px;">Highlight</span>
+                  {% endif %}
+                </div>
+                <div class="finding-item-meta">Ch{{ f.chapter_index }} &middot; p.{{ f.page }} &middot; {{ f.rule_id }}</div>
+                <div class="finding-item-meta" style="color:#94a3b8;font-size:0.7rem;" title="{{ f.chapter_name }}">{{ f.chapter_name | truncate(32, True, '…') }}</div>
+              </div>
+              {% if f.replacement %}
+              <input type="checkbox" class="finding-cb rounded accent-blue-600 mt-0.5" data-finding-idx="{{ loop.index0 }}" onchange="toggleFinding({{ loop.index0 }}, event)">
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+          {% endif %}
+
+          <!-- ── REMAINING FINDINGS section ── -->
+          {% set remaining = findings[te_count:] %}
+          {% if remaining %}
+          <div class="px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-600 bg-slate-100 border-b border-slate-200 sticky top-0 z-10">
+            Remaining Findings <span class="font-normal text-slate-400">({{ remaining|length }}) — highlight only</span>
+          </div>
+          {% for f in remaining %}
+          {% set global_idx = te_count + loop.index0 %}
+          <div class="finding-item" data-finding-idx="{{ global_idx }}" data-category="other" onclick="selectFinding({{ global_idx }})">
+            <div class="flex-1">
+              <div class="flex items-center gap-1">
+                <div class="finding-item-label">{{ f.rule_label }}</div>
+                <span style="font-size:0.65rem;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;border-radius:3px;padding:1px 4px;">Highlight</span>
+              </div>
+              <div class="finding-item-meta">Ch{{ f.chapter_index }} &middot; p.{{ f.page }} &middot; {{ f.rule_id }}</div>
+              <div class="finding-item-meta" style="color:#94a3b8;font-size:0.7rem;" title="{{ f.chapter_name }}">{{ f.chapter_name | truncate(32, True, '…') }}</div>
+            </div>
+          </div>
+          {% endfor %}
+          {% endif %}
+
+        </div>
+      </div>
+      <div class="px-3 py-2 border-t border-slate-200 bg-slate-50 text-xs text-slate-600 flex justify-between items-center">
+        <div><strong id="checked-count">0</strong> TE selected</div>
+        <div class="flex gap-2">
+          <button class="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded text-slate-700 font-semibold" onclick="selectAllFindings()">Select All TE</button>
+          <button class="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded text-slate-700 font-semibold" onclick="deselectAllFindings()">Deselect All</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MIDDLE: Context & Input -->
+    <div class="editor-panel">
+      <div class="editor-panel-header" id="middle-header">
+        Context &amp; Replacement
+      </div>
+      <div class="editor-panel-content p-4">
+        <div id="context-display" class="space-y-4">
+          <div id="finding-location" class="flex gap-3 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            <span><span class="font-semibold text-slate-700">Chapter:</span> <span id="detail-chapter"></span></span>
+            <span>&middot;</span>
+            <span><span class="font-semibold text-slate-700">Page:</span> <span id="detail-page"></span></span>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 uppercase mb-1 block">Context</label>
+            <div id="context-text" class="preview-box h-24 overflow-y-auto">
+            </div>
+          </div>
+
+          <!-- TE replace UI — hidden for highlight-only and remaining findings -->
+          <div id="te-replace-ui">
+            <div>
+              <label class="text-xs font-semibold text-slate-600 uppercase mb-1 block">Current Match</label>
+              <div id="current-match" class="preview-box preview-before font-semibold"></div>
+            </div>
+            <div class="mt-3">
+              <label class="text-xs font-semibold text-slate-600 uppercase mb-1 block">Suggested Replacement</label>
+              <div id="suggested-replacement" class="preview-box preview-after font-semibold"></div>
+            </div>
+            <div class="mt-3">
+              <label class="text-xs font-semibold text-slate-600 uppercase mb-1 block">Custom Replacement (optional)</label>
+              <input type="text" id="replacement-input"
+                     class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                     placeholder="Leave blank to use suggestion...">
+            </div>
+          </div>
+
+          <!-- Highlight-only notice — shown instead of replace UI -->
+          <div id="highlight-notice" style="display:none;">
+            <div id="current-match-hl" class="preview-box preview-before font-semibold"></div>
+            <div class="mt-3 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <span>&#9632;</span>
+              <span id="highlight-notice-text">This finding will be <strong>highlighted in yellow</strong> in the output document — no replacement applied.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Preview & Actions -->
+    <div class="editor-panel">
+      <div class="editor-panel-header">
+        Preview &amp; Decision
+      </div>
+      <div class="editor-panel-content p-4">
+        <!-- TE replace preview -->
+        <div id="preview-display" class="space-y-3">
+          <div class="preview-section">
+            <div class="preview-label">Before</div>
+            <div id="preview-before" class="preview-box preview-before"></div>
+          </div>
+          <div class="arrow-divider">↓</div>
+          <div class="preview-section">
+            <div class="preview-label">After</div>
+            <div id="preview-after" class="preview-box preview-after"></div>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="finding-progress" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Decision buttons — only for TE findings with replacement -->
+        <div id="decision-buttons-wrap" class="decision-buttons">
+          <button class="btn-accept" onclick="acceptCurrent()">✓ Accept</button>
+          <button class="btn-reject" onclick="rejectCurrent()">✗ Reject</button>
+        </div>
+
+        <!-- Read-only notice for highlight-only / remaining -->
+        <div id="readonly-notice" style="display:none;" class="mt-4 text-center text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <div id="readonly-icon" class="text-2xl mb-1">🟡</div>
+          <div id="readonly-msg">This finding is <strong>highlight-only</strong>.<br>It will be marked in yellow in the output document.</div>
+        </div>
+
+        <div id="decision-feedback" class="mt-3 text-center text-sm text-slate-600" style="display: none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // State management
+  const findings = {{ findings | tojson }};
+  const TE_COUNT = {{ te_count }};
+  let currentIdx = 0;
+  let decisions = {}; // Track user decisions (TE with replacement only)
+  let changedFindings = {}; // Track which findings user changed
+
+  function isTEWithReplacement(finding) {
+    return finding.category === 'te_point' && !!finding.replacement;
+  }
+
+  function selectFinding(idx) {
+    currentIdx = idx;
+    const finding = findings[idx];
+    const customVal = changedFindings[idx] !== undefined ? changedFindings[idx] : '';
+    const isTE = finding.category === 'te_point';
+    const hasReplacement = !!finding.replacement;
+
+    // Update visual selection
+    document.querySelectorAll('.finding-item').forEach(el => {
+      el.classList.toggle('selected', parseInt(el.getAttribute('data-finding-idx')) === idx);
+    });
+
+    // Chapter / page
+    document.getElementById('detail-chapter').textContent = `Ch${finding.chapter_index} — ${finding.chapter_name || ''}`;
+    document.getElementById('detail-page').textContent = finding.page || '—';
+
+    // Context (always shown)
+    const contextHtml = (finding.context || finding.surface).replace(
+      new RegExp(escapeRegex(finding.surface), 'g'),
+      match => `<mark class="match-highlight">${match}</mark>`
+    );
+    document.getElementById('context-text').innerHTML = contextHtml;
+
+    if (isTE && hasReplacement) {
+      // Full replace UI
+      document.getElementById('te-replace-ui').style.display = 'block';
+      document.getElementById('highlight-notice').style.display = 'none';
+      document.getElementById('preview-display').style.display = 'block';
+      document.getElementById('decision-buttons-wrap').style.display = 'grid';
+      document.getElementById('readonly-notice').style.display = 'none';
+
+      document.getElementById('current-match').innerHTML = `<mark class="match-highlight">${escapeHtml(finding.surface)}</mark>`;
+      document.getElementById('suggested-replacement').textContent = finding.replacement;
+      document.getElementById('replacement-input').value = customVal;
+
+      const replacementToUse = customVal !== '' ? customVal : finding.replacement;
+      document.getElementById('preview-before').innerHTML = contextHtml;
+      document.getElementById('preview-after').innerHTML = (finding.context || finding.surface).replace(
+        escapeRegex(finding.surface),
+        `<mark class="replacement-highlight">${escapeHtml(replacementToUse)}</mark>`
+      );
+    } else {
+      // Highlight-only (TE no replacement or remaining)
+      document.getElementById('te-replace-ui').style.display = 'none';
+      document.getElementById('preview-display').style.display = 'none';
+      document.getElementById('decision-buttons-wrap').style.display = 'none';
+      document.getElementById('highlight-notice').style.display = 'block';
+      document.getElementById('readonly-notice').style.display = 'block';
+
+      document.getElementById('current-match-hl').innerHTML = `<mark class="match-highlight">${escapeHtml(finding.surface)}</mark>`;
+
+      if (isTE) {
+        document.getElementById('highlight-notice-text').innerHTML = 'This TE finding has no auto-fix. It will be <strong>highlighted in yellow</strong> in the output document.';
+        document.getElementById('readonly-icon').textContent = '🟡';
+        document.getElementById('readonly-msg').innerHTML = 'TE finding — <strong>highlight only</strong>.<br>Matched text will be marked in yellow.';
+      } else {
+        document.getElementById('highlight-notice-text').innerHTML = 'This finding will be <strong>highlighted in yellow</strong> in the output document — no replacement applied.';
+        document.getElementById('readonly-icon').textContent = '🟡';
+        document.getElementById('readonly-msg').innerHTML = 'Remaining finding — <strong>highlight only</strong>.<br>Matched text will be marked in yellow.';
+      }
+    }
+
+    updateProgress();
+    document.getElementById('decision-feedback').style.display = 'none';
+  }
+
+  function updateProgress() {
+    const teReplaceable = findings.filter(f => isTEWithReplacement(f)).length;
+    const reviewed = Object.keys(decisions).length;
+    document.getElementById('progress-text').textContent = `${reviewed} / ${teReplaceable} TE reviewed`;
+    document.getElementById('finding-progress').style.width = teReplaceable > 0 ? `${(reviewed / teReplaceable) * 100}%` : '0%';
+  }
+
+  function toggleFinding(idx, event) {
+    if (event) event.stopPropagation();
+    const checkbox = document.querySelector(`input[data-finding-idx="${idx}"]`);
+    if (!checkbox) return;
+    if (checkbox.checked) {
+      decisions[idx] = 'accept';
+      document.querySelector(`.finding-item[data-finding-idx="${idx}"]`).classList.add('accepted');
+    } else {
+      delete decisions[idx];
+      document.querySelector(`.finding-item[data-finding-idx="${idx}"]`).classList.remove('accepted', 'rejected');
+    }
+    updateCheckedCount();
+  }
+
+  function acceptCurrent() {
+    if (!isTEWithReplacement(findings[currentIdx])) return;
+    const customReplacement = document.getElementById('replacement-input').value;
+    if (customReplacement !== '') {
+      changedFindings[currentIdx] = customReplacement;
+    } else {
+      delete changedFindings[currentIdx];
+    }
+    decisions[currentIdx] = 'accept';
+    const cb = document.querySelector(`input[data-finding-idx="${currentIdx}"]`);
+    if (cb) cb.checked = true;
+    document.querySelector(`.finding-item[data-finding-idx="${currentIdx}"]`).classList.add('accepted');
+    showFeedback('✓ Accepted', 'green');
+    moveToNext();
+  }
+
+  function rejectCurrent() {
+    if (!isTEWithReplacement(findings[currentIdx])) return;
+    delete changedFindings[currentIdx];
+    decisions[currentIdx] = 'reject';
+    const cb = document.querySelector(`input[data-finding-idx="${currentIdx}"]`);
+    if (cb) cb.checked = false;
+    document.querySelector(`.finding-item[data-finding-idx="${currentIdx}"]`).classList.add('rejected');
+    showFeedback('✗ Rejected', 'red');
+    moveToNext();
+  }
+
+  function showFeedback(text, color) {
+    const feedback = document.getElementById('decision-feedback');
+    feedback.textContent = text;
+    feedback.style.color = color === 'green' ? '#16a34a' : '#dc2626';
+    feedback.style.display = 'block';
+    setTimeout(() => { feedback.style.display = 'none'; }, 1200);
+  }
+
+  function moveToNext() {
+    const selectedRule = document.getElementById('rule-filter').value;
+    let next = currentIdx + 1;
+    while (next < findings.length) {
+      const f = findings[next];
+      if (isTEWithReplacement(f) && (selectedRule === 'all' || f.rule_label === selectedRule)) {
+        selectFinding(next);
+        updateCheckedCount();
+        return;
+      }
+      next++;
+    }
+    updateCheckedCount();
+  }
+
+  function updateCheckedCount() {
+    document.getElementById('checked-count').textContent = Object.keys(decisions).length;
+  }
+
+  function selectAllFindings() {
+    const selectedRule = document.getElementById('rule-filter').value;
+    findings.forEach((f, idx) => {
+      if (!isTEWithReplacement(f)) return;
+      if (selectedRule === 'all' || f.rule_label === selectedRule) {
+        decisions[idx] = 'accept';
+        const cb = document.querySelector(`input[data-finding-idx="${idx}"]`);
+        if (cb) cb.checked = true;
+        const row = document.querySelector(`.finding-item[data-finding-idx="${idx}"]`);
+        if (row) row.classList.add('accepted');
+      }
+    });
+    updateCheckedCount();
+    showFeedback('✓ Selected', 'green');
+    updateProgress();
+  }
+
+  function deselectAllFindings() {
+    const selectedRule = document.getElementById('rule-filter').value;
+    findings.forEach((f, idx) => {
+      if (!isTEWithReplacement(f)) return;
+      if (selectedRule === 'all' || f.rule_label === selectedRule) {
+        delete decisions[idx];
+        const cb = document.querySelector(`input[data-finding-idx="${idx}"]`);
+        if (cb) cb.checked = false;
+        const row = document.querySelector(`.finding-item[data-finding-idx="${idx}"]`);
+        if (row) row.classList.remove('accepted', 'rejected');
+      }
+    });
+    updateCheckedCount();
+    showFeedback('✗ Deselected', 'red');
+    updateProgress();
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Initialize
+  if (findings.length > 0) {
+    // Populate filter dropdown
+    const uniqueRules = [...new Set(findings.map(f => f.rule_label))].sort();
+    const filterSelect = document.getElementById('rule-filter');
+    uniqueRules.forEach(rule => {
+      const opt = document.createElement('option');
+      opt.value = rule;
+      opt.textContent = rule;
+      filterSelect.appendChild(opt);
+    });
+
+    selectFinding(0);
+  }
+
+  function filterFindings() {
+    const selectedRule = document.getElementById('rule-filter').value;
+    let visibleCount = 0;
+    let firstVisibleIdx = -1;
+    let teVisible = 0, otherVisible = 0;
+
+    document.querySelectorAll('.finding-item').forEach((el) => {
+      const idx = parseInt(el.getAttribute('data-finding-idx'));
+      const finding = findings[idx];
+      const visible = selectedRule === 'all' || finding.rule_label === selectedRule;
+      el.style.display = visible ? 'block' : 'none';
+      if (visible) {
+        visibleCount++;
+        if (firstVisibleIdx === -1) firstVisibleIdx = idx;
+        if (finding.category === 'te_point') teVisible++; else otherVisible++;
+      }
+    });
+    
+    document.getElementById('findings-count').textContent = visibleCount;
+    
+    // Select the first visible finding if current is hidden
+    if (firstVisibleIdx !== -1) {
+      const currentFinding = findings[currentIdx];
+      if (selectedRule !== 'all' && currentFinding.rule_label !== selectedRule) {
+        selectFinding(firstVisibleIdx);
+      }
+    }
+  }
+
+  // Handle custom replacement live preview
+  document.getElementById('replacement-input').addEventListener('input', function(e) {
+    const finding = findings[currentIdx];
+    if (!isTEWithReplacement(finding)) return;
+    const customReplacement = e.target.value;
+    const replacementToUse = customReplacement !== '' ? customReplacement : finding.replacement;
+    const afterHtml = (finding.context || finding.surface).replace(
+      escapeRegex(finding.surface),
+      `<mark class="replacement-highlight">${escapeHtml(replacementToUse)}</mark>`
+    );
+    document.getElementById('preview-after').innerHTML = afterHtml;
+  });
+
+  // Handle Apply & Download
+  document.getElementById('btn-apply').addEventListener('click', async () => {
+    // TE findings the user accepted (track changes)
+    const selectedFindings = [];
+    for (const [idxStr, decision] of Object.entries(decisions)) {
+      if (decision === 'accept') {
+        const idx = parseInt(idxStr);
+        const finding = { ...findings[idx] };
+        if (changedFindings[idx] !== undefined) {
+          finding.replacement = changedFindings[idx];
+        }
+        selectedFindings.push(finding);
+      }
+    }
+
+    // All highlight-only findings (TE no-replacement + remaining)
+    const highlightFindings = findings.filter(f => !isTEWithReplacement(f));
+
+    if (selectedFindings.length === 0 && highlightFindings.length === 0) {
+      alert('No findings to apply.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-apply');
+    const originalText = btn.textContent;
+    btn.textContent = 'Applying...';
+    btn.disabled = true;
+
+    try {
+      const response = await fetch(`/manuscript/fix-by-id/{{ job_id }}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selected_findings: selectedFindings,
+          highlight_findings: highlightFindings
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to apply fixes');
+      }
+
+      // Handle file download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `Fixed_Manuscript_{{ job_id }}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      
+      // showFeedback('Fixes applied and downloaded successfully!', 'green');
+    } catch (e) {
+      console.error(e);
+      alert('Error applying fixes.');
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  });
+  </script>
+{% endif %}
+{% endblock %}

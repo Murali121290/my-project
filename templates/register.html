@@ -294,7 +294,7 @@
         <div class="hero-badge fu">LIVE PRODUCTION SYSTEM</div>
         <h1 class="hero-h fu">Intelligent<br/><em>Pre-Production</em><br/>at Scale</h1>
         <p class="hero-p fu">
-            Automate pre-editing, mechanical editing, reference validation, alt-text generation, and more — with
+            Automate pre-editing, mechanical editing, reference validation, alt-text generation, and more â€” with
             real-time SLA visibility and AI-assisted QA across every imprint.
         </p>
       </div>
@@ -340,7 +340,7 @@
             <label for="password">Password</label>
             <div class="iw">
               <i class="fa-solid fa-lock"></i>
-              <input type="password" id="password" name="password" placeholder="••••••••" required/>
+              <input type="password" id="password" name="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required/>
             </div>
           </div>
 
@@ -348,7 +348,7 @@
             <label for="confirm_password">Confirm Password</label>
             <div class="iw">
               <i class="fa-solid fa-lock"></i>
-              <input type="password" id="confirm_password" name="confirm_password" placeholder="••••••••" required/>
+              <input type="password" id="confirm_password" name="confirm_password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required/>
             </div>
           </div>
 
@@ -400,5 +400,43 @@
     </div>
   </footer>
 </div>
+<script>
+function formatNumber(num) {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function updateMetrics() {
+  fetch('/api/metrics')
+    .then(response => {
+      console.log('API Response Status:', response.status);
+      return response.json();
+    })
+    .then(data => {
+      console.log('Metrics data:', data);
+      const totalFilesEl = document.getElementById('metric-total-files');
+      const preprodJobsEl = document.getElementById('metric-preproduction-jobs');
+
+      if (totalFilesEl) {
+        const newValue = formatNumber(data.overview_stats.total);
+        console.log('Updating total-files to:', newValue);
+        totalFilesEl.textContent = newValue;
+      }
+      if (preprodJobsEl) {
+        const newValue = formatNumber(data.metrics.total_macro);
+        console.log('Updating preproduction-jobs to:', newValue);
+        preprodJobsEl.textContent = newValue;
+      }
+    })
+    .catch(error => console.error('Metrics update error:', error));
+}
+
+console.log('Login page loaded, starting metrics updates...');
+
+// Update metrics immediately on page load
+updateMetrics();
+
+// Then update every 1 hour
+setInterval(updateMetrics, 3600000);
+</script>
 </body>
 </html>

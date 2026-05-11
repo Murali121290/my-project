@@ -13,3 +13,4 @@ pdfplumber
 python-dotenv
 google-genai>=0.3.0
 prometheus-flask-exporter
+lxml>=5.3.0

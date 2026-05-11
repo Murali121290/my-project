@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ title or "Alt Text Generator" }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='alttext/css/style.css') }}">
+<style>
+    [x-cloak] { display: none !important; }
+    {% if no_padding %}.main-content { padding: 0 !important; }{% endif %}
+</style>
+{% endblock %}
+
+{% block content %}
+{% block alttext_content %}{% endblock %}
+{% endblock %}
+
+{% block extra_js %}
+<script>window._BASE = '/alttext-api';</script>
+<script defer src="{{ url_for('static', filename='alttext/js/alpine.min.js') }}"></script>
+<script defer src="{{ url_for('static', filename='alttext/js/lucide.min.js') }}"></script>
+<script src="https://unpkg.com/split.js/dist/split.min.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", () => { if(window.lucide) lucide.createIcons(); });
+    window.addEventListener('load', () => { if(window.lucide) lucide.createIcons(); });
+    let _lt = null;
+    new MutationObserver(m => {
+        if (!window.lucide) return;
+        if (m.some(x => [...x.addedNodes].some(n => n.nodeType === 1 && (n.hasAttribute?.('data-lucide') || n.querySelector?.('[data-lucide]'))))) {
+            clearTimeout(_lt); _lt = setTimeout(() => lucide.createIcons(), 50);
+        }
+    }).observe(document.body, { subtree: true, childList: true });
+</script>
+{% block scripts %}{% endblock %}
+{% endblock %}

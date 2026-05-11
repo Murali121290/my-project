@@ -154,7 +154,7 @@
 
 <div class="page-header">
     <div class="page-title">Pre-Editing</div>
-    <div class="page-sub">Process Word documents with specialized Pre-Editing Process</div>
+    <div class="page-sub">Process Word documents with specialized Pre-Editing and Reference Pipeline</div>
 </div>
 
 <div class="content-card">
@@ -192,10 +192,93 @@
         </div>
     </div>
 
+    <!-- Processing Pipeline Options (Validation/Conversion) -->
+    <div id="processingPipeline" style="margin-bottom:20px;background:#f8f9fc;border:1px solid #e0e4f0;border-radius:12px;padding:18px;">
+        <div style="font-size:13px;font-weight:700;color:#4361ee;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:14px;">
+            Additional Post-Structuring Pipeline — select one or more steps (run in order)
+        </div>
+
+        <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;" id="lbl-numval">
+            <input type="checkbox" id="runValidationRequest" name="run_validation" checked
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 1 — Number Validation <span style="font-size:12px;color:#888;font-weight:400;">(AMA / Vancouver)</span></div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Checks in-text citation numbers match the numbered reference list. Highlights mismatches.</div>
+            </div>
+        </label>
+
+        <!-- Citation Format — shown when Number Validation is checked -->
+        <div id="citationFormatRow" style="display:none;margin:4px 0 12px 36px;padding:10px 14px;background:#eef2ff;border-radius:8px;">
+            <label style="font-size:13px;font-weight:600;color:#4361ee;display:block;margin-bottom:8px;">How are citations formatted in your document?</label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="auto" checked style="accent-color:#4361ee;">
+                    <span>Auto-detect <span style="color:#6c757d;font-size:12px;">(recommended)</span></span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="styled" style="accent-color:#4361ee;">
+                    <span>Already styled with <code>cite_bib</code> character style (no changes needed)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="superscript" style="accent-color:#4361ee;">
+                    <span>Superscript numbers (e.g., <sup>1</sup>, <sup>2-4</sup>)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="bracket" style="accent-color:#4361ee;">
+                    <span>Bracketed numbers (e.g., [1], [2-4])</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="paren" style="accent-color:#4361ee;">
+                    <span>Parenthetical numbers (e.g., (1), (2-4))</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="plain" style="accent-color:#4361ee;">
+                    <span>Plain numbers (⚠ high false-positive risk)</span>
+                </label>
+            </div>
+        </div>
+
+        <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;" id="lbl-nameyear">
+            <input type="checkbox" id="runNameYearValidationRequest" name="run_name_year_validation"
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 2 — Name &amp; Year Validation <span style="font-size:12px;color:#888;font-weight:400;">(APA / Chicago)</span></div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Validates author names, years, et al., suffixes (a/b/c), org abbreviations. Inserts Word comments for issues.</div>
+            </div>
+        </label>
+
+        <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;" id="lbl-gemini">
+            <input type="checkbox" id="runGeminiRequest" name="run_gemini"
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 3 — Structuring &amp; Conversion</div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Restructures and converts references between APA &harr; AMA formats.</div>
+            </div>
+        </label>
+
+        <!-- Target Style — shown when Step 3 is checked -->
+        <div id="targetStyleRow" style="display:none;margin:4px 0 12px 36px;padding:10px 14px;background:#eef2ff;border-radius:8px;">
+            <label style="font-size:13px;font-weight:600;color:#4361ee;display:block;margin-bottom:6px;">Target Style (for Step 3):</label>
+            <select id="targetStyleSelect" class="form-select" style="padding:8px;border-radius:8px;border:1px solid #b0bbff;width:100%;max-width:300px;font-size:13px;">
+                <option value="Auto" selected>Auto-detect (Structuring only)</option>
+                <option value="AMA">Convert APA &rarr; AMA</option>
+                <option value="APA">Convert AMA &rarr; APA</option>
+            </select>
+        </div>
+
+        <!-- Pipeline Summary -->
+        <div id="pipelineSummary" style="display:none;margin-top:14px;padding:10px 14px;background:#fff;border:1px solid #c8d0ee;border-radius:8px;font-size:13px;color:#333;">
+            <strong style="color:#4361ee;">Will run:</strong> <span id="pipelineSteps"></span>
+        </div>
+    </div>
+
     <!-- Action Buttons -->
     <div class="d-flex gap-2 justify-between">
-        <button id="analyzeBtn" class="btn btn-primary px-4 py-2">
-            <i class="fas fa-cogs me-2"></i>Run Analysis
+        <button id="structuringBtn" class="btn btn-success px-4 py-2">
+            <i class="fas fa-layer-group me-2"></i>Run Structuring & Analysis
         </button>
         <button type="button" id="resetBtn" class="btn btn-outline">
             <i class="fas fa-trash me-2"></i>Clear All
@@ -210,11 +293,45 @@
 
 {% block extra_js %}
 <script>
+    function updatePipelineSummary() {
+        const numVal = document.getElementById('runValidationRequest');
+        const nyVal  = document.getElementById('runNameYearValidationRequest');
+        const gemini = document.getElementById('runGeminiRequest');
+        const cfRow  = document.getElementById('citationFormatRow');
+        const tsRow  = document.getElementById('targetStyleRow');
+        const summary  = document.getElementById('pipelineSummary');
+        const stepsEl  = document.getElementById('pipelineSteps');
+
+        // Highlight selected labels
+        [['lbl-numval', numVal], ['lbl-nameyear', nyVal], ['lbl-gemini', gemini]].forEach(([id, cb]) => {
+            const lbl = document.getElementById(id);
+            if (lbl) {
+                lbl.style.border     = (cb && cb.checked) ? '2px solid #4361ee' : '2px solid transparent';
+                lbl.style.background = (cb && cb.checked) ? '#eff3ff' : '';
+            }
+        });
+
+        if (cfRow) cfRow.style.display = (numVal && numVal.checked) ? 'block' : 'none';
+        if (tsRow) tsRow.style.display  = (gemini && gemini.checked) ? 'block' : 'none';
+
+        const steps = [];
+        if (numVal && numVal.checked) steps.push('① Number Validation');
+        if (nyVal  && nyVal.checked)  steps.push('② Name &amp; Year Validation');
+        if (gemini && gemini.checked) steps.push('③ Structuring &amp; Conversion');
+
+        if (steps.length === 0) {
+            if (summary) summary.style.display = 'none';
+        } else {
+            if (stepsEl)  stepsEl.innerHTML  = steps.join(' &rarr; ');
+            if (summary)  summary.style.display = 'block';
+        }
+    }
+
     // DOM Elements
     const dropZone = document.getElementById('dropZone');
     const docInput = document.getElementById('docInput');
     const fileList = document.getElementById('fileList');
-    const analyzeBtn = document.getElementById('analyzeBtn');
+    const structuringBtn = document.getElementById('structuringBtn');
     const resetBtn = document.getElementById('resetBtn');
 
     let files = [];
@@ -245,7 +362,10 @@
         }
     });
 
-    analyzeBtn.addEventListener('click', runAnalysis);
+    structuringBtn.addEventListener('click', runStructuring);
+
+    // Initialise pipeline summary on load
+    updatePipelineSummary();
 
     // Functions
     function handleFiles(newFiles) {
@@ -327,11 +447,80 @@
         const combinedDashboard = document.getElementById('combinedDashboardChk')?.checked ? 'true' : 'false';
         formData.append('combined_dashboard', combinedDashboard);
 
+        // Read Pipeline Options
+        formData.append('run_validation', document.getElementById('runValidationRequest')?.checked ? 'true' : 'false');
+        formData.append('run_name_year_validation', document.getElementById('runNameYearValidationRequest')?.checked ? 'true' : 'false');
+        formData.append('run_gemini', document.getElementById('runGeminiRequest')?.checked ? 'true' : 'false');
+
         // Get CSRF token
         const token = document.querySelector('meta[name=csrf-token]')?.content || '{{ csrf_token() }}';
 
         try {
-            const response = await fetch('/ppd', {
+            const response = await fetch('/structuring_job', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': token },
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.error) {
+                showAlert(data.error, 'error');
+                return;
+            }
+
+            // Show success message with Job Queue link
+            showSuccessMessage(data.job_id);
+            files = [];
+            updateFileList();
+            document.getElementById('bookTitle').value = '';
+            const chk = document.getElementById('combinedDashboardChk');
+            if (chk) chk.checked = false;
+
+        } catch (error) {
+            console.error('Error submitting files:', error);
+            showAlert('An error occurred while submitting files.', 'error');
+        }
+    }
+
+    async function runStructuring() {
+        const bookTitle = document.getElementById('bookTitle').value.trim();
+        if (!bookTitle) {
+            showAlert('<strong>Warning:</strong> Please enter a Book Title before running structuring.', 'warning');
+            return;
+        }
+        if (files.length === 0) {
+            showAlert('Please select at least one Word file.', 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        for (const file of files) {
+            formData.append('docfiles', file);
+        }
+        formData.append('book_title', bookTitle);
+
+        const combinedDashboard = document.getElementById('combinedDashboardChk')?.checked ? 'true' : 'false';
+        formData.append('combined_dashboard', combinedDashboard);
+
+        // Read Pipeline Options
+        formData.append('run_validation', document.getElementById('runValidationRequest')?.checked ? 'true' : 'false');
+        formData.append('run_name_year_validation', document.getElementById('runNameYearValidationRequest')?.checked ? 'true' : 'false');
+        formData.append('run_gemini', document.getElementById('runGeminiRequest')?.checked ? 'true' : 'false');
+
+        // Citation format (for Number Validation step)
+        const citFmt = document.querySelector('input[name="citation_format"]:checked');
+        formData.append('citation_format', citFmt ? citFmt.value : 'styled');
+
+        // Target style (for Structuring & Conversion step)
+        const targetStyle = document.getElementById('targetStyleSelect');
+        formData.append('target_style', targetStyle ? targetStyle.value : 'Auto');
+
+        // Get CSRF token
+        const token = document.querySelector('meta[name=csrf-token]')?.content || '{{ csrf_token() }}';
+
+        try {
+            const response = await fetch('/structuring_job', {
                 method: 'POST',
                 headers: { 'X-CSRFToken': token },
                 body: formData

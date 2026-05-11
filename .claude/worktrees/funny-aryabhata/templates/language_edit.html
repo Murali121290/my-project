@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+
+{% block title %}Macro Processing - S4carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        transition: var(--transition);
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone:hover {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: var(--primary-dark);
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+        transform: scale(1.02);
+    }
+
+    .file-list {
+        margin-top: 1.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 0.5rem;
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .file-icon {
+        color: var(--primary);
+        font-size: 1.2rem;
+    }
+
+    .remove-file {
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+
+    .remove-file:hover {
+        background: rgba(239, 71, 111, 0.1);
+    }
+
+    .tasks-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1rem;
+        margin: 1.5rem 0;
+    }
+
+    .task-item {
+        display: flex;
+        align-items: center;
+        padding: 1rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        cursor: pointer;
+        transition: var(--transition);
+    }
+
+    .task-item:hover {
+        background: rgba(67, 97, 238, 0.1);
+        transform: translateX(5px);
+    }
+
+    .task-checkbox {
+        margin-right: 1rem;
+        width: 20px;
+        height: 20px;
+        accent-color: var(--primary);
+    }
+
+    .download-section {
+        background: rgba(6, 214, 160, 0.1);
+        padding: 1.5rem;
+        border-radius: var(--border-radius);
+        border-left: 4px solid var(--success);
+        text-align: center;
+        margin: 1.5rem 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-card fade-in">
+    <div class="text-center mb-3">
+        <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+            Language Editing
+        </h1>
+        <p class="text-muted">Process Word documents with specialized Language Process</p>
+    </div>
+
+    <form method="POST" enctype="multipart/form-data" id="macroForm" action="{{ url_for('language') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-group">
+            <label class="form-label">Upload Word Files</label>
+            <div class="drop-zone" id="wordDropZone">
+                <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+                <p>Drag & drop your Word files here or click to browse</p>
+                <p class="text-muted">Supports .doc and .docx files</p>
+                <input type="file" id="wordFiles" name="word_files[]" multiple accept=".doc,.docx" style="display: none;">
+            </div>
+            <div class="file-list" id="wordFileList"></div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Processing Tasks</label>
+            <div class="tasks-grid">
+                <label class="task-item">
+                    <input type="checkbox" name="tasks[]" value="0" class="task-checkbox">
+                    US Punctuation
+                </label>
+                <label class="task-item">
+                    <input type="checkbox" name="tasks[]" value="1" class="task-checkbox">
+                    Uk Punctuation
+                </label>
+                <label class="task-item">
+                    <input type="checkbox" name="tasks[]" value="2" class="task-checkbox">
+                    Highlight Footnote
+                </label>
+                <label class="task-item">
+                    <input type="checkbox" name="tasks[]" value="3" class="task-checkbox">
+                    Highlight Endnote
+                </label>
+                <label class="task-item">
+                    <input type="checkbox" name="tasks[]" value="4" class="task-checkbox">
+                    Highlight Terms
+                </label>
+            </div>
+        </div>
+
+        {% if download_token %}
+        <div class="download-section">
+            <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--success); margin-bottom: 1rem;"></i>
+            <h3>Processing Complete!</h3>
+            <p>Your files have been processed successfully.</p>
+            <a href="{{ url_for('macro_download', token=download_token) }}" class="btn btn-success mt-2">
+                <i class="fas fa-download"></i> Download Processed Files
+            </a>
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 justify-between">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-play"></i> Process Files
+            </button>
+            <button type="button" id="resetBtn" class="btn btn-outline">
+                <i class="fas fa-trash"></i> Clear All
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // JavaScript for drag and drop functionality
+    const wordDropZone = document.getElementById('wordDropZone');
+    const wordFileInput = document.getElementById('wordFiles');
+    const wordFileList = document.getElementById('wordFileList');
+    let wordFiles = [];
+
+    // Initialize drop zone
+    wordDropZone.addEventListener('click', () => wordFileInput.click());
+
+    wordDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        wordDropZone.classList.add('highlight');
+    });
+
+    ['dragleave', 'dragend'].forEach(type => {
+        wordDropZone.addEventListener(type, () => {
+            wordDropZone.classList.remove('highlight');
+        });
+    });
+
+    wordDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        wordDropZone.classList.remove('highlight');
+        handleFiles(e.dataTransfer.files);
+    });
+
+    wordFileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    function handleFiles(files) {
+        const newFiles = Array.from(files).filter(file =>
+            file.name.toLowerCase().endsWith('.doc') || file.name.toLowerCase().endsWith('.docx')
+        );
+
+        if (newFiles.length < files.length) {
+            showAlert('Only .doc and .docx files are supported', 'error');
+        }
+
+        if (newFiles.length > 0) {
+            wordFiles = [...wordFiles, ...newFiles];
+            updateFileList();
+        }
+    }
+
+    function updateFileList() {
+        wordFileList.innerHTML = '';
+
+        if (wordFiles.length === 0) {
+            wordFileList.innerHTML = '<p class="text-center text-muted">No files selected</p>';
+            return;
+        }
+
+        wordFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <div class="file-info">
+                    <i class="fas fa-file-word file-icon"></i>
+                    <div>
+                        <div>${file.name}</div>
+                        <div class="text-muted">${formatFileSize(file.size)}</div>
+                    </div>
+                </div>
+                <i class="fas fa-times remove-file" data-index="${index}"></i>
+            `;
+            wordFileList.appendChild(fileItem);
+        });
+
+        // Add remove functionality
+        document.querySelectorAll('.remove-file').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.target.getAttribute('data-index'));
+                wordFiles.splice(index, 1);
+                updateFileList();
+            });
+        });
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // Reset functionality
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear all files?')) {
+            wordFiles = [];
+            updateFileList();
+            document.getElementById('macroForm').reset();
+        }
+    });
+
+    // Form validation
+    document.getElementById('macroForm').addEventListener('submit', function(e) {
+        if (wordFiles.length === 0) {
+            e.preventDefault();
+            showAlert('Please select at least one file', 'error');
+            return;
+        }
+
+        const checkedTasks = document.querySelectorAll('input[name="tasks[]"]:checked');
+        if (checkedTasks.length === 0) {
+            e.preventDefault();
+            showAlert('Please select at least one processing task', 'error');
+            return;
+        }
+    });
+
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `flash ${type}`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button class="close">&times;</button>
+        `;
+
+        const flashContainer = document.querySelector('.flash-messages') || document.createElement('div');
+        if (!document.querySelector('.flash-messages')) {
+            flashContainer.className = 'flash-messages';
+            document.querySelector('.main-content').prepend(flashContainer);
+        }
+
+        flashContainer.appendChild(alertDiv);
+
+        alertDiv.querySelector('.close').addEventListener('click', () => {
+            alertDiv.remove();
+        });
+
+        setTimeout(() => alertDiv.remove(), 5000);
+    }
+
+    // Initialize
+    updateFileList();
+</script>
+{% endblock %}

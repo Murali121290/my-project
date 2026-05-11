@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}Rule Discovery & Selection - Manuscript Analysis{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/discovery.css') }}">
+<style>
+  .discovery-container {
+    display: grid;
+    grid-template-columns: 240px 1fr 300px;
+    gap: 16px;
+    height: calc(100vh - 120px);
+    padding: 16px;
+    background: #f8fafc;
+  }
+
+  .panel {
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #1a202c;
+    background: #f7fafc;
+  }
+
+  .panel-content {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .element-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .element-item {
+    padding: 8px 12px;
+    border-bottom: 1px solid #edf2f7;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .element-item:hover {
+    background-color: #f0f4f8;
+  }
+
+  .element-item.active {
+    background-color: #dbeafe;
+    border-left: 3px solid #2563eb;
+    padding-left: 9px;
+  }
+
+  .element-item-text {
+    font-size: 0.875rem;
+    color: #333;
+  }
+
+  .rule-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .rule-table thead {
+    background: #f7fafc;
+    position: sticky;
+    top: 0;
+  }
+
+  .rule-table th {
+    padding: 8px;
+    text-align: left;
+    font-weight: 600;
+    color: #4a5568;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .rule-table td {
+    padding: 8px;
+    border-bottom: 1px solid #edf2f7;
+  }
+
+  .rule-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  .rule-pattern {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: #666;
+  }
+
+  .rule-table tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  .rule-table tbody tr.selected {
+    background: #dbeafe;
+  }
+
+  /* Rule preview tooltip */
+  .rule-preview-tooltip {
+    position: absolute;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    max-width: 280px;
+    display: none;
+    pointer-events: none;
+  }
+
+  .rule-preview-tooltip.visible {
+    display: block;
+  }
+
+  .rule-preview-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #94a3b8;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .rule-preview-content {
+    font-size: 0.8125rem;
+    color: #334155;
+    line-height: 1.5;
+  }
+
+  .rule-preview-example {
+    background: #f1f5f9;
+    border-left: 3px solid #2563eb;
+    padding: 6px 8px;
+    margin-top: 6px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 0.75rem;
+  }
+
+  /* Live statistics panel */
+  .stats-panel {
+    background: linear-gradient(135deg, #f0f9ff 0%, #ffffff 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #e0e7ff;
+  }
+
+  .stat-row:last-child {
+    border-bottom: none;
+  }
+
+  .stat-label {
+    font-size: 0.8125rem;
+    color: #475569;
+    font-weight: 500;
+  }
+
+  .stat-value {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: #1e40af;
+  }
+
+  .stat-value.auto-fix {
+    color: #16a34a;
+  }
+
+  .stat-value.highlight {
+    color: #ea580c;
+  }
+
+  .stat-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    margin-left: 4px;
+  }
+
+  .stat-badge.auto-fix {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .stat-badge.highlight {
+    background: #fed7aa;
+    color: #92400e;
+  }
+
+  .grouping-editor {
+    padding: 12px;
+  }
+
+  .grouping-item {
+    margin-bottom: 12px;
+    padding: 8px;
+    background: #f7fafc;
+    border-radius: 4px;
+  }
+
+  .grouping-name {
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: #2d3748;
+    margin-bottom: 4px;
+  }
+
+  .grouping-rules {
+    font-size: 0.75rem;
+    color: #718096;
+    padding-left: 8px;
+  }
+
+  .action-bar {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid #e2e8f0;
+    background: #f7fafc;
+  }
+
+  .btn {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: none;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: #2563eb;
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #1d4ed8;
+  }
+
+  .btn-secondary {
+    background: #e2e8f0;
+    color: #2d3748;
+  }
+
+  .btn-secondary:hover {
+    background: #cbd5e0;
+  }
+
+  .summary-bar {
+    padding: 12px 16px;
+    background: #dbeafe;
+    border-bottom: 1px solid #bfdbfe;
+    font-size: 0.8125rem;
+    color: #1e40af;
+  }
+
+  .rule-count {
+    font-weight: 600;
+  }
+
+  @media (max-width: 1200px) {
+    .discovery-container {
+      grid-template-columns: 1fr;
+      height: auto;
+    }
+
+    .panel {
+      max-height: 400px;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="padding: 1.5rem; background: #1a2742; min-height: 100vh;">
+  <div class="discovery-container">
+    <!-- Left Panel: Elements -->
+    <div class="panel">
+      <div class="panel-header">Elements</div>
+      <div class="panel-content">
+        <ul class="element-list" id="elementList"></ul>
+      </div>
+      <div class="action-bar" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; border-top: 1px solid #e2e8f0; background: #f7fafc;">
+        <button class="btn btn-secondary" onclick="discovery.selectAllGlobal()" style="padding: 6px 4px; font-size: 0.75rem;">Select All</button>
+        <button class="btn btn-secondary" onclick="discovery.clearSelection()" style="padding: 6px 4px; font-size: 0.75rem;">Deselect All</button>
+      </div>
+    </div>
+
+    <!-- Center Panel: Rules -->
+    <div class="panel">
+      <div class="summary-bar" id="summaryBar">
+        <span class="rule-count">0 rules selected</span> of <span class="rule-count" id="totalRules">0</span>
+      </div>
+      <div class="panel-content">
+        <table class="rule-table" id="rulesTable">
+          <thead>
+            <tr>
+              <th style="width: 30px;"><input type="checkbox" id="selectAllCheckbox" class="rule-checkbox"></th>
+              <th>Pattern</th>
+              <th style="width: 60px;">Count</th>
+            </tr>
+          </thead>
+          <tbody id="rulesBody"></tbody>
+        </table>
+      </div>
+      <div class="action-bar">
+        <button class="btn btn-secondary" onclick="discovery.clearSelection()">Clear All</button>
+        <button class="btn btn-primary" onclick="discovery.saveSelection()">Save Selection</button>
+      </div>
+    </div>
+
+    <!-- Right Panel: Statistics & Grouping -->
+    <div class="panel">
+      <div class="panel-header">Impact & Grouping</div>
+      <div class="panel-content">
+        <!-- Live Statistics -->
+        <div class="stats-panel">
+          <div class="stat-row">
+            <span class="stat-label">Rules Selected</span>
+            <span class="stat-value" id="statsSelectedCount">0</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Total Findings</span>
+            <span class="stat-value" id="statsTotalFindings">0</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Auto-Fix Rules</span>
+            <span class="stat-value auto-fix" id="statsAutoFixRules">0</span>
+            <span class="stat-badge auto-fix">applies</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Highlight-Only Rules</span>
+            <span class="stat-value highlight" id="statsHighlightRules">0</span>
+            <span class="stat-badge highlight">visual</span>
+          </div>
+        </div>
+
+        <!-- Grouping Editor -->
+        <div style="padding: 12px; border-top: 1px solid #e0e7ff;">
+          <div style="font-weight: 600; font-size: 0.8125rem; color: #2d3748; margin-bottom: 8px;">Custom Grouping</div>
+          <div class="grouping-editor" id="groupingEditor"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/discovery.js') }}"></script>
+{% endblock %}

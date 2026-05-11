@@ -26,6 +26,7 @@ import traceback
 import uuid
 import json
 import re
+import re
 import difflib
 import sqlite3
 import socket
@@ -48,6 +49,7 @@ win32 = None
 from pathlib import Path
 from threading import Lock
 from datetime import datetime, timedelta, timezone
+from docx_pipeline.pipeline.runner import process_file as docx_pipeline_process
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -203,6 +205,13 @@ ROUTE_MACROS['bias_scan'] = {
     'macros': []
 }
 
+ROUTE_MACROS['docx_pipeline'] = {
+    'name': 'DOCX Pipeline',
+    'description': '11-step manuscript cleanup, enrichment, and pre-conversion audit',
+    'icon': 'file-word',
+    'macros': []
+}
+
 # Flask app
 app = Flask(__name__)
 
@@ -230,6 +239,22 @@ else:
 
 csrf = CSRFProtect(app)
 
+# Ensure UTF-8 encoding for all responses
+app.config['JSON_AS_ASCII'] = False
+app.json.ensure_ascii = False
+
+@app.after_request
+def set_charset(response):
+    if 'text/html' in response.headers.get('Content-Type', ''):
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    elif response.headers.get('Content-Type', '').startswith('application/json'):
+        response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
+
+from manuscript_bp import manuscript_bp
+app.register_blueprint(manuscript_bp, url_prefix='/manuscript')
+csrf.exempt(manuscript_bp)
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['COMMON_MACRO_FOLDER'] = COMMON_MACRO_FOLDER
 app.config['REPORT_FOLDER'] = REPORT_FOLDER
@@ -247,14 +272,17 @@ app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 download_tokens = {}
 
 ROUTE_PERMISSIONS = {
-    'language': ['COPYEDIT', 'ADMIN'],
-    'technical': ['COPYEDIT', 'ADMIN'],
-    'macro_processing': ['COPYEDIT', 'ADMIN'],
-    'ppd': ['PERMISSIONS','COPYEDIT', 'PPD', 'PM', 'ADMIN'],
+    'language': ['COPYEDIT', 'COPYEDITPM', 'ADMIN'],
+    'technical': ['COPYEDIT', 'COPYEDITPM', 'ADMIN'],
+    'macro_processing': ['COPYEDIT', 'COPYEDITPM', 'ADMIN'],
+    'ppd': ['PERMISSIONS', 'COPYEDIT', 'COPYEDITPM', 'PPD', 'PM', 'ADMIN'],
     'credit_extractor': ['PERMISSIONS', 'PM', 'PPD','ADMIN'],
     'word_to_xml': ['ADMIN'],
     'bias_scan': ['COPYEDIT', 'ADMIN'],
     'alttext': ['COPYEDIT', 'ADMIN', 'PERMISSIONS', 'PM', 'PPD'],
+    'book_indexer': ['COPYEDIT', 'ADMIN'],
+    'docx_pipeline': ['COPYEDIT', 'POST_PROD', 'ADMIN'],
+    'manuscript_consistency': ['COPYEDIT', 'COPYEDITPM', 'ADMIN'],
 }
 
 def get_user_role():
@@ -862,10 +890,15 @@ class PostgresWrapper:
 
     def execute(self, query, params=None):
         # Translate SQLite ? placeholders to Postgres %s
-        # This is a basic regex replace; for complex queries with literal ? it might be risky, 
+        # This is a basic regex replace; for complex queries with literal ? it might be risky,
         # but for this app's simple queries it's sufficient.
         pg_query = query.replace('?', '%s')
-        
+
+        # For INSERT statements, add RETURNING id to get the inserted row's ID
+        if pg_query.strip().upper().startswith('INSERT'):
+            if 'RETURNING' not in pg_query.upper():
+                pg_query += ' RETURNING id'
+
         try:
             if params:
                 self.cursor.execute(pg_query, params)
@@ -874,6 +907,15 @@ class PostgresWrapper:
         except Exception:
             self.conn.rollback()
             raise
+
+        # For INSERT...RETURNING, fetch the ID and set lastrowid
+        if pg_query.strip().upper().startswith('INSERT') and 'RETURNING' in pg_query.upper():
+            result = self.cursor.fetchone()
+            if result:
+                self.cursor.lastrowid = result[0]
+            else:
+                self.cursor.lastrowid = 0
+
         return self.cursor
 
     def fetchone(self):
@@ -970,7 +1012,7 @@ class DatabasePool:
                 conn.execute("PRAGMA synchronous=NORMAL")
                 # cache_size pragma
                 self.pool.put(conn)
-            print(f"✅ using SQLite at {database_path}")
+            print(f"[OK] using SQLite at {database_path}")
 
     @contextmanager
     def get_connection(self):
@@ -1021,8 +1063,10 @@ _ROUTE_JOB_FUNCTIONS = {
     'bias_scan':        'process_bias_scan_job',
     'word_to_xml':      'process_word_to_xml_job',
     'ppd':              'process_ppd_job',
+    'structuring':      'process_structuring_job',
     'validation':       'process_validation_job',
     'technical':        'process_technical_job',
+    'docx_pipeline':    'process_docx_pipeline_job',
 }
 
 
@@ -1152,6 +1196,9 @@ class BatchQueueManager:
         elif route_type == 'ppd':
             return (job_id, p['unique_folder'], p['saved'], p['combined_dashboard'],
                     p['book_title'], p['safe_title'], username, user_id)
+        elif route_type == 'structuring':
+            return (job_id, p['unique_folder'], p['saved'], p['combined_dashboard'],
+                    p['book_title'], p['safe_title'], username, user_id, p.get('options', {}))
         elif route_type == 'validation':
             return (job_id, p['processing_dir'], p['saved_paths'], p['original_filenames'],
                     p['options'], user_id, username)
@@ -1516,6 +1563,28 @@ def init_db():
                             error_msg    TEXT,
                             FOREIGN KEY (user_id) REFERENCES users(id))''')
 
+            # Manuscript Core: IA Report Builder - Rule Selections
+            create_table_safe(f'''CREATE TABLE IF NOT EXISTS rule_selections (
+                            id {pk_type},
+                            session_id TEXT NOT NULL,
+                            project_name TEXT,
+                            client_name TEXT,
+                            selection_name TEXT NOT NULL,
+                            description TEXT,
+                            selected_ia_rows TEXT NOT NULL,
+                            custom_grouping TEXT NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            created_by TEXT,
+                            active BOOLEAN DEFAULT FALSE)''')
+
+            create_table_safe(f'''CREATE TABLE IF NOT EXISTS selection_history (
+                            id {pk_type},
+                            selection_id INTEGER NOT NULL,
+                            version INTEGER NOT NULL,
+                            data TEXT NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (selection_id) REFERENCES rule_selections(id))''')
+
             # --- MIGRATION: Check and Add 'route_type' to macro_processing if missing ---
             try:
                 # Check for column existence (SQLite/Postgres agnostic check)
@@ -1542,6 +1611,9 @@ def init_db():
                 db.execute("CREATE INDEX IF NOT EXISTS idx_macro_route_type ON macro_processing(route_type)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_jq_status ON job_queue(status)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_jq_user_id ON job_queue(user_id)")
+                db.execute("CREATE INDEX IF NOT EXISTS idx_rule_selections_session_id ON rule_selections(session_id)")
+                db.execute("CREATE INDEX IF NOT EXISTS idx_rule_selections_active ON rule_selections(active)")
+                db.execute("CREATE INDEX IF NOT EXISTS idx_selection_history_selection_id ON selection_history(selection_id)")
             except Exception as e:
                 # ignore specific index errors or just log
                 print(f"Index creation warning: {e}")
@@ -1552,8 +1624,8 @@ def init_db():
                 admin_user = db.execute("SELECT * FROM users WHERE username=%s" if is_postgres else "SELECT * FROM users WHERE username=?", ('admin',)).fetchone()
                 if not admin_user:
                     hashed_password = generate_password_hash("admin123", method='pbkdf2:sha256')
-                    query = "INSERT INTO users (username,password,email,is_admin) VALUES (%s,%s,%s,%s)" if is_postgres else "INSERT INTO users (username,password,email,is_admin) VALUES (?,?,?,?)"
-                    db.execute(query, ('admin', hashed_password, 'admin@example.com', True))
+                    query = "INSERT INTO users (username,password,email,is_admin,role) VALUES (%s,%s,%s,%s,%s)" if is_postgres else "INSERT INTO users (username,password,email,is_admin,role) VALUES (?,?,?,?,?)"
+                    db.execute(query, ('admin', hashed_password, 'admin@example.com', True, 'ADMIN'))
                     db.commit()
             except Exception as e:
                 # If race condition causes unique violation on insert, ignore
@@ -2942,8 +3014,20 @@ def register():
             except sqlite3.IntegrityError:
                 db.rollback()
                 flash("Username/email already exists", "error")
+    metrics = {'total_files': 0, 'total_macro': 0, 'active_jobs': 0}
+    overview_stats = {'total': 0, 'validation': 0, 'by_route': {}}
+    try:
+        with db_pool.get_connection() as db:
+            metrics['total_files'] = db.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            metrics['total_macro'] = db.execute("SELECT COUNT(*) FROM macro_processing").fetchone()[0]
+            metrics['active_jobs'] = db.execute("SELECT COUNT(*) FROM job_queue WHERE status IN ('pending','running')").fetchone()[0]
 
-    return render_template("register.html")
+            overview_stats['total'] = (db.execute("SELECT COUNT(*) FROM files").fetchone()[0] +
+                                      db.execute("SELECT COUNT(*) FROM macro_processing").fetchone()[0])
+    except Exception:
+        pass
+
+    return render_template("register.html", metrics=metrics, overview_stats=overview_stats)
 
 
 @app.route('/logout', strict_slashes=False)
@@ -3171,8 +3255,139 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
                 pass
             return False
 
+def process_structuring_job(job_id, unique_folder, saved, combined_dashboard, book_title, safe_title, username, user_id, options=None):
+    with app.app_context():
+        from docx import Document as _DocxDocument
+        from utils.structuring_lib.integrated_processor import IntegratedDocumentProcessor
+        import traceback
+        import zipfile
+        import shutil
+
+        # Helper to update progress file
+        def update_progress(updates):
+            try:
+                p_path = os.path.join(unique_folder, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current.update(updates)
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+            except Exception as ex:
+                print(f"Progress update failed: {ex}")
+
+        # Instantiate processor
+        from utils.structuring_lib.rules_loader import get_rules_loader
+        rules_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'utils', 'structuring_lib', 'rules.yaml')
+        get_rules_loader(rules_path)
+        processor = IntegratedDocumentProcessor()
+
+        output_files = []
+        errors_occurred = []
+
+        total_files = len(saved)
+        
+        for idx, doc_path in enumerate(saved):
+            update_progress({
+                "status": f"Structuring {os.path.basename(doc_path)} ({idx + 1}/{total_files})...",
+                "current": idx
+            })
+            
+            try:
+                # Load document
+                doc = _DocxDocument(doc_path)
+                
+                # Apply structuring
+                result = processor.process_document_integrated(doc)
+                
+                # Save structured document
+                base_name = os.path.splitext(os.path.basename(doc_path))[0]
+                output_name = f"{base_name}_Structured.docx"
+                output_path = os.path.join(unique_folder, output_name)
+                doc.save(output_path)
+                output_files.append(output_path)
+                
+            except Exception as e:
+                err_msg = traceback.format_exc()
+                app.logger.error(f"Error structuring {doc_path}: {err_msg}")
+                errors_occurred.append(f"Failed on {os.path.basename(doc_path)}: {str(e)}")
+        
+        if not output_files:
+            update_progress({"status": "Failed to structure any files", "current": total_files})
+            return
+
+        options = options or {}
+        run_validation = options.get('run_validation', False)
+        run_name_year = options.get('run_name_year', False)
+        run_gemini = options.get('run_gemini', False)
+
+        if run_validation or run_name_year or run_gemini:
+            update_progress({"status": "Structuring complete. Starting Reference Validation Pipeline...", "current": total_files})
+
+            # Create original_filenames from output_files so we know what they are
+            output_filenames = [os.path.basename(p).replace('_Structured.docx', '.docx') for p in output_files]
+
+            options['is_structuring_source'] = True
+
+            # The validation processor writes reports, _Processed files. ZIP creation is skipped here
+            # because analysis will run after and we'll create a combined ZIP at the end.
+            # Note: We pass output_files (the structured ones) as the input to validation.
+            process_validation_job(job_id, unique_folder, output_files, output_filenames, options, user_id, username, skip_zip_creation=True)
+
+            # After validation, also run analysis on the structured files
+            update_progress({"status": "Reference processing complete. Starting Analysis...", "current": total_files})
+            process_ppd_job(job_id, unique_folder, output_files, combined_dashboard,
+                            book_title, safe_title, username, user_id, include_docs_in_zip=False, skip_zip_creation=True)
+
+            # Create combined ZIP with validation logs + analysis outputs
+            update_progress({"status": "Finalizing outputs...", "current": total_files})
+            zip_name = "Structuring_Analysis_Report.zip"
+            zip_path = os.path.join(unique_folder, zip_name)
+
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+                for root, dirs, files in os.walk(unique_folder):
+                    for file in files:
+                        if file.endswith('.zip') or file == 'progress.json':
+                            continue
+                        file_abs_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(file_abs_path, unique_folder)
+
+                        # Include: _Structured.docx, _log.txt (from _Results), _Dashboard.html, _Analysis.xlsx, Combined_Dashboard.html
+                        if "_Results" in rel_path:
+                            if file.endswith("_Structured.docx") or file.endswith("_log.txt"):
+                                z.write(file_abs_path, arcname=file)
+                        elif root == unique_folder:
+                            if (file.endswith("_Dashboard.html") or file.endswith("_Analysis.xlsx") or
+                                file.endswith("Combined_Dashboard.html")):
+                                z.write(file_abs_path, arcname=file)
+
+            # Register Download
+            download_tokens[job_id] = {
+                'path': unique_folder,
+                'expires': datetime.now() + TOKEN_TTL,
+                'user': username,
+                'route_type': 'structuring',
+                'zip_path': zip_path
+            }
+
+            update_progress({
+                "status": "Completed",
+                "download_token": job_id,
+                "current": total_files,
+                "zip_path": zip_path
+            })
+        else:
+            # Proceed to Analysis process sequentially
+            update_progress({"status": "Structuring complete. Starting Analysis...", "current": total_files})
+
+            # Run analysis on the original files; structured docs are included in the zip separately
+            process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
+                            book_title, safe_title, username, user_id, include_docs_in_zip=True)
+
+
 def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
-                    book_title, safe_title, username, user_id):
+                    book_title, safe_title, username, user_id, include_docs_in_zip=False, skip_zip_creation=False):
     with app.app_context():
         from word_analyzer_docx import (
             CitationAnalyzer,
@@ -3503,26 +3718,139 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
             else:
                 log_errors(["Combined Excel report generation failed"])
 
-        # Create ZIP — only include the relevant output set
-        zip_path = os.path.join(unique_folder, f"{safe_title}_Manuscript_Analysis_Report.zip")
-        if combined_dashboard and len(chapters_data) > 1:
-            files_to_zip = combined_files   # Combined_Dashboard.html + Manuscript_Analysis.xlsx only
-        else:
-            files_to_zip = per_chapter_files  # {stem}_Dashboard.html + {stem}_Analysis.xlsx only
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-            for f in files_to_zip:
-                if os.path.exists(f):
-                    z.write(f, arcname=os.path.basename(f))
+        # Create ZIP — only include the relevant output set (unless skipped for validation flow)
+        if not skip_zip_creation:
+            zip_path = os.path.join(unique_folder, f"{safe_title}_Manuscript_Analysis_Report.zip")
+            if combined_dashboard and len(chapters_data) > 1:
+                files_to_zip = combined_files[:]   # Combined_Dashboard.html + Manuscript_Analysis.xlsx only
+            else:
+                files_to_zip = per_chapter_files[:]  # {stem}_Dashboard.html + {stem}_Analysis.xlsx only
 
-        update_progress({
-            "status": "Completed",
-            "current": len(saved),
-            "zip_path": zip_path
-        })
+            if include_docs_in_zip:
+                # Include _Structured.docx files if they exist (from structuring phase)
+                for f in saved:
+                    base_name = os.path.splitext(os.path.basename(f))[0]
+                    structured_file = os.path.join(unique_folder, f"{base_name}_Structured.docx")
+                    if os.path.exists(structured_file):
+                        files_to_zip.append(structured_file)
+                    else:
+                        # Fallback to original if structured doesn't exist
+                        files_to_zip.append(f)
+
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+                for f in files_to_zip:
+                    if os.path.exists(f):
+                        z.write(f, arcname=os.path.basename(f))
+
+            update_progress({
+                "status": "Completed",
+                "current": len(saved),
+                "zip_path": zip_path
+            })
 
         # Job is already logged in job_queue table, no additional logging needed
 
 
+@app.route("/structuring_job", methods=["POST"])
+@csrf.exempt
+@role_required(ROUTE_PERMISSIONS.get('ppd', ['ADMIN']))
+def structuring_job():
+    # -----------------------
+    # Upload Handling
+    # -----------------------
+    uploaded = request.files.getlist("docfiles")
+    if not uploaded:
+        return jsonify({"error": "No files uploaded"}), 400
+
+    # Unique job token folder
+    token = uuid.uuid4().hex
+    unique_folder = os.path.join(app.config['UPLOAD_FOLDER'], token)
+    os.makedirs(unique_folder, exist_ok=True)
+
+    # Register token immediately so it's downloadable from history
+    download_tokens[token] = {
+        'path': unique_folder,
+        'expires': datetime.now() + TOKEN_TTL,
+        'user': session.get('username'),
+        'route_type': 'structuring'
+    }
+
+    saved = []
+    for f in uploaded:
+        fn = os.path.basename(f.filename)
+
+        if not fn.lower().endswith((".doc", ".docx")):
+            continue
+
+        # sanitize filename for Windows
+        fn = re.sub(r'[<>:"/\\|?*]', "_", fn)
+
+        save_path = os.path.join(unique_folder, fn)
+        f.save(save_path)
+        saved.append(save_path)
+
+    if not saved:
+        return jsonify({"error": "No valid .doc/.docx files uploaded"}), 400
+
+    # Book title — required
+    book_title = request.form.get('book_title', '').strip()
+    if not book_title:
+        return jsonify({"error": "Book Title is required"}), 400
+    safe_title = re.sub(r'[<>:"/\\|?*\s]+', '_', book_title).strip('_')
+
+    # Combined dashboard flag — only relevant when 2+ files uploaded
+    combined_dashboard = request.form.get('combined_dashboard', 'false').lower() == 'true'
+    
+    # Collect Options for reference validation/conversion
+    options = {
+        'run_validation': str(request.form.get('run_validation')).lower() in ['true', 'on', '1'],
+        'run_name_year': str(request.form.get('run_name_year_validation')).lower() in ['true', 'on', '1'],
+        'run_gemini': str(request.form.get('run_gemini')).lower() in ['true', 'on', '1'],
+        'target_style': request.form.get('target_style', 'Auto'),
+        'citation_format': request.form.get('citation_format', 'auto')
+    }
+
+    # Capture username before thread starts
+    username = session.get("username") or "Analyst"
+
+    # Job ID = Token (for multi-worker support via file system)
+    job_id = token
+    
+    # Initialize progress file
+    progress_file = os.path.join(unique_folder, "progress.json")
+    initial_progress = {
+        "total": len(saved),
+        "current": 0,
+        "status": "Starting Structuring",
+        "folder": unique_folder
+    }
+    try:
+        with open(progress_file, "w") as f:
+            json.dump(initial_progress, f)
+    except Exception as e:
+        app.logger.error(f"Failed to create progress file: {e}")
+
+    # -----------------------
+    # Background job (batch queue)
+    # -----------------------
+    current_user_id = session.get('user_id')
+    batch_queue.submit(
+        job_id=job_id,
+        route_type='structuring',
+        user_id=current_user_id,
+        username=username,
+        target_fn=process_structuring_job,
+        fn_args=(job_id, unique_folder, saved, combined_dashboard, book_title, safe_title, username, current_user_id, options),
+        payload_dict={
+            'unique_folder': unique_folder,
+            'saved': saved,
+            'combined_dashboard': combined_dashboard,
+            'book_title': book_title,
+            'safe_title': safe_title,
+            'options': options,
+        }
+    )
+    return jsonify({"job_id": job_id})
 
 @app.route("/ppd", methods=["GET", "POST"])
 @csrf.exempt
@@ -3756,13 +4084,13 @@ def batch_queue_cancel(job_id):
 # Book Indexer Route
 # -----------------------
 @app.route('/book-indexer', methods=['GET'])
-@role_required(ROUTE_PERMISSIONS.get('book_indexer', ['ADMIN', 'USER']))
+@role_required(ROUTE_PERMISSIONS.get('book_indexer', ['ADMIN']))
 def book_indexer_ui():
     return render_template('book_indexer.html')
 
 @app.route('/book-indexer/api/extract', methods=['POST'])
 @csrf.exempt
-@role_required(ROUTE_PERMISSIONS.get('book_indexer', ['ADMIN', 'USER']))
+@role_required(ROUTE_PERMISSIONS.get('book_indexer', ['ADMIN']))
 def book_indexer_extract():
     api_key = (
         request.form.get('api_key')
@@ -3860,7 +4188,7 @@ def check_progress(job_id):
         
     return jsonify({"status": "Unknown", "current": 0, "total": 0})
 
-def process_validation_job(job_id, processing_dir, file_paths, original_filenames, options, user_id, username):
+def process_validation_job(job_id, processing_dir, file_paths, original_filenames, options, user_id, username, skip_zip_creation=False):
     """
     Background worker for validation.
     """
@@ -4104,7 +4432,10 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
 
                 # C. Final Document (Conditionally)
                 if not is_report_only:
-                    final_doc_name = f"{base_name}_Processed.docx"
+                    is_structuring_source = options.get('is_structuring_source', False)
+                    # If this came from structuring, name it _Structured.docx instead of _Processed.docx
+                    final_suffix = "_Structured.docx" if is_structuring_source else "_Processed.docx"
+                    final_doc_name = f"{base_name}{final_suffix}"
                     final_doc_path = os.path.join(file_output_dir, final_doc_name)
                     
                     # Ensure we are copying the latest 'current_filepath'
@@ -4136,52 +4467,56 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
             
             update_progress({"status": "Finalizing..."})
             
-            # Create ZIP
-            zip_name = "Reference_Process.zip"
-            zip_path = os.path.join(processing_dir, zip_name)
-            
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
-                # Walk through processing_dir
-                for root, dirs, files in os.walk(processing_dir):
-                    for file in files:
-                        if file == "progress.json" or file == zip_name or file.endswith(".docx"): # skip input docs in root, loop handled moved ones
-                            # Wait, input docs are in processing_dir root. Result folders are subdirs.
-                            # We want to ZIP the subdirs.
-                            pass
-                        
-                        file_abs_path = os.path.join(root, file)
-                        rel_path = os.path.relpath(file_abs_path, processing_dir)
-                        
-                        # Include: 
-                        # 1. Anything inside a "_Results" folder
-                        # 2. Skip input files in root (checked by not having path separator?)
-                        
-                        if "_Results" in rel_path:
-                            # Cleanup temp files inside results?
-                            if file.startswith("temp_") or file.endswith("_fix_log.txt") or file.endswith("_fixed.docx"): # Structuring artifacts we might not want if we have _Processed
-                                # Logic check: _fixed.docx is the result of structuring. 
-                                # If we ran structuring but not report only, it became _Processed.docx? 
-                                # No, current_filepath became _fixed.docx. Then it was copied to _Processed.docx.
-                                # So _fixed.docx is redundant if _Processed exists.
-                                pass 
-                            
-                            z.write(file_abs_path, arcname=rel_path)
-            
-            # Register Download
-            download_tokens[job_id] = {
-                "path": processing_dir,
-                "expires": _now_utc() + TOKEN_TTL,
-                "user": username,
-                "route_type": "validation",
-                "zip_path": zip_path
-            }
-            
-            update_progress({
-                "status": "Completed", 
-                "download_token": job_id,
-                "current": len(file_paths),
-                "zip_path": zip_path
-            })
+            # Create ZIP (unless skipped for structuring workflow where analysis will follow)
+            if not skip_zip_creation:
+                zip_name = "Reference_Process.zip"
+                zip_path = os.path.join(processing_dir, zip_name)
+
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+                    is_structuring_source = options.get('is_structuring_source', False)
+                    # Walk through processing_dir
+                    for root, dirs, files in os.walk(processing_dir):
+                        for file in files:
+                            if file == "progress.json" or file == zip_name or file.endswith(".zip"):
+                                continue
+
+                            file_abs_path = os.path.join(root, file)
+                            rel_path = os.path.relpath(file_abs_path, processing_dir)
+
+                            if "_Results" in rel_path:
+                                # If triggered from structuring (macro_processing page), ONLY include Structured.docx and log.txt
+                                if is_structuring_source:
+                                    if not (file.endswith("_Structured.docx") or file.endswith("_log.txt")):
+                                        continue
+                                    # Flatten the path for cleaner zip
+                                    arc_path = file
+                                else:
+                                    if file.startswith("temp_") or file.endswith("_fix_log.txt") or file.endswith("_fixed.docx"):
+                                        continue
+                                    arc_path = rel_path
+
+                                z.write(file_abs_path, arcname=arc_path)
+
+                            # If structuring source, also include analysis outputs (dashboard.html, Analysis.xlsx)
+                            elif is_structuring_source and root == processing_dir:
+                                if file.endswith("_Dashboard.html") or file.endswith("_Analysis.xlsx") or file.endswith("Combined_Dashboard.html"):
+                                    z.write(file_abs_path, arcname=file)
+
+                # Register Download
+                download_tokens[job_id] = {
+                    "path": processing_dir,
+                    "expires": _now_utc() + TOKEN_TTL,
+                    "user": username,
+                    "route_type": "validation",
+                    "zip_path": zip_path
+                }
+
+                update_progress({
+                    "status": "Completed",
+                    "download_token": job_id,
+                    "current": len(file_paths),
+                    "zip_path": zip_path
+                })
             
         except Exception as e:
             update_progress({"status": f"Failed: {str(e)}"})
@@ -4281,7 +4616,7 @@ def validate_file():
                 'run_name_year': str(request.form.get('run_name_year_validation')).lower() in ['true', 'on', '1'],
                 'run_gemini': str(request.form.get('run_gemini')).lower() in ['true', 'on', '1'],
                 'target_style': request.form.get('target_style', 'Auto'),
-                'citation_format': request.form.get('citation_format', 'styled')
+                'citation_format': request.form.get('citation_format', 'auto')
             }
             
             # Use report only flag to force validation logic if not explicitly checked but needed
@@ -5451,7 +5786,7 @@ def process_technical_job(job_id, unique_folder, saved_paths, original_filenames
                     process_docx(input_path, output_path, skip_validation=True)
                 else:
                     shutil.copy(input_path, output_path)
-                processed_files.append(filename)
+                processed_files.append(os.path.basename(input_path))
 
             # Create ZIP
             zip_path = os.path.join(unique_folder, "Technical_Documents.zip")
@@ -5481,6 +5816,77 @@ def process_technical_job(job_id, unique_folder, saved_paths, original_filenames
                     db.commit()
             except Exception as e:
                 print(f"DB Logging Error (Technical): {e}")
+
+            update_progress({"status": "Completed", "zip_path": zip_path,
+                             "download_token": job_id})
+        except Exception as e:
+            update_progress({"status": f"Failed: {str(e)}"})
+            log_errors([f"Job {job_id} failed: {e}"])
+
+def process_docx_pipeline_job(job_id, unique_folder, saved_paths, original_filenames,
+                              user_id, username):
+    """Background worker for DOCX pipeline (11-step cleanup and enrichment)."""
+    with app.app_context():
+        def update_progress(updates):
+            try:
+                p_path = os.path.join(unique_folder, "progress.json")
+                current = {}
+                if os.path.exists(p_path):
+                    with open(p_path, "r") as f:
+                        current = json.load(f)
+                current.update(updates)
+                with open(p_path, "w") as f:
+                    json.dump(current, f)
+            except Exception as ex:
+                print(f"Progress update failed: {ex}")
+
+        update_progress({"total": len(saved_paths), "current": 0, "status": "Starting"})
+        try:
+            processed_files = []
+            for idx, input_path in enumerate(saved_paths, 1):
+                if batch_queue.is_cancelled(job_id):
+                    return
+                filename = original_filenames[idx - 1]
+                update_progress({"current": idx, "status": f"Processing {filename}"})
+
+                # Create per-file output directory (separate from upload dir to avoid self-copy)
+                per_file_output_dir = os.path.join(unique_folder, "processed")
+                os.makedirs(per_file_output_dir, exist_ok=True)
+
+                # Run the pipeline
+                result = docx_pipeline_process(Path(input_path), Path(per_file_output_dir))
+
+                if result['output']:
+                    processed_files.append(result['output'])
+                if result['report']:
+                    processed_files.append(result['report'])
+
+            # Create ZIP
+            zip_path = os.path.join(unique_folder, "DOCX_Pipeline_Documents.zip")
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+                for fpath in processed_files:
+                    if os.path.exists(fpath):
+                        z.write(fpath, arcname=os.path.basename(fpath))
+
+            # Save manifest
+            with open(os.path.join(unique_folder, "manifest.txt"), "w") as mf:
+                mf.write("\n".join(os.path.basename(f) for f in processed_files))
+
+            # DB log
+            try:
+                with db_pool.get_connection() as db:
+                    db.execute(
+                        '''INSERT INTO macro_processing
+                           (user_id, token, original_filenames, processed_filenames, selected_tasks, route_type)
+                           VALUES (?, ?, ?, ?, ?, ?)''',
+                        (user_id, job_id, json.dumps(original_filenames),
+                         json.dumps([os.path.basename(f) for f in processed_files]),
+                         json.dumps({'route_type': 'docx_pipeline'}),
+                         'docx_pipeline')
+                    )
+                    db.commit()
+            except Exception as e:
+                print(f"DB Logging Error (DOCX Pipeline): {e}")
 
             update_progress({"status": "Completed", "zip_path": zip_path,
                              "download_token": job_id})
@@ -5543,7 +5949,7 @@ def technical():
 
         return jsonify({"job_id": token})
 
-    return render_template("technical_edit.html")
+    return render_template("technical_edit_Highlight.html")
 
 
 
@@ -5609,6 +6015,58 @@ def cleanup_token_data(token):
         log_errors([f"CLEANUP ERROR (token={token}): {str(e)}"])
 
 
+@app.route('/docx-pipeline', methods=['GET', 'POST'])
+@role_required(ROUTE_PERMISSIONS.get('docx_pipeline', ['ADMIN']))
+def docx_pipeline():
+    if request.method == 'POST':
+        uploaded_files = request.files.getlist("word_files[]")
+
+        if not uploaded_files:
+            return jsonify({"error": "No files uploaded"}), 400
+
+        # Create unique folder for this job
+        token = uuid.uuid4().hex
+        unique_folder = os.path.join(UPLOAD_FOLDER, token)
+        os.makedirs(unique_folder, exist_ok=True)
+
+        saved_paths = []
+        original_filenames = []
+
+        for f in uploaded_files:
+            filename = secure_filename(f.filename)
+            if not filename:
+                continue
+            input_path = os.path.join(unique_folder, filename)
+            f.save(input_path)
+            saved_paths.append(input_path)
+            original_filenames.append(f.filename)
+
+        if not saved_paths:
+            shutil.rmtree(unique_folder, ignore_errors=True)
+            return jsonify({"error": "No valid files uploaded"}), 400
+
+        # Write initial progress
+        progress_file = os.path.join(unique_folder, "progress.json")
+        with open(progress_file, "w") as pf:
+            json.dump({"status": "Queued", "total": len(saved_paths), "current": 0}, pf)
+
+        # Submit to batch queue
+        batch_queue.submit(
+            job_id=token,
+            route_type='docx_pipeline',
+            user_id=session.get('user_id', 'anonymous'),
+            username=session.get('username', 'unknown'),
+            target_fn=process_docx_pipeline_job,
+            fn_args=(token, unique_folder, saved_paths, original_filenames,
+                     session.get('user_id', 'anonymous'), session.get('username', 'unknown')),
+            payload_dict={'route_type': 'docx_pipeline'}
+        )
+
+        return jsonify({"job_id": token})
+
+    return render_template("docx_pipeline.html")
+
+
 @app.route('/favicon.ico')
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static', 'images'),
@@ -5664,6 +6122,53 @@ def technical_download(token):
         as_attachment=True,
         mimetype="application/zip",
         download_name=f"Technical_Documents_{_now_utc().strftime('%Y%m%d_%H%M%S')}.zip"
+    )
+
+@app.route('/docx-pipeline/download/<token>')
+def docx_pipeline_download(token):
+    # Try in-memory first
+    info = download_tokens.get(token)
+
+    # Fallback to file system for multi-worker support
+    if not info:
+        possible_folder = os.path.join(app.config['UPLOAD_FOLDER'], token)
+        if os.path.exists(possible_folder):
+            info = {
+                "path": possible_folder,
+                "expires": _now_utc() + TOKEN_TTL
+            }
+
+    if not info:
+        flash("Invalid or expired token.")
+        return redirect(url_for('dashboard'))
+
+    if 'expires' in info and is_token_expired(info):
+        cleanup_token_data(token)
+        flash("Token expired.")
+        return redirect(url_for('dashboard'))
+
+    folder = info["path"]
+    zip_path = folder + ".zip"
+
+    try:
+        if not os.path.exists(zip_path):
+            shutil.make_archive(folder, 'zip', folder)
+
+        mem = io.BytesIO()
+        with open(zip_path, 'rb') as f:
+            mem.write(f.read())
+        mem.seek(0)
+
+    except Exception as e:
+        log_errors([f"ZIP read/create failure: {e}"])
+        flash("Download failed.")
+        return redirect(url_for('dashboard'))
+
+    return send_file(
+        mem,
+        as_attachment=True,
+        mimetype="application/zip",
+        download_name=f"DOCX_Pipeline_Documents_{_now_utc().strftime('%Y%m%d_%H%M%S')}.zip"
     )
 
 # -----------------------

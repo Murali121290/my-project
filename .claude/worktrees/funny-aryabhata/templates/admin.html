@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel - S4carlisle{% endblock %}
+
+{% block content %}
+<div class="content-card fade-in">
+    <div class="text-center mb-3">
+        <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+            Admin Panel
+        </h1>
+        <p class="text-muted">Manage users and files</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">
+                    {{ message }}
+                    <button class="close">&times;</button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Users Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h3 class="card-title">Manage Users</h3>
+        </div>
+        <div class="card-body">
+            <table class="file-table" style="width: 100%;">
+                <thead>
+                    <tr style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white;">
+                        <th style="padding: 15px; text-align: left;">ID</th>
+                        <th style="padding: 15px; text-align: left;">Username</th>
+                        <th style="padding: 15px; text-align: left;">Email</th>
+                        <th style="padding: 15px; text-align: left;">Is Admin</th>
+                        <th style="padding: 15px; text-align: left;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                        <tr style="border-bottom: 1px solid var(--gray-200);">
+                            <td style="padding: 15px;">{{ user.id }}</td>
+                            <td style="padding: 15px;">{{ user.username }}</td>
+                            <td style="padding: 15px;">{{ user.email }}</td>
+                            <td style="padding: 15px;">{{ 'Yes' if user.is_admin else 'No' }}</td>
+                            <td style="padding: 15px;">
+                                {% if user.id != session.user_id %}
+                                    <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this user?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-danger btn-sm">
+                                            <i class="fas fa-trash"></i> Delete
+                                        </button>
+                                    </form>
+                                {% else %}
+                                    <span class="text-muted">Cannot delete self</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Files Section -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Manage Files</h3>
+        </div>
+        <div class="card-body">
+            <table class="file-table" style="width: 100%;">
+                <thead>
+                    <tr style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white;">
+                        <th style="padding: 15px; text-align: left;">File ID</th>
+                        <th style="padding: 15px; text-align: left;">Username</th>
+                        <th style="padding: 15px; text-align: left;">Filename</th>
+                        <th style="padding: 15px; text-align: left;">Upload Date</th>
+                        <th style="padding: 15px; text-align: left;">Report</th>
+                        <th style="padding: 15px; text-align: left;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                        <tr style="border-bottom: 1px solid var(--gray-200);">
+                            <td style="padding: 15px;">{{ file.id }}</td>
+                            <td style="padding: 15px;">{{ file.username }}</td>
+                            <td style="padding: 15px;">{{ file.original_filename }}</td>
+                            <td style="padding: 15px;">{{ file.upload_date }}</td>
+                            <td style="padding: 15px;">
+                                <a href="{{ url_for('download_report', filename=file.report_filename) }}" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-download"></i> View Report
+                                </a>
+                            </td>
+                            <td style="padding: 15px;">
+                                <form action="{{ url_for('del   ete_file', file_id=file.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this file?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

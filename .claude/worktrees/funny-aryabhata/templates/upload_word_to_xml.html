@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% block title %}Word to XML Converter - S4Carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Consistent styling with upload_credit.html */
+    .content-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        transition: var(--transition);
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone:hover {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: var(--primary-dark);
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+        transform: scale(1.02);
+    }
+
+    .file-list {
+        margin-top: 1.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 0.5rem;
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .file-icon {
+        color: var(--primary);
+        font-size: 1.2rem;
+    }
+
+    .remove-file {
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+
+    .remove-file:hover {
+        background: rgba(239, 71, 111, 0.1);
+    }
+
+    .download-section {
+        background: rgba(6, 214, 160, 0.1);
+        padding: 1.5rem;
+        border-radius: var(--border-radius);
+        border-left: 4px solid var(--success);
+        text-align: center;
+        margin: 1.5rem 0;
+        display: none;
+    }
+
+    .progress-section {
+        margin: 1.5rem 0;
+        display: none;
+    }
+
+    .progress {
+        height: 25px;
+        border-radius: var(--border-radius-sm);
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        transition: width 0.3s ease;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-card fade-in">
+    <div class="text-center mb-3">
+        <h1
+            style="font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+            Word to XML Converter
+        </h1>
+        <p class="text-muted">Convert Word documents to XML format</p>
+    </div>
+
+    <!-- Drop Zone -->
+    <div class="form-group">
+        <label class="form-label">Upload Word Files</label>
+        <div id="dropZone" class="drop-zone">
+            <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+            <p>Drag & drop your Word files here or click to browse</p>
+            <p class="text-muted">Supports .doc and .docx files</p>
+            <input type="file" id="files" name="files" class="form-control" multiple accept=".doc,.docx"
+                style="display: none;">
+        </div>
+        <div id="fileList" class="file-list"></div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="progressSection" class="progress-section">
+        <label class="form-label">Conversion Progress</label>
+        <div class="progress">
+            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                role="progressbar" style="width:0%">0%</div>
+        </div>
+        <p id="progressText" class="text-muted small mt-1">Initializing...</p>
+    </div>
+
+    <!-- Download Section -->
+    <div id="resultSection" class="download-section"></div>
+
+    <!-- Action Buttons -->
+    <div class="d-flex gap-2 justify-between">
+        <button id="convertBtn" class="btn btn-primary px-4 py-2">
+            <i class="fas fa-exchange-alt me-2"></i>Convert to XML
+        </button>
+        <button type="button" id="resetBtn" class="btn btn-outline">
+            <i class="fas fa-trash me-2"></i>Clear All
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // DOM Elements
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('files');
+    const fileList = document.getElementById('fileList');
+    const convertBtn = document.getElementById('convertBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const progressSection = document.getElementById('progressSection');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const resultSection = document.getElementById('resultSection');
+
+    let files = [];
+
+    // Event Listeners
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropZone.classList.add('highlight');
+    });
+
+    ['dragleave', 'dragend'].forEach(type => {
+        dropZone.addEventListener(type, () => dropZone.classList.remove('highlight'));
+    });
+
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('highlight');
+        handleFiles(e.dataTransfer.files);
+    });
+
+    fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+    resetBtn.addEventListener('click', () => {
+        if (confirm('Clear all files?')) {
+            clearState();
+        }
+    });
+
+    convertBtn.addEventListener('click', runConversion);
+
+    // Functions
+    function clearState() {
+        files = [];
+        updateFileList();
+        progressSection.style.display = 'none';
+        resultSection.style.display = 'none';
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+    }
+
+    function handleFiles(newFiles) {
+        const validFiles = Array.from(newFiles).filter(f =>
+            f.name.toLowerCase().endsWith('.doc') || f.name.toLowerCase().endsWith('.docx')
+        );
+
+        if (validFiles.length < newFiles.length) {
+            showAlert('Only .doc and .docx files are supported', 'error');
+        }
+
+        if (validFiles.length > 0) {
+            files = [...files, ...validFiles];
+            updateFileList();
+        }
+    }
+
+    function updateFileList() {
+        fileList.innerHTML = '';
+
+        if (files.length === 0) {
+            fileList.innerHTML = '<p class="text-center text-muted">No files selected</p>';
+            return;
+        }
+
+        files.forEach((file, index) => {
+            const div = document.createElement('div');
+            div.className = 'file-item';
+            div.innerHTML = `
+                <div class="file-info">
+                    <i class="fas fa-file-word file-icon"></i>
+                    <div>
+                        <div>${file.name}</div>
+                        <div class="text-muted">${formatFileSize(file.size)}</div>
+                    </div>
+                </div>
+                <i class="fas fa-times remove-file" data-index="${index}"></i>`;
+            fileList.appendChild(div);
+        });
+
+        document.querySelectorAll('.remove-file').forEach(btn => {
+            btn.addEventListener('click', e => {
+                files.splice(e.target.dataset.index, 1);
+                updateFileList();
+            });
+        });
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+    }
+
+    async function runConversion() {
+        if (files.length === 0) {
+            showAlert('Please select at least one Word file.', 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        for (const file of files) {
+            formData.append('files', file);
+        }
+
+        // Show progress section
+        progressSection.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+        progressText.textContent = 'Starting conversion...';
+        resultSection.style.display = 'none';
+
+        // Get CSRF token
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        const headers = {};
+        if (csrfToken) {
+            headers['X-CSRFToken'] = csrfToken;
+        }
+
+        try {
+            const res = await fetch("/word-to-xml", {
+                method: "POST",
+                body: formData,
+                headers: headers
+            });
+            const data = await res.json();
+
+            if (!data.job_id) {
+                showAlert(data.error || "Failed to start conversion", 'error');
+                progressSection.style.display = 'none';
+                return;
+            }
+
+            const jobId = data.job_id;
+
+            // Poll for progress
+            const timer = setInterval(async () => {
+                try {
+                    const r = await fetch(`/progress/${jobId}`);
+                    const d = await r.json();
+
+                    if (!d.total) return;
+
+                    const percent = Math.floor((d.current / d.total) * 100);
+                    progressBar.style.width = percent + '%';
+                    progressBar.textContent = percent + '%';
+                    progressText.textContent = `${d.status} (${d.current}/${d.total})`;
+
+                    if (d.status === "Completed") {
+                        clearInterval(timer);
+                        progressBar.classList.remove('progress-bar-animated');
+
+                        // Show success and download link
+                        resultSection.style.display = 'block';
+                        const xmlCount = d.xml_files_count || 'multiple';
+                        resultSection.innerHTML = `
+                            <i class="fas fa-check-circle" style="font-size: 2rem; color: var(--success); margin-bottom: 1rem;"></i>
+                            <h3>Conversion Complete!</h3>
+                            <p>Successfully converted ${files.length} Word file(s) to XML.</p>
+                            <p class="text-muted small">Generated ${xmlCount} XML file(s)</p>
+                            <a href="/download_zip/${jobId}" class="btn btn-success mt-2">
+                                <i class="fas fa-download me-2"></i>Download ZIP (Word + XML)
+                            </a>
+                        `;
+                    }
+
+                    if (d.status.startsWith("Failed")) {
+                        clearInterval(timer);
+                        showAlert(d.status, 'error');
+                        progressBar.classList.remove('bg-success');
+                        progressBar.classList.add('bg-danger');
+                    }
+                } catch (e) {
+                    console.error("Progress poll error", e);
+                }
+            }, 1000);
+
+        } catch (e) {
+            console.error("Submission error", e);
+            showAlert("An error occurred while uploading files.", 'error');
+            progressSection.style.display = 'none';
+        }
+    }
+
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type === 'error' ? 'danger' : 'success'} alert-dismissible fade show`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+
+        // Insert alert at top of card
+        const card = document.querySelector('.content-card');
+        card.insertBefore(alertDiv, card.firstChild);
+
+        setTimeout(() => {
+            if (alertDiv.parentNode) alertDiv.remove();
+        }, 5000);
+    }
+
+    updateFileList();
+</script>
+{% endblock %}

@@ -400,9 +400,103 @@ def convert_autonumber_to_manual(para, number, doc):
     return normalize_reference_paragraph(para, number, doc)
 
 
+def _split_and_tag_runs(para, pattern, doc, strip_delimiters=False, year_guard=False):
+    """
+    Find citations embedded in runs via finditer, split runs at citation
+    boundaries, and apply cite_bib style to citation segments.
+    Returns count of citations tagged.
+    """
+    from copy import deepcopy
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    tagged = 0
+    runs_snapshot = list(para.runs)
+
+    for run in runs_snapshot:
+        if run.style and run.style.name == 'cite_bib':
+            continue
+        text = run.text or ""
+        if not text:
+            continue
+
+        matches = [
+            m for m in pattern.finditer(text)
+            if not (year_guard and re.search(r'\d{4}', m.group()))
+        ]
+        if not matches:
+            continue
+
+        segments = []
+        pos = 0
+        for m in matches:
+            if m.start() > pos:
+                segments.append((text[pos:m.start()], False))
+            cite_text = m.group()
+            if strip_delimiters:
+                cite_text = cite_text[1:-1]
+            segments.append((cite_text, True))
+            pos = m.end()
+        if pos < len(text):
+            segments.append((text[pos:], False))
+
+        if len(segments) == 1 and segments[0][1]:
+            if strip_delimiters:
+                run.text = segments[0][0]
+            run.style = doc.styles['cite_bib']
+            tagged += 1
+            continue
+
+        run_elem = run._element
+        parent = run_elem.getparent()
+        idx = list(parent).index(run_elem)
+        orig_rPr = run_elem.find(qn('w:rPr'))
+
+        new_elems = []
+        for seg_text, is_cite in segments:
+            if not seg_text:
+                continue
+            new_r = OxmlElement('w:r')
+            if orig_rPr is not None:
+                new_r.append(deepcopy(orig_rPr))
+            t = OxmlElement('w:t')
+            if seg_text != seg_text.strip():
+                t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+            t.text = seg_text
+            new_r.append(t)
+
+            if is_cite:
+                rPr_elem = new_r.find(qn('w:rPr'))
+                if rPr_elem is None:
+                    rPr_elem = OxmlElement('w:rPr')
+                    new_r.insert(0, rPr_elem)
+                rStyle = OxmlElement('w:rStyle')
+                rStyle.set(qn('w:val'), 'cite_bib')
+                rPr_elem.insert(0, rStyle)
+                tagged += 1
+
+            new_elems.append(new_r)
+
+        parent.remove(run_elem)
+        for i, elem in enumerate(new_elems):
+            parent.insert(idx + i, elem)
+
+        # Re-apply cite_bib style using python-docx API so it's recognized by is_citation_run()
+        para._element.getparent()  # Ensure parent is accessible
+        for run in para.runs[idx:idx+len(new_elems)]:
+            rPr = run._element.find(qn('w:rPr'))
+            if rPr is not None:
+                rStyle = rPr.find(qn('w:rStyle'))
+                if rStyle is not None and rStyle.get(qn('w:val')) == 'cite_bib':
+                    run.style = doc.styles['cite_bib']
+
+    return tagged
+
+
 def detect_and_tag_unstyled_citations(doc, citation_format):
     """
     Scan for unstyled citations and apply cite_bib style based on the selected format.
+    Handles both isolated runs and embedded citations via run-splitting.
     Returns {'tagged': count, 'format_used': citation_format}
     """
     tagged_count = 0
@@ -415,29 +509,35 @@ def detect_and_tag_unstyled_citations(doc, citation_format):
         if para.style and para.style.name in ['REF-N', 'REF-U']:
             continue
 
-        for index, run in enumerate(para.runs):
-            if run.style and run.style.name == 'cite_bib':
-                continue
+        if citation_format == 'paren':
+            tagged_count += _split_and_tag_runs(
+                para, PAREN_CITATION_PATTERN, doc,
+                strip_delimiters=True, year_guard=False
+            )
 
-            text = run.text or ""
-            should_tag = False
+        elif citation_format == 'bracket':
+            tagged_count += _split_and_tag_runs(
+                para, BRACKET_CITATION_PATTERN, doc,
+                strip_delimiters=True
+            )
 
-            if citation_format == 'superscript':
-                should_tag = bool(run.font.superscript and NUMBER_ONLY_PATTERN.match(text.strip()))
-            elif citation_format == 'bracket':
-                should_tag = bool(BRACKET_CITATION_PATTERN.fullmatch(text.strip()))
-                if should_tag:
-                    run.text = re.sub(r'^\[(.*)\]$', r'\1', text.strip())
-            elif citation_format == 'paren':
-                should_tag = bool(PAREN_CITATION_PATTERN.fullmatch(text.strip()) and not re.search(r'\d{4}', text))
-                if should_tag:
-                    run.text = re.sub(r'^\((.*)\)$', r'\1', text.strip())
-            elif citation_format == 'plain':
-                should_tag = index > 0 and bool(NUMBER_ONLY_PATTERN.match(text.strip()))
+        elif citation_format == 'superscript':
+            for run in para.runs:
+                if run.style and run.style.name == 'cite_bib':
+                    continue
+                text = (run.text or "").strip()
+                if run.font.superscript and NUMBER_ONLY_PATTERN.match(text):
+                    run.style = doc.styles['cite_bib']
+                    tagged_count += 1
 
-            if should_tag:
-                run.style = doc.styles['cite_bib']
-                tagged_count += 1
+        elif citation_format == 'plain':
+            for index, run in enumerate(para.runs):
+                if run.style and run.style.name == 'cite_bib':
+                    continue
+                text = (run.text or "").strip()
+                if index > 0 and NUMBER_ONLY_PATTERN.match(text):
+                    run.style = doc.styles['cite_bib']
+                    tagged_count += 1
 
     return {'tagged': tagged_count, 'format_used': citation_format}
 
@@ -914,7 +1014,42 @@ def process_document(file, citation_format='styled'):
 
     # PRE-PROCESS: Detect and tag unstyled citations
     cite_tag_result = {}
-    if citation_format != 'styled':
+    if citation_format == 'auto':
+        # Auto-detect: try each format in order of specificity
+        has_styled = any(
+            run.style and run.style.name == 'cite_bib'
+            for para in iter_document_paragraphs(doc)
+            if not (para.style and para.style.name in ['REF-N', 'REF-U'])
+            for run in para.runs
+        )
+        if has_styled:
+            citation_format = 'styled'
+        else:
+            for fmt, pat, kw in [
+                ('superscript', None, None),
+                ('bracket', BRACKET_CITATION_PATTERN, {}),
+                ('paren', PAREN_CITATION_PATTERN, {'year_guard': True}),
+            ]:
+                if fmt == 'superscript':
+                    found = any(
+                        run.font.superscript and NUMBER_ONLY_PATTERN.match((run.text or '').strip())
+                        for para in iter_document_paragraphs(doc)
+                        if not (para.style and para.style.name in ['REF-N', 'REF-U'])
+                        for run in para.runs
+                    )
+                else:
+                    found = any(
+                        pat.search(run.text or '') and not (kw.get('year_guard') and re.search(r'\d{4}', run.text or ''))
+                        for para in iter_document_paragraphs(doc)
+                        if not (para.style and para.style.name in ['REF-N', 'REF-U'])
+                        for run in para.runs
+                    )
+                if found:
+                    citation_format = fmt
+                    break
+            cite_tag_result = detect_and_tag_unstyled_citations(doc, citation_format)
+            cite_tag_result['auto_detected'] = True
+    elif citation_format != 'styled':
         cite_tag_result = detect_and_tag_unstyled_citations(doc, citation_format)
 
     # Check BEFORE

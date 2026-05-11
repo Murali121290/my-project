@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - S4carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ── Page header ──────────────────────────────────── */
+    .page-header {
+        margin-bottom: 12px;
+    }
+    .page-title {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .page-sub {
+        font-size: 0.80rem;
+        color: rgba(255,255,255,0.7);
+        margin-top: 2px;
+    }
+
+    /* ── Stats grid ───────────────────────────────────── */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .stat-card {
+        background: rgba(255,255,255,0.97);
+        border-radius: 14px;
+        padding: 20px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.13);
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        transition: all 0.22s ease;
+    }
+    .stat-card:hover { transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
+    .stat-icon-wrap {
+        width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.1rem; color: #fff;
+    }
+    .si-blue   { background: linear-gradient(135deg, #1a2742, #223059); }
+    .si-purple { background: linear-gradient(135deg, #223059, #1a2742); }
+    .si-green  { background: linear-gradient(135deg, #06d6a0, #05a57e); }
+    .si-orange { background: linear-gradient(135deg, #e87722, #d4660a); }
+    .si-red    { background: linear-gradient(135deg, #ef476f, #c0392b); }
+    .si-teal   { background: linear-gradient(135deg, #118ab2, #0d6e8a); }
+    .stat-num  { font-size: 1.6rem; font-weight: 800; color: #1a2742; line-height: 1; }
+    .stat-lbl  { font-size: 0.72rem; color: #6c757d; margin-top: 3px; font-weight: 500;
+                 text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ── Actions grid ─────────────────────────────────── */
+    .actions-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 22px;
+        margin-bottom: 24px;
+    }
+    .action-card {
+        background: rgba(255,255,255,0.97);
+        border-radius: 18px;
+        padding: 34px 30px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.13);
+        transition: all 0.22s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        text-decoration: none;
+        color: inherit;
+    }
+    .action-card:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 18px 48px rgba(0,0,0,0.18);
+        text-decoration: none;
+        color: inherit;
+    }
+    .ac-icon {
+        width: 60px; height: 60px; border-radius: 16px; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.5rem; color: #fff;
+    }
+    .ac-title { font-size: 1.1rem; font-weight: 700; color: #1a2742; }
+    .ac-desc  { font-size: 0.86rem; color: #6c757d; line-height: 1.55; }
+
+    /* ── Content card ─────────────────────────────────── */
+    .content-card {
+        background: rgba(255,255,255,0.97);
+        border-radius: 14px;
+        padding: 24px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.13);
+        margin-bottom: 20px;
+    }
+    .content-card-title {
+        font-size: 1rem; font-weight: 700; color: #1a1f3a;
+        margin-bottom: 16px; padding-bottom: 10px;
+        border-bottom: 2px solid #f0f2f8;
+        display: flex; align-items: center; gap: 8px;
+        justify-content: space-between;
+    }
+    .content-card-title i { color: var(--primary); }
+
+    /* ── File table ───────────────────────────────────── */
+    .file-table { width: 100%; border-collapse: collapse; }
+    .file-table th {
+        background: linear-gradient(135deg, #4361ee, #7209b7);
+        color: #fff; padding: 12px 16px; text-align: left;
+        font-size: 0.8rem; font-weight: 600; letter-spacing: .4px;
+    }
+    .file-table th:first-child { border-radius: 8px 0 0 0; }
+    .file-table th:last-child  { border-radius: 0 8px 0 0; }
+    .file-table td {
+        padding: 13px 16px; border-bottom: 1px solid #f0f2f8;
+        font-size: 0.83rem; color: #444;
+    }
+    .file-table tr:hover td { background: #f8f9ff; }
+    .file-table tr:last-child td { border-bottom: none; }
+
+    /* ── Empty state ──────────────────────────────────── */
+    .empty-state { text-align: center; padding: 3rem; color: #6c757d; }
+    .empty-state i { font-size: 3rem; margin-bottom: 1rem; color: #ced4da; display: block; }
+
+    @media (max-width: 768px) {
+        .stats-grid { grid-template-columns: 1fr 1fr; }
+        .actions-grid { grid-template-columns: 1fr 1fr; }
+        .file-table th:nth-child(2), .file-table td:nth-child(2) { display: none; }
+    }
+    @media (max-width: 480px) {
+        .stats-grid, .actions-grid { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+
+    <!-- Page Header 
+    <div class="page-header">
+        <div class="page-title">S4carlisle Pre-Prod-Hub Dashboard</div>
+        <div class="page-sub">Welcome back, {{ session['username'] }}</div>
+    </div> -->
+
+    <!-- Quick Actions 
+    <div class="actions-grid">
+
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('macro_processing') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#4361ee,#3a56d4)">
+                <i class="fas fa-cogs"></i>
+            </div>
+            <div class="ac-title">Pre-Editing</div>
+            <div class="ac-desc">Process documents with specialised pre-editing rules.</div>
+        </a>
+        {% endif %}
+
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('validate_file') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#7209b7,#560bad)">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="ac-title">References Validation</div>
+            <div class="ac-desc">Check reference consistency and citations in documents.</div>
+        </a>
+        {% endif %}
+
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('technical') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#ef476f,#c0392b)">
+                <i class="fas fa-tools"></i>
+            </div>
+            <div class="ac-title">Technical Editing</div>
+            <div class="ac-desc">Apply technical editing checks — figures, tables, cross-references.</div>
+        </a>
+        {% endif %}
+
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('language') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#118ab2,#0d6e8a)">
+                <i class="fas fa-language"></i>
+            </div>
+            <div class="ac-title">Language Editing</div>
+            <div class="ac-desc">Language style and grammar checks powered by AI.</div>
+        </a>
+        {% endif %}
+
+        {% if session.get('is_admin') or current_role in ['PPD', 'PM', 'PERMISSIONS', 'ADMIN'] %}
+        <a href="{{ url_for('ppd') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#ff9f1c,#e07b00)">
+                <i class="fas fa-magic"></i>
+            </div>
+            <div class="ac-title">Manuscript Analytics</div>
+            <div class="ac-desc">Run analytics tool for manuscript analysis report.</div>
+        </a>
+        {% endif %}
+
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('bias_scan') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#06d6a0,#05a57e)">
+                <i class="fas fa-search"></i>
+            </div>
+            <div class="ac-title">Bias Scanner</div>
+            <div class="ac-desc">Scan documents for bias terms and generate reports.</div>
+        </a>
+        {% endif %}
+
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('doi_finder') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#118ab2,#0d6e8a)">
+                <i class="fas fa-link"></i>
+            </div>
+            <div class="ac-title">DOI Validation</div>
+            <div class="ac-desc">Look up DOIs, validate references and get APA/AMA citations.</div>
+        </a>
+        {% endif %}
+
+        {% if session.get('is_admin') or current_role in ['ADMIN'] %}
+        <a href="{{ url_for('credit_extractor') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#ef476f,#c0392b)">
+                <i class="fas fa-file-contract"></i>
+            </div>
+            <div class="ac-title">Credit Extractor</div>
+            <div class="ac-desc">Extract captions and credit lines for permission logs.</div>
+        </a>
+
+        <a href="{{ url_for('word_to_xml') }}" class="action-card">
+            <div class="ac-icon" style="background:linear-gradient(135deg,#4361ee,#7209b7)">
+                <i class="fas fa-file-code"></i>
+            </div>
+            <div class="ac-title">Word to XML</div>
+            <div class="ac-desc">Convert Word documents to structured XML format.</div>
+        </a>
+        {% endif %} -->
+
+    <!-- Workflow Overview (Visible to all users) -->
+    <div style="margin-bottom: 24px;">
+        <img src="{{ url_for('static', filename='images/Final Pre Pro.png') }}" alt="S4Carlisle Pre-production Workflow" style="width: 100%; border-radius: 14px; box-shadow: 0 4px 24px rgba(0,0,0,0.13);">
+    </div>
+
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.action-card').forEach(card => {
+            card.addEventListener('click', function() {
+                console.log('Navigating to:', this.querySelector('.ac-title').textContent.trim());
+            });
+        });
+    });
+</script>
+{% endblock %}

@@ -186,23 +186,29 @@ def find_references_in_bibliography(paragraphs, parser):
     reference_details = {}
     abbreviation_map = {}
     
-    in_references_section = False
+    ref_section_depth = 0
     
     for i, para in enumerate(paragraphs):
         para_stripped = para.strip()
+        para_lower = para_stripped.lower()
         
         # Check for tags
-        if '<ref-open>' in para_stripped:
-            in_references_section = True
-            # If the tag is on its own line, continue. If inline, we might need to parse the rest?
-            # Assuming tag is a section delimiter.
-            continue
-        
-        if '<ref-close>' in para_stripped:
-            in_references_section = False
-            continue
+        if '<ref-open>' in para_lower or '<ref-close>' in para_lower:
+            open_count = para_lower.count('<ref-open>')
+            close_count = para_lower.count('<ref-close>')
             
-        if in_references_section and para_stripped:
+            if open_count > 0:
+                ref_section_depth += open_count
+            if close_count > 0:
+                ref_section_depth = max(0, ref_section_depth - close_count)
+                
+            para_stripped = re.sub(r'(?i)<ref-open>\s*', '', para_stripped)
+            para_stripped = re.sub(r'(?i)<ref-close>\s*', '', para_stripped).strip()
+            
+            if not para_stripped:
+                continue
+            
+        if ref_section_depth > 0 and para_stripped:
             # Parse reference using parser
             ref_data = parser.parse_reference(para_stripped)
             
@@ -770,14 +776,35 @@ def process_and_annotate_document(input_path, output_path, citation_style=None):
     # Import the body+table iterator from validation_core
     from validation_core import iter_body_paragraphs
 
-    # ── 1. Find citations (body only, stop at <ref-open>) ──────────────────
+    # ── 1. Find citations (body only, outside reference sections) ──────────────────
     citations    = {}   # cite_key -> {author, year, display, type, raw}
     cite_para_map = {}  # cite_key -> list[(idx, para_obj, source)]
+    ref_section_depth = 0
 
     for idx, para, source in iter_body_paragraphs(doc):
         para_text = para.text
-        if "<ref-open>" in para_text:
-            break
+        para_lower = para_text.lower()
+        
+        # Check for tags
+        if '<ref-open>' in para_lower or '<ref-close>' in para_lower:
+            open_count = para_lower.count('<ref-open>')
+            close_count = para_lower.count('<ref-close>')
+            
+            if open_count > 0:
+                ref_section_depth += open_count
+            if close_count > 0:
+                ref_section_depth = max(0, ref_section_depth - close_count)
+                
+            para_text = re.sub(r'(?i)<ref-open>\s*', '', para_text)
+            para_text = re.sub(r'(?i)<ref-close>\s*', '', para_text).strip()
+            
+            if not para_text:
+                continue
+                
+        # Do not process citations if we are inside a reference section
+        if ref_section_depth > 0:
+            continue
+            
         found = parser.parse_citation(para_text)
         for cite in found:
             author = cite.get("author", "").strip()

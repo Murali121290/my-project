@@ -329,9 +329,6 @@
             <a href="{% if session.get('is_admin') %}{{ url_for('admin_dashboard') }}{% else %}{{ url_for('dashboard') }}{% endif %}"
                 class="sidebar-header">
                 <img src="{{ url_for('static', filename='images/S4c.png') }}" alt="S4carlisle Logo">
-                <div class="sidebar-brand-text">
-                    <strong>Pre-Prod-Hub</strong>
-                </div>
             </a>
 
             <!-- Navigation links -->
@@ -358,13 +355,25 @@
                     class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
                     <i class="fas fa-check-circle"></i> Reference Validation
                 </a>
+                <a href="{{ url_for('manuscript.analysis_upload') }}"
+                    class="nav-link {% if request.endpoint == 'manuscript.analysis_upload' %}active{% endif %}">
+                    <i class="fas fa-chart-bar"></i> Editorial Stylesheets Prep
+                </a>
+                <a href="{{ url_for('manuscript.technical_upload') }}"
+                    class="nav-link {% if request.endpoint == 'manuscript.technical_upload' %}active{% endif %}">
+                    <i class="fas fa-tools"></i> Technical Editing
+                </a>
                 <a href="{{ url_for('technical') }}"
                     class="nav-link {% if request.endpoint == 'technical' %}active{% endif %}">
-                    <i class="fas fa-tools"></i> Technical Editing
+                    <i class="fas fa-highlighter"></i> Technical Highlight
                 </a>
                 <a href="{{ url_for('language') }}"
                     class="nav-link {% if request.endpoint == 'language' %}active{% endif %}">
                     <i class="fas fa-language"></i> Language Editing
+                </a>
+                <a href="{{ url_for('docx_pipeline') }}"
+                    class="nav-link {% if request.endpoint == 'docx_pipeline' %}active{% endif %}">
+                    <i class="fas fa-file-word"></i> Pre-Conventor
                 </a>
                 <a href="{{ url_for('doi_finder') }}"
                     class="nav-link {% if request.endpoint == 'doi_finder' %}active{% endif %}">
@@ -455,7 +464,11 @@
                 </a>
                 {% endif %}
 
-                {% if current_role in ['COPYEDIT', 'ADMIN'] %}
+                {% if current_role in ['COPYEDIT', 'COPYEDITPM', 'ADMIN'] %}
+                <a href="{{ url_for('ppd') }}"
+                    class="nav-link {% if request.endpoint == 'ppd' %}active{% endif %}">
+                    <i class="fas fa-magic"></i> Manuscript Analysis
+                </a>
                 <a href="{{ url_for('macro_processing') }}"
                     class="nav-link {% if request.endpoint == 'macro_processing' %}active{% endif %}">
                     <i class="fas fa-cogs"></i> Pre-Editing
@@ -464,26 +477,53 @@
                     class="nav-link {% if request.endpoint == 'validate_file' %}active{% endif %}">
                     <i class="fas fa-check-circle"></i> Reference Validate
                 </a>
+                {% if current_role == 'COPYEDITPM' or session.get('is_admin') %}
+                <a href="{{ url_for('manuscript.analysis_upload') }}"
+                    class="nav-link {% if request.endpoint == 'manuscript.analysis_upload' %}active{% endif %}">
+                    <i class="fas fa-chart-bar"></i> Editorial Stylesheets Prep
+                </a>
+                {% endif %}
+                {% if current_role in ['COPYEDITPM'] or session.get('is_admin') %}
+                <a href="{{ url_for('manuscript.technical_upload') }}"
+                    class="nav-link {% if request.endpoint == 'manuscript.technical_upload' %}active{% endif %}">
+                    <i class="fas fa-tools"></i> Technical Editing
+                </a>
+                {% endif %}
+                {% if current_role in ['COPYEDIT'] or session.get('is_admin') %}
                 <a href="{{ url_for('technical') }}"
                     class="nav-link {% if request.endpoint == 'technical' %}active{% endif %}">
-                    <i class="fas fa-tools"></i> Technical Editing
+                    <i class="fas fa-highlighter"></i> Technical Highlight
                 </a>
                 <a href="{{ url_for('language') }}"
                     class="nav-link {% if request.endpoint == 'language' %}active{% endif %}">
                     <i class="fas fa-language"></i> Language Editing
                 </a>
+                <a href="{{ url_for('docx_pipeline') }}"
+                    class="nav-link {% if request.endpoint == 'docx_pipeline' %}active{% endif %}">
+                    <i class="fas fa-file-word"></i> Pre-Conventor
+                </a>
                 <a href="{{ url_for('book_indexer_ui') }}"
                     class="nav-link {% if request.endpoint == 'book_indexer_ui' %}active{% endif %}">
                     <i class="fas fa-book-open"></i> Book Indexer
                 </a>
+                 {% endif %}
+                {% if current_role in ['COPYEDITPM'] or session.get('is_admin') %}
                 <a href="{{ url_for('bias_scan') }}"
                     class="nav-link {% if request.endpoint == 'bias_scan' %}active{% endif %}">
                     <i class="fas fa-search"></i> Bias Scanner
                 </a>
+                {% endif %}
+                {% if current_role in ['POST_PROD', 'ADMIN'] %}
+                <a href="{{ url_for('docx_pipeline') }}"
+                    class="nav-link {% if request.endpoint == 'docx_pipeline' %}active{% endif %}">
+                    <i class="fas fa-file-word"></i> Pre-Convertor
+                </a>
+                {% endif %}
                 <a href="{{ url_for('doi_finder') }}"
                     class="nav-link {% if request.endpoint == 'doi_finder' %}active{% endif %}">
                     <i class="fas fa-link"></i> DOI Validation
                 </a>
+                {% if current_role in ['COPYEDIT'] or session.get('is_admin') %}
                 <details class="nav-group" {% if request.endpoint and request.endpoint.startswith('alttext_') %}open{% endif %}>
                     <summary>
                         <i class="fas fa-image"></i> Alt Text Generator
@@ -507,6 +547,7 @@
                         </a>
                     </div>
                 </details>
+                {% endif %}
                 {% endif %}
 
                 <a href="{{ url_for('batch_queue_view') }}"

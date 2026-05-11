@@ -231,7 +231,11 @@
             <label style="font-size:13px;font-weight:600;color:#4361ee;display:block;margin-bottom:8px;">How are citations formatted in your document?</label>
             <div style="display:flex;flex-direction:column;gap:8px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
-                    <input type="radio" name="citation_format" value="styled" checked style="accent-color:#4361ee;">
+                    <input type="radio" name="citation_format" value="auto" checked style="accent-color:#4361ee;">
+                    <span>Auto-detect <span style="color:#6c757d;font-size:12px;">(recommended)</span></span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                    <input type="radio" name="citation_format" value="styled" style="accent-color:#4361ee;">
                     <span>Already styled with <code>cite_bib</code> character style (no changes needed)</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">

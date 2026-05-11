@@ -1,0 +1,533 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Document{% endblock %}
+
+{% block extra_css %}
+<style>
+    .upload-container {
+        background: rgba(255, 255, 255, 0.9);
+        padding: 40px;
+        border-radius: 16px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        animation: fadeIn 0.6s ease-out forwards;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .upload-container h2 {
+        color: var(--black);
+        font-size: 32px;
+        margin-bottom: 30px;
+        padding-bottom: 15px;
+        border-bottom: 3px solid;
+        border-image: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-4)) 1;
+    }
+
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: 12px;
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        transition: all 0.4s ease;
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+    }
+
+    .file-input {
+        display: none;
+    }
+
+    .file-list {
+        margin-top: 20px;
+        max-height: 350px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 10px;
+        padding: 10px 15px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .file-name {
+        font-weight: 600;
+        color: var(--black);
+    }
+
+    .progress-bar-container {
+        margin-top: 5px;
+        background: #eee;
+        border-radius: 5px;
+        height: 8px;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        background: linear-gradient(45deg, var(--rainbow-1), var(--rainbow-4));
+        width: 0%;
+        height: 100%;
+        transition: width 0.3s ease;
+    }
+
+    .file-status {
+        font-size: 13px;
+        margin-top: 5px;
+        color: var(--black);
+    }
+
+    .btn-upload {
+        padding: 14px 28px;
+        background: linear-gradient(45deg, var(--rainbow-2), var(--rainbow-4));
+        color: black;
+        font-weight: bold;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .btn-upload:hover {
+        transform: translateY(-2px);
+    }
+
+    .btn-clear {
+        background: rgba(239, 71, 111, 0.1);
+        border: 1px solid var(--danger);
+        color: var(--danger);
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .btn-clear:hover {
+        background: var(--danger);
+        color: white;
+    }
+
+    .upload-success {
+        background: rgba(6, 214, 160, 0.1);
+        border-left: 5px solid var(--success);
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
+    }
+
+    .btn-download {
+        background: linear-gradient(45deg, var(--rainbow-3), var(--rainbow-4));
+        color: black;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        margin-top: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="upload-container">
+    <h2>Upload Documents for Reference Validation</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-messages">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <div class="drop-zone" id="dropZone">
+        <i class="fas fa-cloud-upload-alt" style="font-size:3rem;color:var(--primary);"></i>
+        <h3>Drag & Drop or Browse Files</h3>
+        <p>Supported formats: .doc, .docx</p>
+        <button type="button" class="btn-upload" onclick="document.getElementById('fileInput').click()">Browse</button>
+        <input type="file" id="fileInput" name="files" class="file-input" accept=".doc,.docx" multiple>
+    </div>
+
+    <!-- Processing Pipeline Options -->
+    <div style="margin-top:20px;background:#f8f9fc;border:1px solid #e0e4f0;border-radius:12px;padding:18px;">
+        <div
+            style="font-size:13px;font-weight:700;color:#4361ee;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:14px;">
+            Processing Pipeline — select one or more steps (run in order)
+        </div>
+
+        <label
+            style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;"
+            id="lbl-numval">
+            <input type="checkbox" id="runValidationRequest" name="run_validation" checked
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 1 — Number Validation <span
+                        style="font-size:12px;color:#888;font-weight:400;">(AMA / Vancouver)</span></div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Checks in-text citation numbers match the
+                    numbered reference list. Highlights mismatches.</div>
+            </div>
+        </label>
+
+        <label
+            style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;"
+            id="lbl-nameyear">
+            <input type="checkbox" id="runNameYearValidationRequest" name="run_name_year_validation"
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 2 — Name &amp; Year Validation <span
+                        style="font-size:12px;color:#888;font-weight:400;">(APA / Chicago)</span></div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Validates author names, years, et al., suffixes
+                    (a/b/c), org abbreviations. Inserts Word comments for issues.</div>
+            </div>
+        </label>
+
+        <label
+            style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;padding:10px 12px;border-radius:8px;border:2px solid transparent;transition:border 0.2s;"
+            id="lbl-gemini">
+            <input type="checkbox" id="runGeminiRequest" name="run_gemini"
+                style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
+                onchange="updatePipelineSummary()">
+            <div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 3 — Structuring &amp; Conversion </div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Restructures and converts references between APA
+                    &harr; AMA formats.</div>
+            </div>
+        </label>
+
+        <!-- Target Style — only visible when Step 3 is checked -->
+        <div id="targetStyleRow"
+            style="display:none;margin:4px 0 12px 36px;padding:10px 14px;background:#eef2ff;border-radius:8px;">
+            <label style="font-size:13px;font-weight:600;color:#4361ee;display:block;margin-bottom:6px;">Target Style
+                (for Step 3):</label>
+            <select id="targetStyleSelect" class="form-select"
+                style="padding:8px;border-radius:8px;border:1px solid #b0bbff;width:100%;max-width:300px;font-size:13px;">
+                <option value="Auto" selected>Auto-detect (Structuring only)</option>
+                <option value="AMA">Convert APA &rarr; AMA</option>
+                <option value="APA">Convert AMA &rarr; APA</option>
+            </select>
+        </div>
+
+        <!-- Report Only -->
+        <div style="padding-top:12px;border-top:1px dashed #d0d7e8;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                <input type="checkbox" id="reportOnlyRequest" name="report_only"
+                    style="transform:scale(1.25);accent-color:#f4a261;flex-shrink:0;"
+                    onchange="updatePipelineSummary()">
+                <div>
+                    <div style="font-size:13px;font-weight:600;color:#555;">Report Only (no annotated .docx output)
+                    </div>
+                    <div style="font-size:12px;color:#888;">Only produce the log/report — do not save an annotated Word
+                        document.</div>
+                </div>
+            </label>
+        </div>
+
+        <!-- Live Summary -->
+        <div id="pipelineSummary"
+            style="display:none;margin-top:14px;padding:10px 14px;background:#fff;border:1px solid #c8d0ee;border-radius:8px;font-size:13px;color:#333;">
+            <strong style="color:#4361ee;">Will run:</strong> <span id="pipelineSteps"></span>
+        </div>
+    </div>
+
+    <div id="fileList" class="file-list"></div>
+
+    <div style="margin-top:20px;text-align:center;">
+        <button id="startUpload" class="btn-upload" style="display:none;">
+            <i class="fas fa-paper-plane"></i> Start Processing
+        </button>
+        <button class="btn-clear" id="clearAll" style="display:none;">Clear All</button>
+    </div>
+
+    <div id="uploadSuccess" class="upload-success" style="display:none;">
+        <h3>Validation Complete!</h3>
+        <p>Your files have been validated successfully.</p>
+        <div id="downloadLinks"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Pipeline summary updater (global so onchange= inline handlers can call it)
+    function updatePipelineSummary() {
+        const steps = [];
+        const numVal = document.getElementById('runValidationRequest');
+        const nyVal = document.getElementById('runNameYearValidationRequest');
+        const gemini = document.getElementById('runGeminiRequest');
+        const repOnly = document.getElementById('reportOnlyRequest');
+        const tsRow = document.getElementById('targetStyleRow');
+        const summary = document.getElementById('pipelineSummary');
+        const stepsEl = document.getElementById('pipelineSteps');
+
+        // Highlight selected labels
+        [['lbl-numval', numVal], ['lbl-nameyear', nyVal], ['lbl-gemini', gemini]].forEach(([id, cb]) => {
+            const lbl = document.getElementById(id);
+            if (lbl) lbl.style.border = (cb && cb.checked) ? '2px solid #4361ee' : '2px solid transparent';
+            if (lbl) lbl.style.background = (cb && cb.checked) ? '#eff3ff' : '';
+        });
+
+        if (numVal && numVal.checked) steps.push('① Number Validation');
+        if (nyVal && nyVal.checked) steps.push('② Name & Year Validation (APA)');
+        if (gemini && gemini.checked) steps.push('③ Structuring & Conversion');
+
+        // Show Target Style only when Step 3 is selected
+        if (tsRow) tsRow.style.display = (gemini && gemini.checked) ? 'block' : 'none';
+
+        if (steps.length === 0) {
+            if (summary) summary.style.display = 'none';
+        } else {
+            if (stepsEl) stepsEl.innerHTML = steps.join(' &rarr; ') + (repOnly && repOnly.checked ? ' &nbsp;[Report Only]' : '');
+            if (summary) summary.style.display = 'block';
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        updatePipelineSummary(); // initialise on load
+
+        const dropZone = document.getElementById("dropZone");
+        const fileInput = document.getElementById("fileInput");
+        const fileList = document.getElementById("fileList");
+        const startUpload = document.getElementById("startUpload");
+        const clearAll = document.getElementById("clearAll");
+        const uploadSuccess = document.getElementById("uploadSuccess");
+        const downloadLinks = document.getElementById("downloadLinks");
+
+        let selectedFiles = [];
+
+        // === Drag and drop ===
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('highlight'), false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('highlight'), false);
+        });
+
+        dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+        fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+        clearAll.addEventListener('click', () => resetFiles());
+        startUpload.addEventListener('click', uploadFiles);
+
+        function handleFiles(files) {
+            for (let f of files) {
+                const ext = f.name.split('.').pop().toLowerCase();
+                if (['doc', 'docx'].includes(ext)) {
+                    selectedFiles.push(f);
+                }
+            }
+            renderFileList();
+        }
+
+        function renderFileList() {
+            fileList.innerHTML = "";
+            if (selectedFiles.length === 0) {
+                startUpload.style.display = 'none';
+                clearAll.style.display = 'none';
+                return;
+            }
+
+            startUpload.style.display = 'inline-block';
+            clearAll.style.display = 'inline-block';
+
+            selectedFiles.forEach((file, idx) => {
+                const item = document.createElement("div");
+                item.className = "file-item";
+                item.innerHTML = `
+                <div class="file-name">${file.name}</div>
+                <div class="progress-bar-container"><div class="progress-bar" id="progress-${idx}"></div></div>
+                <div class="file-status" id="status-${idx}">Pending...</div>
+            `;
+                fileList.appendChild(item);
+            });
+        }
+
+        function resetFiles() {
+            selectedFiles = [];
+            fileList.innerHTML = "";
+            startUpload.style.display = 'none';
+            clearAll.style.display = 'none';
+            uploadSuccess.style.display = 'none';
+        }
+
+        function uploadFiles() {
+            uploadSuccess.style.display = 'none';
+            startUpload.disabled = true;
+            downloadLinks.innerHTML = "";
+
+            const formData = new FormData();
+            formData.append("csrf_token", "{{ csrf_token() }}");
+
+            const reportOnly = document.getElementById("reportOnlyRequest").checked;
+            if (reportOnly) {
+                formData.append("report_only", "true");
+            }
+
+            const runValidation = document.getElementById("runValidationRequest").checked;
+            if (runValidation) {
+                formData.append("run_validation", "true");
+            } else {
+                formData.append("run_validation", "false");
+            }
+
+            const runNameYearValidation = document.getElementById("runNameYearValidationRequest").checked;
+            if (runNameYearValidation) {
+                formData.append("run_name_year_validation", "true");
+            }
+
+
+            const runGemini = document.getElementById("runGeminiRequest") ? document.getElementById("runGeminiRequest").checked : false;
+            if (runGemini) {
+                formData.append("run_gemini", "true");
+            }
+
+            const targetStyle = document.getElementById("targetStyleSelect").value;
+            formData.append("target_style", targetStyle);
+
+            selectedFiles.forEach(file => {
+                formData.append("files", file);
+            });
+
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "{{ url_for('validate_file') }}", true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+            xhr.upload.onprogress = function (e) {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    selectedFiles.forEach((_, idx) => {
+                        const bar = document.getElementById(`progress-${idx}`);
+                        const status = document.getElementById(`status-${idx}`);
+                        if (bar) bar.style.width = percent + '%';
+                        if (status) status.textContent = `Uploading... ${percent}%`;
+                    });
+                }
+            };
+
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+
+                    if (data.success && data.job_id) {
+                        // Switch to Polling Mode
+                        selectedFiles.forEach((_, idx) => {
+                            const status = document.getElementById(`status-${idx}`);
+                            if (status) status.textContent = "Queued for processing...";
+                        });
+                        pollProgress(data.job_id);
+
+                    } else if (data.success && data.redirect) {
+                        setTimeout(() => {
+                            window.location.href = data.redirect;
+                        }, 500);
+                        return;
+                    } else {
+                        selectedFiles.forEach((_, idx) => {
+                            document.getElementById(`status-${idx}`).textContent = "❌ " + (data.message || "Failed");
+                        });
+                        startUpload.disabled = false;
+                    }
+                } else {
+                    selectedFiles.forEach((_, idx) => {
+                        document.getElementById(`status-${idx}`).textContent = "❌ Server error";
+                    });
+                    startUpload.disabled = false;
+                }
+            };
+
+            xhr.onerror = function () {
+                selectedFiles.forEach((_, idx) => {
+                    document.getElementById(`status-${idx}`).textContent = "❌ Network error";
+                });
+                startUpload.disabled = false;
+            };
+
+            xhr.send(formData);
+        }
+
+        function pollProgress(jobId) {
+            const timer = setInterval(() => {
+                fetch(`/progress/${jobId}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.status === 'Completed') {
+                            clearInterval(timer);
+                            selectedFiles.forEach((_, idx) => {
+                                const status = document.getElementById(`status-${idx}`);
+                                if (status) status.textContent = "✅ Processing Complete";
+
+                                // Fill bar
+                                const bar = document.getElementById(`progress-${idx}`);
+                                if (bar) bar.style.width = '100%';
+                            });
+                            showSuccess(d.download_token);
+                        } else if (d.status && d.status.startsWith('Failed')) {
+                            clearInterval(timer);
+                            selectedFiles.forEach((_, idx) => {
+                                document.getElementById(`status-${idx}`).textContent = "❌ " + d.status;
+                            });
+                            startUpload.disabled = false;
+                        } else {
+                            // Update Status
+                            if (d.status) {
+                                // If we have an index, update that specific file
+                                if (typeof d.current !== 'undefined') {
+                                    const statusEl = document.getElementById(`status-${d.current}`);
+                                    if (statusEl) statusEl.textContent = "⏳ " + d.status;
+
+                                    // Make previous files showing completed?
+                                    for (let i = 0; i < d.current; i++) {
+                                        const prevStatus = document.getElementById(`status-${i}`);
+                                        if (prevStatus && !prevStatus.textContent.includes("Completed")) {
+                                            prevStatus.textContent = "✅ Done";
+                                            document.getElementById(`progress-${i}`).style.width = '100%';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .catch(e => {
+                        console.error("Polling error", e);
+                    });
+            }, 1000);
+        }
+
+        function showSuccess(token) {
+            uploadSuccess.style.display = 'block';
+            downloadLinks.innerHTML = "";
+
+            const link = document.createElement("a");
+            link.href = `/download_zip/${token}`;
+            link.className = "btn-download";
+            link.innerHTML = `<i class="fas fa-download"></i> Download Reference_Process.zip`;
+            link.target = "_blank";
+            downloadLinks.appendChild(link);
+        }
+    });
+</script>
+{% endblock %}

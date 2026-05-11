@@ -15,6 +15,7 @@ import re
 import threading
 import time
 import functools
+import requests
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -57,6 +58,258 @@ def _acquire_api_slot() -> None:
                 return
             wait = _RL_WINDOW - (now - _rl_timestamps[0]) + 0.05
         time.sleep(wait)
+
+
+# ─────────────────────────────────────────────
+# CrossRef DOI LOOKUP
+# ─────────────────────────────────────────────
+
+def _lookup_doi_from_pubmed(
+    title: str,
+    authors: List[str] = None,
+    year: str = None,
+    journal: str = None,
+) -> Optional[str]:
+    """
+    Look up a DOI from PubMed API using article metadata.
+    Returns the DOI (without https://doi.org/ prefix) if found, else None.
+    
+    CRITICAL: Never fabricate DOIs. Only return DOIs from PubMed.
+    """
+    if not title or not title.strip():
+        return None
+    
+    try:
+        # Build PubMed search query
+        title_clean = re.sub(r'[^\w\s]', ' ', title.strip())  # Remove special chars
+        query_parts = [title_clean[:100]]  # First 100 chars of title
+        
+        if journal:
+            journal_clean = re.sub(r'[^\w\s]', ' ', journal.strip())
+            query_parts.append(f'"{journal_clean[:50]}"[Journal]')
+        
+        if year:
+            query_parts.append(f'{year.split()[0]}[PDAT]')
+        
+        query = " AND ".join(query_parts)
+        
+        # PubMed API endpoint
+        headers = {"User-Agent": "PPH-ReferenceConverter/1.0"}
+        
+        # Search for article
+        search_params = {
+            "db": "pubmed",
+            "term": query,
+            "rettype": "json",
+            "retmax": 1,
+        }
+        
+        search_response = requests.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+            params=search_params,
+            headers=headers,
+            timeout=5
+        )
+        
+        if search_response.status_code != 200:
+            logger.debug(f"  [PubMed] Search returned {search_response.status_code}")
+            return None
+        
+        search_data = search_response.json()
+        pmids = search_data.get("esearchresult", {}).get("idlist", [])
+        
+        if not pmids:
+            logger.debug(f"  [PubMed] No PMID found for: {title[:50]}")
+            return None
+        
+        pmid = pmids[0]
+        
+        # Fetch full article info
+        fetch_params = {
+            "db": "pubmed",
+            "id": pmid,
+            "rettype": "json",
+        }
+        
+        fetch_response = requests.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+            params=fetch_params,
+            headers=headers,
+            timeout=5
+        )
+        
+        if fetch_response.status_code != 200:
+            logger.debug(f"  [PubMed] Fetch returned {fetch_response.status_code}")
+            return None
+        
+        fetch_data = fetch_response.json()
+        articles = fetch_data.get("result", {}).get("uids", [])
+        
+        if not articles or articles[0] not in fetch_data.get("result", {}):
+            return None
+        
+        article = fetch_data["result"][articles[0]]
+        
+        # Try to find DOI in article
+        doi = None
+        
+        # Check uid_list
+        for uid_entry in article.get("uid_list", []):
+            if uid_entry.get("name") == "DOI":
+                doi = uid_entry.get("value")
+                break
+        
+        # Check article attributes
+        if not doi:
+            for attr in article.get("article_ids", []):
+                if attr.get("idtype") == "doi":
+                    doi = attr.get("value")
+                    break
+        
+        if doi:
+            logger.info(f"  [PubMed] Found DOI: {doi}")
+            return doi
+        else:
+            logger.debug(f"  [PubMed] PMID found ({pmid}) but no DOI available")
+            return None
+        
+    except requests.RequestException as e:
+        logger.debug(f"  [PubMed] Request failed: {e}")
+        return None
+    except (KeyError, IndexError) as e:
+        logger.debug(f"  [PubMed] Parsing error: {e}")
+        return None
+    except Exception as e:
+        logger.debug(f"  [PubMed] Unexpected error: {e}")
+        return None
+
+
+def _lookup_doi_from_crossref(
+    title: str,
+    authors: List[str] = None,
+    year: str = None,
+    journal: str = None,
+    volume: str = None,
+    issue: str = None,
+    fpage: str = None,
+) -> Optional[str]:
+    """
+    Look up a DOI from CrossRef API using article metadata.
+    Returns the DOI (without https://doi.org/ prefix) if found, else None.
+    
+    CRITICAL: Never fabricate DOIs. Only return DOIs from CrossRef.
+    """
+    if not title or not title.strip():
+        return None
+    
+    try:
+        # Build CrossRef query
+        query_parts = [title.strip()]
+        if authors and len(authors) > 0:
+            query_parts.append(authors[0].split("|")[0] if "|" in authors[0] else authors[0])
+        if journal:
+            query_parts.append(journal.strip())
+        if year:
+            query_parts.append(year.strip())
+        
+        query = " ".join(query_parts)
+        
+        # CrossRef API endpoint
+        headers = {"User-Agent": "PPH-ReferenceConverter/1.0"}
+        params = {
+            "query": query,
+            "rows": 1,
+            "select": "DOI,title,author,published-print,published-online"
+        }
+        
+        response = requests.get(
+            "https://api.crossref.org/works",
+            params=params,
+            headers=headers,
+            timeout=5
+        )
+        
+        if response.status_code != 200:
+            logger.debug(f"  [CrossRef] API returned {response.status_code}")
+            return None
+        
+        data = response.json()
+        if not data.get("message", {}).get("items"):
+            logger.debug(f"  [CrossRef] No matches found for: {query}")
+            return None
+        
+        # Get first result
+        item = data["message"]["items"][0]
+        doi = item.get("DOI")
+        
+        if not doi:
+            logger.debug(f"  [CrossRef] Match found but no DOI: {item.get('title')}")
+            return None
+        
+        # Verify title similarity (basic check)
+        matched_title = item.get("title", [""])[0] if isinstance(item.get("title"), list) else item.get("title", "")
+        if not matched_title:
+            return None
+        
+        # Simple title matching: check if key words match
+        source_words = set(re.findall(r'\w+', title.lower()))
+        matched_words = set(re.findall(r'\w+', matched_title.lower()))
+        
+        # If less than 50% of source words match, consider it a mismatch
+        if source_words and matched_words:
+            overlap = len(source_words & matched_words) / len(source_words)
+            if overlap < 0.5:
+                logger.debug(f"  [CrossRef] Title match too weak ({overlap:.1%})")
+                return None
+        
+        logger.info(f"  [CrossRef] Found DOI: {doi}")
+        return doi
+        
+    except requests.RequestException as e:
+        logger.debug(f"  [CrossRef] Request failed: {e}")
+        return None
+    except Exception as e:
+        logger.debug(f"  [CrossRef] Unexpected error: {e}")
+        return None
+
+
+def _validate_metadata_not_fabricated(metadata: Dict, raw_text: str) -> bool:
+    """
+    Validate that extracted metadata wasn't fabricated by the model.
+    Check for obvious red flags like:
+    - bib_surname is numeric or clearly wrong
+    - bib_fname is empty when authors exist in raw_text
+    - Author names completely absent from raw_text
+    
+    Returns True if metadata looks reasonable, False if likely fabricated.
+    """
+    # Check 1: bib_surname should not be purely numeric (like "6")
+    surname = (metadata.get("bib_surname") or "").strip()
+    if surname and surname.isdigit():
+        logger.warning(f"  [Validation] Fabricated metadata detected: bib_surname='{surname}' (numeric)")
+        return False
+    
+    # Check 2: If there's a surname, should contain reasonable names (letters)
+    if surname:
+        # Check if surname contains at least some letters
+        if not re.search(r'[a-zA-Z]', surname):
+            logger.warning(f"  [Validation] Fabricated metadata detected: bib_surname='{surname}' (no letters)")
+            return False
+    
+    # Check 3: For journals, bib_journal should not be a single letter like "S"
+    journal = (metadata.get("bib_journal") or "").strip()
+    if journal and len(journal) == 1 and journal.isalpha():
+        logger.warning(f"  [Validation] Fabricated metadata detected: bib_journal='{journal}' (single char)")
+        return False
+    
+    # Check 4: If source has multiple authors (et al.), metadata should reflect it
+    if " et al" in raw_text.lower() or "et al." in raw_text.lower():
+        surnames = [s.strip() for s in (surname or "").split("|") if s.strip()]
+        # Should have at least 3 authors before et al
+        if len(surnames) < 3:
+            logger.warning(f"  [Validation] Source has 'et al' but only {len(surnames)} surnames extracted")
+    
+    return True
 
 
 # ─────────────────────────────────────────────
@@ -203,10 +456,10 @@ FORMAT (no DOI, URL only): Surname FM. Title of article. Journal Abbrev. Year;Vo
 FORMAT (supplement issue): Surname FM. Title of article. Journal Abbrev. Year;Volume(Suppl N):fpage-lpage. doi:XXXXX
 FORMAT (letter/editorial): Surname FM. Title [letter/editorial/commentary]. Journal Abbrev. Year;Volume(Issue):fpage-lpage.
 RULES:
-- AUTHORS: Last name followed by space then initials with NO periods or spaces between initials
-  (e.g. Smith JA, Jones BC). Comma-space between authors.
+- AUTHORS: Last name followed by SPACE (never comma) then initials with NO periods or spaces between initials.
+  Format: "Smith JA" NOT "Smith, JA". Comma-space ONLY between author pairs: "Smith JA, Jones BC".
   Up to 6 authors list all; if 7 or more, list first 6 then ", et al." (WITH period after "al").
-  CRITICAL: Retain EVERY initial exactly as in the source. Never collapse "JA" to "J" or drop
+  CRITICAL: NO COMMA between surname and initials. CRITICAL: Retain EVERY initial exactly as in the source. Never collapse "JA" to "J" or drop
   any initial. bib_fname MUST be populated.
   CRITICAL: Do NOT remove study groups or steering committees (e.g., "International Steering Committee for...") attached to the author list. Treat them as part of the author group.
   No author → start with article title directly.
@@ -250,7 +503,7 @@ FORMAT (org author):      Organisation Name. Title of book. Publisher; Year.
 FORMAT (translated):      Surname FM. Title of book. Translator FM, trans. Publisher; Year.
 FORMAT (with volume):     Surname FM. Title of book. Vol N. Publisher; Year.
 RULES:
-- AUTHORS: Retain every initial. Same format rules as journal (no periods in initials).
+- AUTHORS: Retain every initial. Same format rules as journal (no periods in initials, NO COMMA between surname and initials).
   Up to 6 authors; 7+ → first 6 + ", et al."
   If no personal author and an organisation is the author, use organisation name directly.
 - BOOK TITLE: sentence case AND italicise. Sentence case = only first word, first word after
@@ -283,7 +536,7 @@ RULES:
   "edited by") are present AND no separate chapter author appears before the title.
   If both chapter author AND editor are present → classify as book_chapter instead.
   In metadata: bib_ed_surname / bib_ed_fname MUST be populated; bib_surname / bib_fname = null.
-- EDITOR NAMES: same initials format as author names (no periods between initials).
+- EDITOR NAMES: same initials format as author names (no periods between initials, NO COMMA between surname and initials).
 - BOOK TITLE: sentence case AND italicise.
 - EDITION: Include only if >1st edition. Format: "Xth ed." placed after title, before publisher.
 - PUBLISHER: Retain name; strip corporate suffixes; city not required.
@@ -302,7 +555,7 @@ RULES:
 - CRITICAL FIELD MAPPING:
   bib_chaptertitle = the title of the chapter. NEVER put the chapter title in bib_title.
   bib_book = the title of the book.
-- CHAPTER AUTHOR: comes first. Retain every initial. Same format as journal authors.
+- CHAPTER AUTHOR: comes first. Retain every initial. Same format as journal authors (NO COMMA between surname and initials).
   Up to 6 authors; 7+ → first 6 + ", et al."
 - CHAPTER TITLE: sentence case (same rules as article title). No italics. No quotation marks.
 - "In:" (capital I, colon, space) introduces the editor/book block.
@@ -320,41 +573,60 @@ RULES:
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
     ReferenceType.WEBSITE: """
-FORMAT (with author):    Author FM. Title of page. Website Name. Published Month Day, Year. Accessed Month Day, Year. URL
-FORMAT (updated):        Author FM. Title of page. Website Name. Updated Month Day, Year. Accessed Month Day, Year. URL
-FORMAT (no author):      Title of page. Website Name. Published Month Day, Year. Accessed Month Day, Year. URL
-FORMAT (no pub date):    Author FM. Title of page. Website Name. Accessed Month Day, Year. URL
+FORMAT (personal author):  Author FM. Title of page. Website Name. Published Month Day, Year. Accessed Month Day, Year. URL
+FORMAT (org author):       Organisation Name. Title of page. Website Name. Published Month Day, Year. Accessed Month Day, Year. URL
+FORMAT (updated):          Author FM. Title of page. Website Name. Updated Month Day, Year. Accessed Month Day, Year. URL
+FORMAT (no author):        Title of page. Website Name. Published Month Day, Year. Accessed Month Day, Year. URL
+FORMAT (no pub date):      Title of page. Website Name. Accessed Month Day, Year. URL
 RULES:
-- PAGE/DOCUMENT TITLE: sentence case (first word and proper nouns only). No italics.
-- WEBSITE NAME: title case. Retain as-is from source.
-- AUTHOR: If no personal author, start directly with the page title.
-- PUBLICATION DATE: Use "Published Month Day, Year" or "Updated Month Day, Year" as appropriate.
-  If the source specifies "Updated", use "Updated"; if "Published", use "Published".
-  If no publication date is available, omit the date line entirely.
+- PAGE/DOCUMENT TITLE: sentence case (first word and proper nouns only). No italics. No quotation marks.
+  Store ONLY in bib_title — NEVER duplicate in bib_journal.
+- WEBSITE NAME: title case. The domain or website name (e.g. "CDC", "Merriam-Webster", "NIH").
+  MUST be stored in bib_journal field. NOT the page title. Placed after the page title.
+  Example: If source is "Merriam-Webster.com - Professional" then:
+    bib_title = "Professional" (the page title)
+    bib_journal = "Merriam-Webster" (the website name)
+- AUTHOR — personal: Surname FM format. NO COMMA between surname and initials. Space only.
+  If no personal author, check for an organisation author.
+  ORGANIZATION AUTHOR: If a government agency, institution, or organisation authored the page (e.g.
+  "Centers for Disease Control and Prevention", "Committee on Accreditation..."), use the organisation
+  name in the author position before the title. Store in bib_surname with bib_fname = "". DO NOT omit it.
+  Example: "Centers for Disease Control and Prevention. Physical activity. CDC. Published 2022. Accessed..."
+  NO AUTHOR: If there is no personal author AND no organisation author, start directly with the page title.
+- PUBLICATION DATE: "Published Month Day, Year" or "Updated Month Day, Year" as appropriate.
+  Use "Updated" when source says updated/modified; use "Published" for initial publication.
+  If only a year is available: "Published Year." If no publication date, omit entirely.
 - ACCESS DATE: Always include "Accessed Month Day, Year." before the URL.
-- URL: on same line after access date. No period after URL.
+- URL: Full URL on same line after access date. No period after URL. NEVER omit the URL.
+- bib_url MUST contain the full URL extracted from "Available from:", "URL:", or any URL in the source.
+  Strip "Available from:" and "Retrieved from:" prefixes — store only the bare URL.
 - No DOI for websites.
 - Strip any non-breaking spaces (U+00A0) silently.
-- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+- COMPLETENESS: Output the FULL reference including the URL. Never truncate or omit any element.
 """,
     ReferenceType.EREFERENCE: """
-FORMAT (with editor, single):   Author FM. Entry title. In: Editor FM, ed. Reference Title. Publisher; Year. Accessed Month Day, Year. URL
-FORMAT (with editors, multiple): Author FM. Entry title. In: Editor FM, Editor FM, eds. Reference Title. Publisher; Year. Accessed Month Day, Year. URL
-FORMAT (no editor):              Author FM. Entry title. In: Reference Title. Publisher; Year. Accessed Month Day, Year. URL
-FORMAT (no year):                Author FM. Entry title. In: Editor FM, ed. Reference Title. Publisher. Accessed Month Day, Year. URL
+FORMAT (author, single editor):    Author FM. Entry title. In: Editor FM, ed. Reference Title. Publisher; Year. Accessed Month Day, Year. URL
+FORMAT (author, multiple editors): Author FM. Entry title. In: Editor FM, Editor FM, eds. Reference Title. Publisher; Year. Accessed Month Day, Year. URL
+FORMAT (author, no editor):        Author FM. Entry title. In: Reference Title. Publisher; Year. Accessed Month Day, Year. URL
+FORMAT (org author):               Organisation Name. Entry title. In: Reference Title. Publisher; Year. Accessed Month Day, Year. URL
+FORMAT (no year):                  Author FM. Entry title. In: Editor FM, ed. Reference Title. Publisher. Accessed Month Day, Year. URL
 RULES:
-- ENTRY TITLE: sentence case. No italics.
-- REFERENCE BOOK/DATABASE TITLE: title case, italicise if possible.
+- ENTRY TITLE: sentence case. No italics. No quotation marks. Store ONLY in bib_title — NEVER duplicate.
+- REFERENCE BOOK/DATABASE TITLE: title case. Store in bib_book. NOT in bib_journal.
+- AUTHOR: Always include the author in the author position before the entry title.
+  Personal author: Surname FM format (same as journal). NO COMMA between surname and initials.
+  ORGANIZATION AUTHOR: If an organisation, agency, or group authored the entry, store in bib_surname
+  with bib_fname = "". Place organisation name before the entry title. DO NOT omit it.
 - EDITOR LABEL: "ed." for single editor, "eds." for two or more editors.
   CRITICAL: Never use "ed." when there are multiple editors.
-  If no editor listed, omit editor block entirely.
-- PUBLISHER: Retain name; strip corporate suffixes.
-- YEAR: Include if available. If no year, omit the year entirely.
+  If no editor listed, omit the editor block entirely — go directly to Reference Title.
+- PUBLISHER: Retain name; strip corporate suffixes. Store in bib_publisher.
+- YEAR: Include after publisher with semicolon: "Publisher; Year." If no year, omit year entirely.
 - ACCESS DATE: Always include "Accessed Month Day, Year." before URL.
-- URL: No period after URL.
-- Platform/database name may be included as the Reference Title or after publisher.
+- URL: Full URL. No period after URL. NEVER omit the URL.
+  bib_url MUST contain the full URL. Strip "Available from:" and "Retrieved from:" prefixes.
 - Strip any non-breaking spaces (U+00A0) silently.
-- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+- COMPLETENESS: Output the FULL reference including the URL. Never truncate or omit any element.
 """,
     ReferenceType.CONFERENCE: """
 FORMAT (paper presentation):   Author FM. Title of paper. Paper presented at: Full Conference Name; Month Day–Day, Year; City, Country.
@@ -413,25 +685,34 @@ RULES:
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
     ReferenceType.REPORT: """
-FORMAT (with report number, DOI):  Author FM. Title of report. Institution Name; Year. Report No. XXXX. doi:XXXXX
-FORMAT (with report number, URL):  Author FM. Title of report. Institution Name; Year. Report No. XXXX. URL
-FORMAT (no report number):         Author FM. Title of report. Institution Name; Year. doi:XXXXX
-FORMAT (org author):               Organisation Name. Title of report. Institution Name; Year. Report No. XXXX.
-FORMAT (government):               Government Agency. Title of report. Publisher; Year.
-FORMAT (corporate):                Company Name. Title of report. Company/Publisher; Year.
-FORMAT (unpublished/internal):     Author FM. Title of report. Institution Name; Year. Unpublished.
+FORMAT (with report number, DOI):    Author FM. Title of report. Institution Name; Year. Report No. XXXX. doi:XXXXX
+FORMAT (with report number, URL):    Author FM. Title of report. Institution Name; Year. Report No. XXXX. URL
+FORMAT (internet, with access date): Author FM. Title of report. Institution Name; Year. Accessed Month Day, Year. URL
+FORMAT (no report number, DOI):      Author FM. Title of report. Institution Name; Year. doi:XXXXX
+FORMAT (no report number, URL only): Author FM. Title of report. Institution Name; Year. URL
+FORMAT (org author):                 Organisation Name. Title of report. Institution Name; Year.
+FORMAT (government, no URL):         Government Agency. Title of report. Publisher; Year.
+FORMAT (unpublished/internal):       Author FM. Title of report. Institution Name; Year. Unpublished.
 RULES:
-- TITLE: sentence case, italicise if possible.
-- AUTHORS: same format as journal. If organisation is the author, use organisation name directly.
-- INSTITUTION: replaces publisher. Retain full institution name.
+- TITLE: sentence case. No italics.
+- AUTHORS: same format as journal (Surname FM). NO COMMA between surname and initials — space only.
+  If organisation is the author, use organisation name directly in the author position (before the title).
+  Store in bib_surname with bib_fname = "".
+  CRITICAL: Do NOT replace the stated org author with personal authors from a related journal article.
+  The org author is determined solely by the source text.
+- INSTITUTION: replaces publisher. Retain full institution name. Do NOT strip meaningful words.
 - YEAR: placed after institution, preceded by semicolon: Institution; Year.
-- REPORT NUMBER: include if present. Format: "Report No. XXXX." placed after year.
-  If no report number, omit entirely.
-- DOI: prefix "doi:" after report number (or after year if no report number). No period after.
-- URL: include if no DOI. No period after URL.
+- REPORT NUMBER: include if present. Format: "Report No. XXXX." placed after year. Omit if absent.
+- ACCESS DATE (internet reports): If source has a cited/access date and a URL, include
+  "Accessed Month Day, Year." immediately before the URL. If no access date, omit it.
+- DOI: prefix "doi:". Place after year (or after report number if present). No period after.
+- URL: include if no DOI and source has a URL. No period after URL. NEVER omit the URL.
+  bib_url MUST contain the full URL extracted from "Available from:" or any URL in the source.
+  Strip "Available from:" and "Retrieved from:" prefixes — store only the bare URL.
+  bib_accessed MUST contain the access/cited date extracted from "[cited YYYY Month DD]" etc.
 - UNPUBLISHED/INTERNAL: append "Unpublished." after year if not publicly accessible.
 - Strip any non-breaking spaces (U+00A0) silently.
-- COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
+- COMPLETENESS: Output the FULL reference including the URL. Never truncate or omit any element.
 """,
     ReferenceType.PATENT: """
 FORMAT (issued patent):      Inventor FM. Title of invention. Country patent XXXXXXX. Issued Month Day, Year.
@@ -474,8 +755,7 @@ RULES:
 - AUTHORS: Surname, F. M. format. Initials each followed by a period and space (e.g. Smith, J. A.).
   Comma-space between authors. Use "&" before the last author (never "and").
   Up to 20 authors list all; if >20, list first 19, then "…", then last author.
-  CRITICAL ELLIPSIS RULE: If the source contains an ellipsis (… or ...) in the author list, DO NOT carry it forward blindly.
-  Only use "…" if the total number of authors is 21 or more. If the total number of authors is 20 or fewer, list ALL of them normally and use an ampersand "&" before the last author. NEVER use "…" for 20 or fewer authors.
+  CRITICAL ELLIPSIS RULE: If the source text ends with "et al." or "..." and provides only a partial list of authors, you MUST respect this truncation. When formatting, use the format `, et al.` (with a comma) before the final author element if the true author list is truncated. Do not invent authors or drop the truncation marker. Do not use an ellipsis for `et al.`.
   CRITICAL: Retain EVERY initial verbatim from source. Never collapse "JA" → "J" or drop any initial.
   CRITICAL: Every initial MUST have a period: "Smith, J. A., Jones, B. C."
   CRITICAL ORGANISATION RULE: Do NOT remove study groups or steering committees. If an organisation, study group, advisory team, or working group is mixed in with personal authors, MOVE it to the very end of the author list. When an organisation is the last author in the group, it must be preceded by "&" (e.g., "Smith, J. A., & Sense Advisory Team Working Group."). DO NOT add any extra authors or labels after the organisation.
@@ -1011,9 +1291,12 @@ You MUST prioritize this database content for updating missing elements, ensurin
 journal names (abbreviation/capitalisation), and correcting DOIs.
 CRITICAL AUTHOR RULE: DO NOT replace the original author list from the input reference
 with the database authors if the database authors are generic (e.g. "NA", "&NA;",
-"Anonymous"), heavily abbreviated, or missing. Always prioritise keeping the specific
-authors provided in the input string; only use the database authors to correct minor
-spelling mistakes.
+"Anonymous"), heavily abbreviated, or missing. HOWEVER, if the original input reference
+uses "et al." or "and others" AND the database provides the full author list, you MUST
+expand the author list using the database authors to properly format it according to
+the target style's rules (e.g. up to 20 authors for APA). Otherwise, prioritise keeping
+the specific authors provided in the input string and use the database authors only to
+correct minor spelling mistakes.
 CRITICAL TITLE RULE: DO NOT overwrite the article/chapter/book title from the input
 with the database title unless the input title is completely absent.
 {json.dumps(cr_item, indent=2)}
@@ -1054,6 +1337,7 @@ with the database title unless the input title is completely absent.
       bib_institution = court or legislative body; bib_year = year.
 - bib_surname / bib_fname: ALL authors in order, pipe-separated (|) if multiple.
   e.g. "Smith|Jones|Lee" / "John A|Mary B|Chris"
+  CRITICAL: For metadata, you MUST extract ALL authors present in the source text. If the source text ends with "et al." or "...", you MUST include "et al" as the final author in `bib_surname` (with a blank `bib_fname`). Never truncate the author list yourself.
   CRITICAL: bib_fname MUST be populated verbatim from source. Never delete, suppress, or collapse initials.
   If source has "JA", store "JA". If source has "J.A.", store "J.A.". If source has "John A", store "John A".
   Never truncate multiple initials into one (e.g. "JA" must stay "JA", never become "J").
@@ -1096,6 +1380,21 @@ with the database title unless the input title is completely absent.
 - COMPLETENESS: The formatted_output must be the FULL reference — never truncate, omit, abbreviate,
   or paraphrase any element.
   CRITICAL: Do NOT overwrite source titles with database titles unless source title is completely absent.
+
+## CRITICAL ANTI-FABRICATION RULES
+NEVER, under any circumstance, fabricate, hallucinate, or invent any metadata elements:
+- NEVER invent author names that do NOT appear in the source.
+  If the source says "et al.", list only the authors explicitly shown in the source text,
+  then add "et al" as the final author entry (bib_fname = "").
+- NEVER invent DOIs. If a DOI is not present in the source text, leave bib_doi = null.
+  Do NOT guess, look up, or fabricate a DOI. Only include DOIs explicitly provided in the source.
+- NEVER invent page numbers, volumes, issues, or journal names. If they are missing from the source, leave the field null.
+- NEVER change a reference type without explicit evidence in the source text.
+  If the source says "book", do not reclassify it as "report" or "website" just because it might have a URL.
+- NEVER use fields populated in the database block to replace the source if the source is clear
+  and unambiguous.  The database block is ONLY for filling null fields and fixing errors.
+- NEVER overwrite the explicit author list with a generic database author list (like "Anonymous" or "NA").
+- If you are unsure about a field, leave it null — this is better than fabricating data.
 
 ## {target_label} FORMATTING RULES BY REFERENCE TYPE
 {rules_block}
@@ -1394,8 +1693,58 @@ def convert_reference(
         meta.setdefault(field, None)
     parsed["metadata"] = meta
 
-    source_lbl, target_lbl = CONVERSION_MAP[key]
+    # Validate that metadata wasn't fabricated
+    if not _validate_metadata_not_fabricated(meta, raw_text):
+        logger.warning(f"  [WARNING] Metadata validation failed — possible fabrication detected")
+        # Don't reject outright, but log the concern
+    
+    # For journal references, try to look up DOI if missing
     ref_type = meta.get("bib_reftype", "unknown")
+    if ref_type == "journal" and not meta.get("bib_doi"):
+        logger.info(f"  [DOI Lookup] Attempting DOI lookup for journal reference...")
+        surnames = (meta.get("bib_surname") or "").split("|") if meta.get("bib_surname") else []
+        
+        doi = None
+        
+        # Try PubMed first (better for medical/biomedical literature)
+        logger.info(f"  [DOI Lookup] Trying PubMed...")
+        doi = _lookup_doi_from_pubmed(
+            title=meta.get("bib_title"),
+            authors=surnames,
+            year=meta.get("bib_year"),
+            journal=meta.get("bib_journal")
+        )
+        
+        # If PubMed failed, try CrossRef
+        if not doi:
+            logger.info(f"  [DOI Lookup] Trying CrossRef...")
+            doi = _lookup_doi_from_crossref(
+                title=meta.get("bib_title"),
+                authors=surnames,
+                year=meta.get("bib_year"),
+                journal=meta.get("bib_journal"),
+                volume=meta.get("bib_volume"),
+                issue=meta.get("bib_issue"),
+                fpage=meta.get("bib_fpage")
+            )
+        
+        if doi:
+            logger.info(f"  [DOI Lookup] Found DOI: {doi}")
+            meta["bib_doi"] = doi
+            # Rebuild formatted output with DOI
+            if ref_type == "journal":
+                # Re-inject DOI into formatted output if it's missing
+                if "doi:" not in parsed["formatted_output"].lower() and "https://doi.org" not in parsed["formatted_output"]:
+                    # Append DOI to end before any period
+                    fmt_out = parsed["formatted_output"].rstrip(". ")
+                    if fmt_out.endswith("."):
+                        fmt_out = fmt_out[:-1]
+                    parsed["formatted_output"] = f"{fmt_out}. doi:{doi}"
+                    logger.info(f"  [DOI Injection] Injected DOI into formatted output")
+        else:
+            logger.debug(f"  [DOI Lookup] No DOI found via PubMed or CrossRef")
+    
+    source_lbl, target_lbl = CONVERSION_MAP[key]
     logger.info(f"Converted [{ref_type}] {source_lbl} → {target_lbl}")
     if parsed.get("conversion_notes"):
         logger.warning(f"Conversion notes: {parsed['conversion_notes']}")

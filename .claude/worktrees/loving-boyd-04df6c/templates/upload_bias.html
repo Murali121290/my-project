@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block title %}Bias Scanner - S4Carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Consistent styling with technical_edit.html and macro_processing.html */
+    .content-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        transition: var(--transition);
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone:hover {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: var(--primary-dark);
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+        transform: scale(1.02);
+    }
+
+    .file-list {
+        margin-top: 1.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .file-icon {
+        color: var(--primary);
+        font-size: 1rem;
+    }
+
+    .remove-file {
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+
+    .remove-file:hover {
+        background: rgba(239, 71, 111, 0.1);
+    }
+
+    .download-section {
+        background: rgba(6, 214, 160, 0.1);
+        padding: 1.5rem;
+        border-radius: var(--border-radius);
+        border-left: 4px solid var(--success);
+        text-align: center;
+        margin: 1.5rem 0;
+        display: none;
+    }
+
+    .progress-section {
+        margin: 1.5rem 0;
+        display: none;
+    }
+
+    .progress {
+        height: 25px;
+        border-radius: var(--border-radius-sm);
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        transition: width 0.3s ease;
+    }
+    .page-header { margin-bottom: 24px; }
+    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+
+<div class="page-header">
+    <div class="page-title">Bias Scanner</div>
+    <div class="page-sub">Scan documents for bias terms and generate detailed reports</div>
+</div>
+
+<div class="content-card">
+
+    <!-- Drop Zone -->
+    <div class="form-group">
+        <label class="form-label">Upload Word Files</label>
+        <div id="dropZone" class="drop-zone">
+            <i class="fas fa-cloud-upload-alt" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+            <p>Drag & drop your Word files here or click to browse</p>
+            <p class="text-muted">Supports .doc and .docx files</p>
+            <input type="file" id="files" name="files" class="form-control" multiple accept=".doc,.docx"
+                style="display: none;">
+        </div>
+        <div id="fileList" class="file-list"></div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="d-flex gap-2 justify-between">
+        <button id="scanBtn" class="btn btn-primary px-4 py-2">
+            <i class="fas fa-search me-2"></i>Scan for Bias
+        </button>
+        <button type="button" id="resetBtn" class="btn btn-outline">
+            <i class="fas fa-trash me-2"></i>Clear All
+        </button>
+    </div>
+
+    <!-- Success Message Container -->
+    <div id="successMessageContainer" class="mt-3"></div>
+</div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // DOM Elements
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('files');
+    const fileList = document.getElementById('fileList');
+    const scanBtn = document.getElementById('scanBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    let files = [];
+
+    // Event Listeners
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropZone.classList.add('highlight');
+    });
+
+    ['dragleave', 'dragend'].forEach(type => {
+        dropZone.addEventListener(type, () => dropZone.classList.remove('highlight'));
+    });
+
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('highlight');
+        handleFiles(e.dataTransfer.files);
+    });
+
+    fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+    resetBtn.addEventListener('click', () => {
+        if (confirm('Clear all files?')) {
+            clearState();
+        }
+    });
+
+    scanBtn.addEventListener('click', runScan);
+
+    // Functions
+    function clearState() {
+        files = [];
+        updateFileList();
+    }
+
+    function handleFiles(newFiles) {
+        const validFiles = Array.from(newFiles).filter(f =>
+            f.name.toLowerCase().endsWith('.doc') || f.name.toLowerCase().endsWith('.docx')
+        );
+
+        if (validFiles.length < newFiles.length) {
+            showAlert('Only .doc and .docx files are supported', 'error');
+        }
+
+        if (validFiles.length > 0) {
+            files = [...files, ...validFiles];
+            updateFileList();
+        }
+    }
+
+    function updateFileList() {
+        fileList.innerHTML = '';
+
+        if (files.length === 0) {
+            fileList.innerHTML = '<p class="text-center text-muted">No files selected</p>';
+            return;
+        }
+
+        files.forEach((file, index) => {
+            const div = document.createElement('div');
+            div.className = 'file-item';
+            div.innerHTML = `
+                <div class="file-info">
+                    <i class="fas fa-file-word file-icon"></i>
+                    <div>
+                        <div>${file.name}</div>
+                        <div class="text-muted">${formatFileSize(file.size)}</div>
+                    </div>
+                </div>
+                <i class="fas fa-times remove-file" data-index="${index}"></i>`;
+            fileList.appendChild(div);
+        });
+
+        document.querySelectorAll('.remove-file').forEach(btn => {
+            btn.addEventListener('click', e => {
+                files.splice(e.target.dataset.index, 1);
+                updateFileList();
+            });
+        });
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+    }
+
+    async function runScan() {
+        if (files.length === 0) {
+            showAlert('Please select at least one Word file.', 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        for (const file of files) {
+            formData.append('files', file);
+        }
+
+        // Get CSRF token
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        const headers = {};
+        if (csrfToken) {
+            headers['X-CSRFToken'] = csrfToken;
+        }
+
+        try {
+            const res = await fetch("/bias-scan", {
+                method: "POST",
+                body: formData,
+                headers: headers
+            });
+            const data = await res.json();
+
+            if (!data.job_id) {
+                showAlert(data.error || "Failed to start processing", 'error');
+                return;
+            }
+
+            // Show success message with Job Queue link
+            showSuccessMessage(data.job_id);
+            clearState();
+
+        } catch (e) {
+            console.error("Submission error", e);
+            showAlert("An error occurred while uploading files.", 'error');
+        }
+    }
+
+    function showSuccessMessage(jobId) {
+        const msg = document.createElement('div');
+        msg.className = 'alert alert-success alert-dismissible fade show';
+        msg.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i>
+            <strong>Job submitted!</strong>
+            <a href="/batch-queue" class="alert-link">View in Job Queue →</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        const container = document.getElementById('successMessageContainer');
+        container.innerHTML = '';
+        container.appendChild(msg);
+        setTimeout(() => msg.remove(), 8000);
+    }
+
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type === 'error' ? 'danger' : 'success'} alert-dismissible fade show`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+
+        // Insert alert at top of card
+        const card = document.querySelector('.content-card');
+        card.insertBefore(alertDiv, card.firstChild);
+
+        setTimeout(() => {
+            if (alertDiv.parentNode) alertDiv.remove();
+        }, 5000);
+    }
+
+    updateFileList();
+</script>
+{% endblock %}

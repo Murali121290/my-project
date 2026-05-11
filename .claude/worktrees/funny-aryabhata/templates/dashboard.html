@@ -1,0 +1,509 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - S4carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2.5rem;
+    }
+
+    .stat-card {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: var(--border-radius-xl);
+        padding: 2rem;
+        text-align: center;
+        box-shadow: var(--shadow-lg);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        transition: var(--transition);
+    }
+
+    .stat-card:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--shadow-xl);
+    }
+
+    .stat-icon {
+        width: 60px;
+        height: 60px;
+        margin: 0 auto 1rem;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: white;
+    }
+
+    .stat-value {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .stat-label {
+        color: var(--gray-600);
+        font-weight: 500;
+    }
+
+    .quick-actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2.5rem;
+    }
+
+    .action-card {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: var(--border-radius-xl);
+        padding: 2rem;
+        text-align: center;
+        box-shadow: var(--shadow-lg);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        transition: var(--transition);
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .action-card:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--shadow-xl);
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .action-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .action-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: var(--gray-800);
+    }
+
+    .action-description {
+        color: var(--gray-600);
+        line-height: 1.5;
+    }
+
+    .recent-files {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: var(--border-radius-xl);
+        padding: 2rem;
+        box-shadow: var(--shadow-lg);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.25rem;
+        border-bottom: 1px solid var(--gray-200);
+        transition: var(--transition);
+    }
+
+    .file-item:last-child {
+        border-bottom: none;
+    }
+
+    .file-item:hover {
+        background: rgba(67, 97, 238, 0.05);
+        border-radius: var(--border-radius);
+    }
+
+    .file-info h4 {
+        color: var(--gray-800);
+        margin-bottom: 0.25rem;
+    }
+
+    .file-info p {
+        color: var(--gray-600);
+        font-size: 0.875rem;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--gray-600);
+    }
+
+    .empty-state i {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        color: var(--gray-400);
+    }
+
+    /* FIXED: Reduced margin for welcome message */
+    .welcome-message {
+        text-align: center;
+        margin-bottom: 1.5rem;
+        /* Reduced from 2.5rem */
+    }
+
+    .welcome-message h1 {
+        font-size: 2.5rem;
+        color: white;
+        margin-bottom: 0.5rem;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .admin-stats {
+        background: linear-gradient(135deg, var(--rainbow-1), var(--rainbow-3));
+        color: white;
+        border-radius: var(--border-radius-xl);
+        padding: 2rem;
+        margin-bottom: 2.5rem;
+        box-shadow: var(--shadow-lg);
+    }
+
+    .admin-stats h2 {
+        color: white;
+        margin-bottom: 1.5rem;
+        text-align: center;
+    }
+
+    .admin-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .admin-stat {
+        text-align: center;
+        padding: 1.5rem;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: var(--border-radius-lg);
+        backdrop-filter: blur(10px);
+    }
+
+    .admin-stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+
+    .admin-stat-label {
+        font-size: 0.875rem;
+        opacity: 0.9;
+    }
+
+    @media (max-width: 768px) {
+
+        .stats-grid,
+        .quick-actions {
+            grid-template-columns: 1fr;
+        }
+
+        .welcome-message h1 {
+            color: white;
+            font-size: 2rem;
+        }
+
+        .file-item {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .file-item .btn {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <!-- Welcome Message - FIXED: Reduced margin
+    <div class="welcome-message">
+        <h1>Welcome back, {{ session['username'] }}!</h1>
+        <p class="text-muted">Here's your activity overview and quick access to tools</p>
+    </div>-->
+
+    <!-- Admin Statistics (only shown to admins)
+    {% if admin_stats %}
+    <div class="admin-stats">
+        <h2><i class="fas fa-chart-line"></i> System Overview</h2>
+        <div class="admin-stats-grid">
+            <div class="admin-stat">
+                <div class="admin-stat-value">{{ admin_stats.total_users if admin_stats.total_users else 0 }}</div>
+                <div class="admin-stat-label">Total Users</div>
+            </div>
+            <div class="admin-stat">
+                <div class="admin-stat-value">{{ admin_stats.total_files if admin_stats.total_files else 0 }}</div>
+                <div class="admin-stat-label">Total Files</div>
+            </div>
+            <div class="admin-stat">
+                <div class="admin-stat-value">{{ admin_stats.total_validations if admin_stats.total_validations else 0 }}</div>
+                <div class="admin-stat-label">Total Validations</div>
+            </div>
+            <div class="admin-stat">
+                <div class="admin-stat-value">{{ admin_stats.total_macro if admin_stats.total_macro else 0 }}</div>
+                <div class="admin-stat-label">Macro Processes</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}-->
+
+    <!-- Quick Actions 
+    <h2 class="card-title mb-3">Quick Actions</h2>-->
+    <div class="quick-actions">
+        <!-- Pre-Editing / Macro Processing (COPYEDIT, PPD, PM, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('macro_processing') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-cogs"></i>
+            </div>
+            <h3 class="action-title">Pre-Editing</h3>
+            <p class="action-description">Process documents with specialized Preediting Rules</p>
+        </a>
+        {% endif %}
+
+        <!-- Validation: available to all -->
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('validate_file') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <h3 class="action-title">References Validation</h3>
+            <p class="action-description">Check reference consistency and citations in your documents</p>
+        </a>
+        {% endif %}
+
+
+        <!-- Technical Editing (COPYEDIT, PM, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('technical') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-tools"></i>
+            </div>
+            <h3 class="action-title">Technical Editing</h3>
+            <p class="action-description">Process documents with Technical Rules and guidelines</p>
+        </a>
+        {% endif %}
+
+        <!-- Language Editing (COPYEDIT, PM, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('language') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-language"></i>
+            </div>
+            <h3 class="action-title">Language Editing</h3>
+            <p class="action-description">Process documents with Language Rules and improvements</p>
+        </a>
+        {% endif %}
+
+        <!-- PPD Processing (PPD, PM, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['PPD', 'PM', 'PERMISSIONS','ADMIN'] %}
+        <a href="{{ url_for('ppd') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-magic"></i>
+            </div>
+            <h3 class="action-title">Manuscript Analytics</h3>
+            <p class="action-description">Run Manuscript analytics Tool for getting manuscript analysis report</p>
+        </a>
+        {% endif %}
+
+        <!-- Credit Extractor (PERMISSIONS, PM, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['ADMIN'] %}
+        <a href="{{ url_for('credit_extractor') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-file-contract"></i>
+            </div>
+            <h3 class="action-title">Credit Extractor</h3>
+            <p class="action-description">Extract captions and credit lines for permission logs</p>
+        </a>
+        {% endif %}
+
+        <!-- Word to XML (PM, PPD, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['ADMIN'] %}
+        <a href="{{ url_for('word_to_xml') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-file-code"></i>
+            </div>
+            <h3 class="action-title">Word to XML</h3>
+            <p class="action-description">Convert Word documents to XML format</p>
+        </a>
+        {% endif %}
+
+        <!-- Bias Scanner (COPYEDIT, ADMIN) -->
+        {% if session.get('is_admin') or current_role in ['COPYEDIT', 'ADMIN'] %}
+        <a href="{{ url_for('bias_scan') }}" class="action-card">
+            <div class="action-icon">
+                <i class="fas fa-search"></i>
+            </div>
+            <h3 class="action-title">Bias Scanner</h3>
+            <p class="action-description">Scan documents for bias terms and generate reports</p>
+        </a>
+        {% endif %}
+    </div>
+
+
+
+    <!-- Recent Files -->
+    <div class="recent-files">
+        <div class="d-flex justify-between align-center mb-3">
+            <h2 class="card-title">Recent Files</h2>
+            <a href="{{ url_for('file_history') }}" class="btn btn-outline">
+                <i class="fas fa-history"></i> View All History
+            </a>
+        </div>
+
+        {% if recent_files %}
+        <div class="file-list">
+            {% for file in recent_files %}
+            <div class="file-item">
+                <div class="file-info">
+                    <h4>{{ file.original_filename }}</h4>
+                    <p class="text-muted">Uploaded on {{ file.upload_date if file.upload_date else 'N/A' }}</p>
+                </div>
+                {% if file.report_filename %}
+                <a href="{{ url_for('download_report', filename=file.report_filename) }}" class="btn btn-primary">
+                    <i class="fas fa-download"></i> Download Report
+                </a>
+                {% else %}
+                <span class="text-muted">No report available</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="fas fa-folder-open"></i>
+            <h3>No files processed yet</h3>
+            <p>Upload your first document to get started with validation and processing</p>
+            <a href="{{ url_for('validate_file') }}" class="btn btn-primary mt-2">
+                <i class="fas fa-upload"></i> Upload First File
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Recent Macro Processes -->
+    {% if recent_macro %}
+    <div class="recent-files mt-4">
+        <div class="d-flex justify-between align-center mb-3">
+            <h2 class="card-title">Recent Processed Files</h2>
+            <a href="{{ url_for('file_history') }}" class="btn btn-outline">
+                <i class="fas fa-history"></i> View All History
+            </a>
+        </div>
+
+        <div class="file-list">
+            {% for macro in recent_macro %}
+            <div class="file-item">
+                <div class="file-info">
+                    <h4>
+                        {% if macro.original_filenames %}
+                        {{ macro.original_filenames }}
+                        {% else %}
+                        Macro Process
+                        {% endif %}
+                    </h4>
+                    <p class="text-muted">
+                        Processed on {{ macro.processing_date if macro.processing_date else 'N/A' }}
+                        {% if macro.selected_tasks and macro_names %}
+                        -
+                        {% set tasks = macro.selected_tasks|from_json if macro.selected_tasks is string else
+                        macro.selected_tasks %}
+                        {% for task_index in tasks %}
+                        {{ macro_names[task_index|int] }}{% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                        {% endif %}
+                    </p>
+                </div>
+                {% if macro.token %}
+                <!--<a href="{{ url_for('macro_download', token=macro.token) }}" class="btn btn-primary">
+                    <i class="fas fa-download"></i> Download Files
+                </a>-->
+                {% else %}
+                <span class="text-muted">No files available</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Animate stat cards on scroll
+        const statCards = document.querySelectorAll('.stat-card');
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, { threshold: 0.1 });
+
+        statCards.forEach(card => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'all 0.6s ease';
+            observer.observe(card);
+        });
+
+        // Add click tracking for action cards
+        const actionCards = document.querySelectorAll('.action-card');
+        actionCards.forEach(card => {
+            card.addEventListener('click', function () {
+                const action = this.querySelector('.action-title').textContent;
+                console.log('User clicked on:', action);
+                // You could add analytics tracking here
+            });
+        });
+
+        // Check for new notifications
+        checkNotifications();
+    });
+
+    function checkNotifications() {
+        // Simulate checking for notifications
+        setTimeout(() => {
+            const hasNewNotifications = Math.random() > 0.7;
+            if (hasNewNotifications) {
+                showAlert('You have new processing results available!', 'info');
+            }
+        }, 3000);
+    }
+
+    function showAlert(message, type) {
+        // Use the common.js alert system
+        if (typeof window.showAlert === 'function') {
+            window.showAlert(message, type);
+        } else {
+            // Fallback
+            alert(message);
+        }
+    }
+</script>
+{% endblock %}

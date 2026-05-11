@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Consistency Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.tailwindcss.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.7/js/dataTables.tailwindcss.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: {
+              blue: '#00408E',
+              blueLight: '#2563EB',
+              blueSoft: '#E6F0FA',
+              orange: '#C55A00',
+              orangeLight: '#F59E0B'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
+    mark.hl { background: #fef08a; padding: 0 4px; border-radius: 4px; font-weight: 500; color: #854d0e; }
+    .tab-active { border-bottom: 2px solid #2563eb; color: #1d4ed8; font-weight: 600; }
+    .sev-error { background: #fee2e2; color: #991b1b; }
+    .sev-warn { background: #fef3c7; color: #92400e; }
+    .sev-info { background: #dbeafe; color: #1e40af; }
+    table.dataTable thead th { font-weight: 600; color: #475569; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding-bottom: 0.75rem; border-bottom: 2px solid #e2e8f0; }
+    table.dataTable tbody td { padding-top: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid #f1f5f9; }
+    .metric-card { border-top: 4px solid transparent; transition: all 0.2s ease; }
+    #card-findings { border-top-color: #00408E; }
+    #card-inconsistencies { border-top-color: #C55A00; }
+    #card-bias { border-top-color: #EF4444; }
+    #card-spelling { border-top-color: #2563EB; }
+    .metric-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); }
+    div.dt-buttons .dt-button { background: #ffffff !important; border: 1px solid #e2e8f0 !important; color: #475569 !important; font-size: 13px !important; padding: 6px 14px !important; border-radius: 8px !important; margin-right: 6px !important; font-weight: 500 !important; transition: all 0.2s !important; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important; }
+    div.dt-buttons .dt-button:hover { background: #f8fafc !important; border-color: #2563eb !important; color: #1d4ed8 !important; }
+    .ia-group-header { cursor: pointer; user-select: none; }
+    .ia-group-header .chevron { display: inline-block; transition: transform 0.15s; margin-right: 6px; font-style: normal; }
+    .ia-group-header.ia-collapsed .chevron { transform: rotate(-90deg); }
+    .metric-card { cursor: pointer; }
+    .metric-card:hover { border-color: #3b82f6 !important; transform: translateY(-1px); }
+    .ch-chip { display: inline-flex; align-items: center; padding: 3px 12px; border-radius: 9999px; font-size: 12px; font-weight: 500; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .ch-chip.active { background: #1d4ed8; color: white; border-color: #1d4ed8; }
+    .ch-chip:hover:not(.active) { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
+    td.ia-col-hl, th.ia-col-hl { background: rgba(6, 95, 70, 0.07) !important; }
+  </style>
+</head>
+<body class="text-slate-800">
+
+  <div class="max-w-[90rem] mx-auto px-6 py-8">
+    <!-- Header -->
+    <div class="mb-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="flex-shrink-0 bg-blue-100 p-2 rounded-lg text-blue-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+          </svg>
+        </div>
+        <div>
+          <div class="text-xs font-semibold text-blue-600 uppercase tracking-wider">Consistency Dashboard</div>
+          <div class="font-bold text-slate-900 text-lg leading-tight">
+            {{ data.meta.chapter_count }} chapter{% if data.meta.chapter_count != 1 %}s{% endif %}
+            <span class="text-slate-300 mx-1">|</span> <span class="font-medium text-slate-600">{{ "{:,}".format(data.meta.total_words) }} words</span>
+          </div>
+        </div>
+      </div>
+      <div class="inline-flex items-center px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium">
+        <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+        </svg>
+        Snapshot · {{ job_id }}
+      </div>
+    </div>
+
+    <!-- Metric cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div id="card-findings" class="metric-card bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-slate-50 rounded-full opacity-50"></div>
+        <div class="text-sm font-medium text-slate-500 mb-1">Total findings</div>
+        <div class="text-3xl font-bold text-slate-900">{{ "{:,}".format(data.meta.total_findings) }}</div>
+      </div>
+      <div id="card-inconsistencies" class="metric-card bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-amber-50 rounded-full opacity-50"></div>
+        <div class="text-sm font-medium text-slate-500 mb-1">Inconsistencies</div>
+        <div class="text-3xl font-bold text-amber-600">{{ data.meta.total_inconsistencies }}</div>
+      </div>
+      <div id="card-bias" class="metric-card bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-rose-50 rounded-full opacity-50"></div>
+        <div class="text-sm font-medium text-slate-500 mb-1">Bias terms</div>
+        <div class="text-3xl font-bold text-rose-600">{{ data.category_totals.get('bias', 0) }}</div>
+      </div>
+      <div id="card-spelling" class="metric-card bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden">
+        <div class="absolute -right-4 -top-4 w-16 h-16 bg-blue-50 rounded-full opacity-50"></div>
+        <div class="text-sm font-medium text-slate-500 mb-1">US / UK mix</div>
+        <div class="text-2xl font-bold text-slate-900 mt-1 flex items-baseline">
+          US {{ data.spelling_summary.us_percent }}%
+          <span class="text-sm font-medium text-slate-400 ml-2">· UK {{ data.spelling_summary.uk_percent }}%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chapter stats -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+        <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Per-chapter overview</h2>
+      </div>
+      <div class="overflow-x-auto p-4">
+        <table class="text-sm w-full">
+          <thead>
+            <tr class="text-slate-500">
+              <th class="text-left py-3 px-4 font-semibold">#</th>
+              <th class="text-left py-3 px-4 font-semibold">Chapter</th>
+              <th class="text-right py-3 px-4 font-semibold">Words</th>
+              <th class="text-right py-3 px-4 font-semibold">Findings</th>
+              <th class="text-right py-3 px-4 font-semibold">Excluded paras</th>
+              <th class="text-right py-3 px-4 font-semibold">US / UK</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ch in data.chapters %}
+            {% set sp = data.spelling_profile.get(ch.index|string, {'US': 0, 'UK': 0, 'total': 0}) %}
+            <tr class="hover:bg-slate-50/80 transition-colors">
+              <td class="py-3 px-4 text-slate-400 font-medium">{{ ch.index }}</td>
+              <td class="py-3 px-4 font-semibold text-slate-800">{{ ch.name }}</td>
+              <td class="py-3 px-4 text-right text-slate-600">{{ "{:,}".format(ch.word_count) }}</td>
+              <td class="py-3 px-4 text-right"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">{{ ch.finding_count }}</span></td>
+              <td class="py-3 px-4 text-right text-slate-400">{{ ch.excluded_paragraphs }}</td>
+              <td class="py-3 px-4 text-right">
+                <span class="text-blue-600 font-medium">{{ sp.US }}</span>
+                <span class="text-slate-300 mx-1">/</span>
+                <span class="text-indigo-600 font-medium">{{ sp.UK }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- IA charts -->
+    {% set ia = data.ia_report %}
+    {% if ia and ia.rows %}
+    {% set ch_indices = ia.chapter_indices %}
+    {% set ch_names = ia.chapter_names %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Findings by element group</h2>
+        <canvas id="chartByElement" height="220"></canvas>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4">Findings by chapter</h2>
+        <canvas id="chartByChapter" height="220"></canvas>
+      </div>
+    </div>
+
+    <!-- IA Pattern Report -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">IA Pattern Report</h2>
+        </div>
+        <button id="toggle-all" class="text-sm px-3 py-1.5 bg-[#FFF4E5] text-[#92400E] hover:bg-[#FDE68A] rounded-lg transition">Collapse All</button>
+      </div>
+      <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
+        <table class="text-sm w-full" id="ia-table">
+          <thead class="sticky top-0 z-10">
+            <tr class="bg-gradient-to-r from-[#00408E] to-[#2563EB] text-white text-xs uppercase tracking-wide">
+              <th class="py-3 px-4 text-center w-10"></th>
+              <th class="py-3 px-4 text-left font-semibold">Terms/Rules/Patterns</th>
+              <th class="py-3 px-4 text-left font-semibold w-24">Type</th>
+              {% for ci in ch_indices %}
+              <th class="py-3 px-3 text-center font-semibold w-24 truncate">{{ ch_names.get(ci|string, "Ch%02d"|format(ci)) }}</th>
+              {% endfor %}
+              <th class="py-3 px-3 text-center font-semibold w-14">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set ns = namespace(last_el="") %}
+            {% for row in ia.rows %}
+            {% set has_data = row.total > 0 %}
+            {% if row.element != ns.last_el %}
+            {% set ns.last_el = row.element %}
+            {% set me_elements = ("Article usage", "Wrong usage / Typos", "Bias terms", "British spellings", "American spellings") %}
+            {% set is_me = row.element in me_elements %}
+            <tr class="ia-group-header bg-[#E0F2FE] text-[#0369A1]" data-element="{{ row.element }}">
+              <td colspan="{{ 5 + (ch_indices|length) + 1 }}" class="py-2 px-4 text-xs font-bold uppercase tracking-wider">
+                <span class="chevron">▼</span>{{ row.element }}
+                {% if is_me %}<span class="ml-2 inline-block bg-green-600 text-white px-2 py-0.5 rounded text-xs font-semibold">ME</span>{% endif %}
+              </td>
+            </tr>
+            {% endif %}
+            <tr class="ia-row {% if not has_data %}ia-zero hidden{% endif %} bg-white border-b border-slate-100 transition-colors" data-element="{{ row.element }}">
+              <td class="py-2 px-4 text-center"></td>
+              <td class="py-2 px-4 {% if has_data %}font-medium text-slate-800{% else %}text-slate-400{% endif %}">{{ row.pattern }}{% if row.example %}<p>Eg. {{ row.example }}</p>{% endif %}</td>
+              <td class="py-2 px-4 text-slate-500 text-xs">{{ row.type or "" }}</td>
+              {% for ci in ch_indices %}
+              {% set cnt = row.by_chapter.get(ci|string, 0) %}
+              <td class="py-2 px-3 text-center {% if cnt > 0 %}font-bold text-slate-700{% else %}text-slate-300{% endif %}">{{ cnt if cnt > 0 else "" }}</td>
+              {% endfor %}
+              <td class="py-2 px-3 text-center {% if has_data %}font-bold text-slate-700{% else %}text-slate-300{% endif %}">{{ row.total if has_data else "" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <script id="ia-data" type="application/json">{"rows": {{ ia.rows | tojson }}, "chIndices": {{ ch_indices | tojson }}, "chNames": {{ ch_names | tojson }}}</script>
+    {% endif %}
+
+    <!-- Tabs -->
+    <div class="border-b border-slate-200 flex flex-wrap gap-6 mb-6 text-sm px-2">
+      <button data-tab="inconsistencies" class="tab-btn pb-3 flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors">
+        Inconsistencies <span class="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs font-medium">{{ data.inconsistencies|length }}</span>
+      </button>
+      <button data-tab="te" class="tab-btn pb-3 flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors">
+        TE points <span class="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs font-medium">{{ data.category_totals.get('te_point', 0) }}</span>
+      </button>
+      <button data-tab="compound" class="tab-btn pb-3 flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors">
+        Compounds <span class="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs font-medium">{{ data.category_totals.get('compound', 0) }}</span>
+      </button>
+      <button data-tab="spelling" class="tab-btn pb-3 flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors">
+        US / UK <span class="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs font-medium">{{ data.category_totals.get('spelling', 0) }}</span>
+      </button>
+      <button data-tab="bias" class="tab-btn pb-3 flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors">
+        Bias <span class="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs font-medium">{{ data.category_totals.get('bias', 0) }}</span>
+      </button>
+      <button data-tab="article" class="tab-btn pb-3 flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors">
+        Articles <span class="bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full text-xs font-medium">{{ data.category_totals.get('article', 0) }}</span>
+      </button>
+    </div>
+
+    <!-- Inconsistencies panel -->
+    <div class="tab-panel hidden" id="panel-inconsistencies">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        {% if data.inconsistencies %}
+        <table id="inconsistency-table" class="text-sm w-full">
+          <thead>
+            <tr>
+              <th>Term / rule</th>
+              <th>Variants found</th>
+              <th class="text-right">Total Count</th>
+              <th>Chapters</th>
+              <th>Category</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in data.inconsistencies %}
+            <tr>
+              <td class="font-semibold text-slate-800">{{ item.rule_label }}</td>
+              <td><div class="flex flex-wrap gap-2">{% for v in item.variants %}<span class="inline-flex items-center bg-slate-100 border border-slate-200 rounded-md px-2 py-1"><code class="text-slate-700 text-xs font-mono">{{ v.form }}</code></span>{% endfor %}</div></td>
+              <td class="text-right font-medium text-slate-700">{{ item.total_count }}</td>
+              <td class="text-slate-500 text-xs">{{ item.chapters|join(', ') }}</td>
+              <td><span class="text-xs">{{ item.category }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Category panels -->
+    {% macro category_panel(panel_id, category) %}
+    <div class="tab-panel hidden" id="panel-{{ panel_id }}">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <table id="table-{{ panel_id }}" class="text-sm w-full display">
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Surface form</th>
+              <th>Chapter</th>
+              <th>Source</th>
+              <th>Page</th>
+              <th>Context</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in data.findings if f.category == category %}
+            <tr>
+              <td class="text-xs font-medium">{{ f.rule_label }}</td>
+              <td><code class="bg-slate-100 text-slate-800 px-2 py-1 rounded text-xs font-mono">{{ f.surface }}</code></td>
+              <td class="font-medium">{{ f.chapter_name }}</td>
+              <td class="text-xs text-slate-500">{{ f.source }}</td>
+              <td>{{ f.page }}</td>
+              <td class="text-xs leading-relaxed">{{ f.context|e|replace('⟪', '<mark class="hl">'|safe)|replace('⟫', '</mark>'|safe) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endmacro %}
+
+    {{ category_panel('te', 'te_point') }}
+    {{ category_panel('compound', 'compound') }}
+    {{ category_panel('spelling', 'spelling') }}
+    {{ category_panel('bias', 'bias') }}
+    {{ category_panel('article', 'article') }}
+  </div>
+
+  <script type="application/json" id="findings-data">{{ data.findings|tojson }}</script>
+  <script>
+    const findings = JSON.parse(document.getElementById('findings-data').textContent);
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabPanels = document.querySelectorAll('.tab-panel');
+    tabButtons.forEach(btn => btn.addEventListener('click', () => {
+      const id = btn.dataset.tab;
+      tabButtons.forEach(b => { b.classList.remove('tab-active'); });
+      btn.classList.add('tab-active');
+      tabPanels.forEach(p => p.classList.add('hidden'));
+      document.getElementById('panel-' + id).classList.remove('hidden');
+    }));
+
+    const headers = document.querySelectorAll('.ia-group-header');
+    headers.forEach(header => {
+      header.addEventListener('click', () => {
+        const el = header.dataset.element;
+        const groupRows = document.querySelectorAll(`.ia-row[data-element="${el}"]`);
+        header.classList.toggle('ia-collapsed');
+        groupRows.forEach(r => { r.classList.toggle('hidden'); });
+      });
+    });
+
+    const toggleAllBtn = document.getElementById('toggle-all');
+    if (toggleAllBtn) {
+      toggleAllBtn.onclick = function () {
+        const headers = document.querySelectorAll('.ia-group-header');
+        const isCollapse = this.textContent === "Collapse All";
+        headers.forEach(header => {
+          header.classList.toggle('ia-collapsed', isCollapse);
+          const el = header.dataset.element;
+          const rows = document.querySelectorAll(`.ia-row[data-element="${el}"]`);
+          rows.forEach(r => { r.classList.toggle('hidden', isCollapse); });
+        });
+        this.textContent = isCollapse ? "Expand All" : "Collapse All";
+      };
+    }
+
+    $(function () {
+      const buttonConfig = [
+        { extend: 'copyHtml5', text: 'Copy', exportOptions: { columns: ':visible' } },
+        { extend: 'csvHtml5', text: 'CSV', exportOptions: { columns: ':visible' } },
+        { extend: 'excelHtml5', text: 'Excel', exportOptions: { columns: ':visible' } },
+        { extend: 'print', text: 'Print', exportOptions: { columns: ':visible' } }
+      ];
+      $('#inconsistency-table').DataTable({
+        pageLength: 25,
+        order: [[2, 'desc']],
+        dom: '<"flex justify-between items-center mb-4"Blf>rt<"flex justify-between items-center mt-4 text-sm"ip>',
+        buttons: buttonConfig
+      });
+      const catLabels = { te: 'te_points', compound: 'compounds', spelling: 'us_uk_spelling', bias: 'bias_terms', article: 'article_errors' };
+      Object.keys(catLabels).forEach(cat => {
+        const sel = '#table-' + cat;
+        if ($(sel + ' tbody tr').length) {
+          $(sel).DataTable({ pageLength: 25, order: [[2, 'asc']], dom: '<"flex justify-between items-center mb-4"Blf>rt<"flex justify-between items-center mt-4 text-sm"ip>', buttons: buttonConfig });
+        }
+      });
+    });
+  </script>
+
+  {% if ia and ia.rows %}
+  <script>
+    (function () {
+      try {
+        const _ia = JSON.parse(document.getElementById('ia-data').textContent);
+        const iaRows = _ia.rows;
+        const chIndices = _ia.chIndices;
+        const chNames = _ia.chNames;
+        const elTotals = {};
+        for (const r of iaRows) { elTotals[r.element] = (elTotals[r.element] || 0) + r.total; }
+        const elLabels = Object.keys(elTotals).filter(k => elTotals[k] > 0);
+        const elValues = elLabels.map(k => elTotals[k]);
+        const chTotals = {};
+        for (const ci of chIndices) { chTotals[ci] = 0; }
+        for (const r of iaRows) { for (const [ci, cnt] of Object.entries(r.by_chapter)) { chTotals[ci] = (chTotals[ci] || 0) + cnt; } }
+        const chLabels = chIndices.map(i => chNames[String(i)] || `Ch${String(i).padStart(2, '0')}`);
+        const chValues = chIndices.map(i => chTotals[String(i)] || 0);
+        const GREEN = '#F59E0B';
+        const GREENS = elLabels.map((_, i) => `hsl(${30 + (i * 7) % 40}, 70%, ${40 + (i % 3) * 8}%)`);
+        const chartByElementEl = document.getElementById('chartByElement');
+        if (chartByElementEl) {
+          new Chart(chartByElementEl, {
+            type: 'bar',
+            data: { labels: elLabels, datasets: [{ data: elValues, backgroundColor: GREENS, borderRadius: 4, barThickness: 14 }] },
+            options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, grid: { color: '#f1f5f9' } }, y: { grid: { display: false } } } }
+          });
+        }
+        const chartByChapterEl = document.getElementById('chartByChapter');
+        if (chartByChapterEl) {
+          new Chart(chartByChapterEl, {
+            type: 'bar',
+            data: { labels: chLabels, datasets: [{ data: chValues, backgroundColor: GREEN, borderRadius: 4, barThickness: 28 }] },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' } } } }
+          });
+        }
+      } catch (e) { console.error('IA data error:', e); }
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>

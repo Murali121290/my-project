@@ -1,0 +1,928 @@
+﻿"""IA report template: ordered rows and rule_id â†’ (element, pattern) mapping.
+
+IA_TEMPLATE_ROWS  â€” all rows that appear in the IA report, in display order.
+                    Each entry: (element, pattern_label, example_or_None)
+
+RULE_ID_TO_IA     â€” maps each rule_id produced by te_points.py / spelling.py
+                    to the (element, pattern_label) of the IA row it populates.
+                    rule_ids NOT in this dict are not shown in the IA report
+                    (they still appear in the detailed sheets).
+"""
+from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# IA_TEMPLATE_ROWS
+# (element, pattern_label, example)
+# ---------------------------------------------------------------------------
+IA_TEMPLATE_ROWS: list[tuple[str, str, str, str | None]] = [
+    # â”€â”€ Figure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Figure", "Caption", "Figure ^#", "Figure 1"),
+    ("Figure", "Citation", "Figure ^#", "Figure 1"),
+    ("Figure", "Caption", "Figure ^#.^#", "Figure 1.1"),
+    ("Figure", "Citation", "Figure ^#.^#", "Figure 1.1"),
+    ("Figure", "Caption", "Figure ^#-^#", "Figure 1-1"),
+    ("Figure", "Citation", "Figure ^#-^#", "Figure 1-1"),
+    ("Figure", "Caption", "Figures ^#.^# to ^#.^#", "Figures 1.1 to 1.3"),
+    ("Figure", "Citation", "Figures ^#.^# to ^#.^#", "Figures 1.1 to 1.3"),
+    ("Figure", "Caption", "Figures ^#.^# and ^#.^#", "Figures 1.1 and 1.2"),
+    ("Figure", "Citation", "Figures ^#.^# and ^#.^#", "Figures 1.1 and 1.2"),
+    ("Figure", "Caption", "Figures ^#.^# & ^#.^#", "Figures 1.1 & 1.2"),
+    ("Figure", "Citation", "Figures ^#.^# & ^#.^#", "Figures 1.1 & 1.2"),
+    ("Figure", "Caption", "Figures ^#.^#-^#.^#", "Figures 1.1-1.3"),
+    ("Figure", "Citation", "Figures ^#.^#-^#.^#", "Figures 1.1-1.3"),
+    ("Figure", "Caption", "Figures ^#.^#\u2013^#.^#", "Figures 1.1\u20131.3"),
+    ("Figure", "Citation", "Figures ^#.^#\u2013^#.^#", "Figures 1.1\u20131.3"),
+    ("Figure", "Caption", "Figures ^#.^# through ^#.^#", "Figures 1.1 through 1.10"),
+    ("Figure", "Citation", "Figures ^#.^# through ^#.^#", "Figures 1.1 through 1.10"),
+    ("Figure", "Caption", "Fig ^#", "Fig 1"),
+    ("Figure", "Citation", "Fig ^#", "Fig 1"),
+    ("Figure", "Caption", "Fig ^#.^#", "Fig 1.1"),
+    ("Figure", "Citation", "Fig ^#.^#", "Fig 1.1"),
+    ("Figure", "Caption", "Fig ^#-^#", "Fig 1-1"),
+    ("Figure", "Citation", "Fig ^#-^#", "Fig 1-1"),
+    ("Figure", "Caption", "Figs ^#.^# to ^#.^#", "Figs 1.1 to 1.3"),
+    ("Figure", "Citation", "Figs ^#.^# to ^#.^#", "Figs 1.1 to 1.3"),
+    ("Figure", "Caption", "Figs ^#.^# and ^#.^#", "Figs 1.1 and 1.2"),
+    ("Figure", "Citation", "Figs ^#.^# and ^#.^#", "Figs 1.1 and 1.2"),
+    ("Figure", "Caption", "Figs ^#.^# & ^#.^#", "Figs 1.1 & 1.2"),
+    ("Figure", "Citation", "Figs ^#.^# & ^#.^#", "Figs 1.1 & 1.2"),
+    ("Figure", "Caption", "Figs ^#.^#-^#.^#", "Figs 1.1-1.3"),
+    ("Figure", "Citation", "Figs ^#.^#-^#.^#", "Figs 1.1-1.3"),
+    ("Figure", "Caption", "Figs ^#.^#\u2013^#.^#", "Figs 1.1\u20131.3"),
+    ("Figure", "Citation", "Figs ^#.^#\u2013^#.^#", "Figs 1.1\u20131.3"),
+    ("Figure", "Caption", "Figs ^#.^# through ^#.^#", "Figs 1.1 through 1.10"),
+    ("Figure", "Citation", "Figs ^#.^# through ^#.^#", "Figs 1.1 through 1.10"),
+    ("Figure", "Caption", "figure ^# (lowercase)", None),
+    ("Figure", "Citation", "figure ^# (lowercase)", None),
+    ("Figure", "Caption", "figures ^# (lowercase)", None),
+    ("Figure", "Citation", "figures ^# (lowercase)", None),
+    ("Figure", "Caption", "figure ^#.^# (lowercase)", "figure 1.1"),
+    ("Figure", "Citation", "figure ^#.^# (lowercase)", "figure 1.1"),
+    ("Figure", "Caption", "fig ^#.^# (lowercase)", "fig 1.1"),
+    ("Figure", "Citation", "fig ^#.^# (lowercase)", "fig 1.1"),
+    ("Figure", "Caption", "figure ^#-^# (lowercase)", "figure 1-1"),
+    ("Figure", "Citation", "figure ^#-^# (lowercase)", "figure 1-1"),
+    ("Figure", "Caption", "fig ^#-^# (lowercase)", "fig 1-1"),
+    ("Figure", "Citation", "fig ^#-^# (lowercase)", "fig 1-1"),
+    ("Figure", "Caption", "figure ^# (lowercase)", None),
+    ("Figure", "Citation", "figure ^# (lowercase)", None),
+    ("Figure", "Caption", "figures ^# (lowercase)", None),
+    ("Figure", "Citation", "figures ^# (lowercase)", None),
+
+    # â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Table", "Caption", "Table ^#", "Table 1"),
+    ("Table", "Citation", "Table ^#", "Table 1"),
+    ("Table", "Caption", "Table ^#.^#", "Table 1.1"),
+    ("Table", "Citation", "Table ^#.^#", "Table 1.1"),
+    ("Table", "Caption", "Table ^#-^#", "Table 1-1"),
+    ("Table", "Citation", "Table ^#-^#", "Table 1-1"),
+    ("Table", "Caption", "Tables ^#.^# to ^#.^#", "Tables 1.1 to 1.3"),
+    ("Table", "Citation", "Tables ^#.^# to ^#.^#", "Tables 1.1 to 1.3"),
+    ("Table", "Caption", "Tables ^#.^# and ^#.^#", "Tables 1.1 and 1.2"),
+    ("Table", "Citation", "Tables ^#.^# and ^#.^#", "Tables 1.1 and 1.2"),
+    ("Table", "Caption", "Tables ^#.^# & ^#.^#", "Tables 1.1 & 1.2"),
+    ("Table", "Citation", "Tables ^#.^# & ^#.^#", "Tables 1.1 & 1.2"),
+    ("Table", "Caption", "Tables ^#.^#-^#.^#", "Tables 1.1-1.3"),
+    ("Table", "Citation", "Tables ^#.^#-^#.^#", "Tables 1.1-1.3"),
+    ("Table", "Caption", "Tables ^#.^#\u2013^#.^#", "Tables 1.1\u20131.3"),
+    ("Table", "Citation", "Tables ^#.^#\u2013^#.^#", "Tables 1.1\u20131.3"),
+    ("Table", "Caption", "Tables ^#.^# through ^#.^#", "Tables 1.1 through 1.10"),
+    ("Table", "Citation", "Tables ^#.^# through ^#.^#", "Tables 1.1 through 1.10"),
+    ("Table", "Caption", "Tab ^#", "Tab 1"),
+    ("Table", "Citation", "Tab ^#", "Tab 1"),
+    ("Table", "Caption", "Tab ^#.^#", "Tab 1.1"),
+    ("Table", "Citation", "Tab ^#.^#", "Tab 1.1"),
+    ("Table", "Caption", "Tab ^#-^#", "Tab 1-1"),
+    ("Table", "Citation", "Tab ^#-^#", "Tab 1-1"),
+    ("Table", "Caption", "Tabs ^#.^# to ^#.^#", "Tabs 1.1 to 1.3"),
+    ("Table", "Citation", "Tabs ^#.^# to ^#.^#", "Tabs 1.1 to 1.3"),
+    ("Table", "Caption", "Tabs ^#.^# and ^#.^#", "Tabs 1.1 and 1.2"),
+    ("Table", "Citation", "Tabs ^#.^# and ^#.^#", "Tabs 1.1 and 1.2"),
+    ("Table", "Caption", "Tabs ^#.^# & ^#.^#", "Tabs 1.1 & 1.2"),
+    ("Table", "Citation", "Tabs ^#.^# & ^#.^#", "Tabs 1.1 & 1.2"),
+    ("Table", "Caption", "Tabs ^#.^#-^#.^#", "Tabs 1.1-1.3"),
+    ("Table", "Citation", "Tabs ^#.^#-^#.^#", "Tabs 1.1-1.3"),
+    ("Table", "Caption", "Tabs ^#.^#\u2013^#.^#", "Tabs 1.1\u20131.3"),
+    ("Table", "Citation", "Tabs ^#.^#\u2013^#.^#", "Tabs 1.1\u20131.3"),
+    ("Table", "Caption", "Tabs ^#.^# through ^#.^#", "Tabs 1.1 through 1.10"),
+    ("Table", "Citation", "Tabs ^#.^# through ^#.^#", "Tabs 1.1 through 1.10"),
+    ("Table", "Caption", "table ^# (lowercase)", None),
+    ("Table", "Citation", "table ^# (lowercase)", None),
+    ("Table", "Caption", "table ^#.^# (lowercase)", "table 1.1"),
+    ("Table", "Citation", "table ^#.^# (lowercase)", "table 1.1"),
+    ("Table", "Caption", "tab ^#.^# (lowercase)", "tab 1.1"),
+    ("Table", "Citation", "tab ^#.^# (lowercase)", "tab 1.1"),
+    ("Table", "Caption", "tables ^# (lowercase)", None),
+    ("Table", "Citation", "tables ^# (lowercase)", None),
+
+    # â”€â”€ Box â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Box", "Caption", "Box ^#", "Box 1"),
+    ("Box", "Citation", "Box ^#", "Box 1"),
+    ("Box", "Caption", "Box ^#.^#", "Box 1.1"),
+    ("Box", "Citation", "Box ^#.^#", "Box 1.1"),
+    ("Box", "Caption", "Box ^#-^#", "Box 1-1"),
+    ("Box", "Citation", "Box ^#-^#", "Box 1-1"),
+    ("Box", "Caption", "Boxes ^#.^# to ^#.^#", "Boxes 1.1 to 1.3"),
+    ("Box", "Citation", "Boxes ^#.^# to ^#.^#", "Boxes 1.1 to 1.3"),
+    ("Box", "Caption", "Boxes ^#.^# and ^#.^#", "Boxes 1.1 and 1.2"),
+    ("Box", "Citation", "Boxes ^#.^# and ^#.^#", "Boxes 1.1 and 1.2"),
+    ("Box", "Caption", "Boxes ^#.^# & ^#.^#", "Boxes 1.1 & 1.2"),
+    ("Box", "Citation", "Boxes ^#.^# & ^#.^#", "Boxes 1.1 & 1.2"),
+    ("Box", "Caption", "Boxes ^#.^#-^#.^#", "Boxes 1.1-1.3"),
+    ("Box", "Citation", "Boxes ^#.^#-^#.^#", "Boxes 1.1-1.3"),
+    ("Box", "Caption", "Boxes ^#.^#\u2013^#.^#", "Boxes 1.1\u20131.3"),
+    ("Box", "Citation", "Boxes ^#.^#\u2013^#.^#", "Boxes 1.1\u20131.3"),
+    ("Box", "Caption", "Boxes ^#.^# through ^#.^#", "Boxes 1.1 through 1.10"),
+    ("Box", "Citation", "Boxes ^#.^# through ^#.^#", "Boxes 1.1 through 1.10"),
+    ("Box", "Caption", "box ^# (lowercase)", None),
+    ("Box", "Citation", "box ^# (lowercase)", None),
+    ("Box", "Caption", "box ^#.^# (lowercase)", "box 1.1"),
+    ("Box", "Citation", "box ^#.^# (lowercase)", "box 1.1"),
+    ("Box", "Caption", "boxes ^# (lowercase)", None),
+    ("Box", "Citation", "boxes ^# (lowercase)", None),
+
+    # â”€â”€ Chapter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Chapter", "General", "Chapter ^#", None),
+    ("Chapter", "General", "Chapters ^#-^#", None),
+    ("Chapter", "General", "Chapters ^#\u2013^#", None),
+    ("Chapter", "General", "Chapters ^# to ^#", None),
+    ("Chapter", "General", "Chapters ^# and ^#", None),
+    ("Chapter", "General", "chapter ^# (lowercase)", None),
+    ("Chapter", "General", "chapters ^# (lowercase)", None),
+
+    # â”€â”€ Numbers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Numbers", "General", "0 to 9 numerals", None),
+    ("Numbers", "General", "0 to 9 spelled out", None),
+    ("Numbers", "General", "0 to 99 numerals", None),
+    ("Numbers", "General", "0 to 99 spelled out", None),
+    ("Numbers", "General", "0 numeral", None),
+    ("Numbers", "General", "zero spelled out", None),
+
+    # â”€â”€ Percent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Percent", "General", "%", None),
+    ("Percent", "General", "percent", None),
+    ("Percent", "General", "per cent", None),
+
+    # â”€â”€ Century â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Century", "General", "^#st/nd/rd/th century (numeric)", None),
+    ("Century", "General", "[first to hundredth] century (spelled)", None),
+
+    # â”€â”€ Comparisons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Comparisons", "General", "comparison operators", None),
+
+    # â”€â”€ Quote marks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Quote marks", "General", "Double quote marks (curly pairs)", None),
+    ("Quote marks", "General", "Single quote marks (curly pairs)", None),
+    ("Quote marks", "General", "Double quote marks (straight)", None),
+    ("Quote marks", "General", "Single quote marks (straight)", None),
+
+    # â”€â”€ Fold â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Fold", "General", "^#fold", None),
+    ("Fold", "General", "^#-fold", None),
+    ("Fold", "General", "^# fold", None),
+    ("Fold", "General", "[word]fold", None),
+    ("Fold", "General", "[word]-fold", None),
+    ("Fold", "General", "[word] fold", None),
+
+    # â”€â”€ Times â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Times", "General", "^# times", None),
+    ("Times", "General", "^#-times", None),
+    ("Times", "General", "[spelled numeral] times", None),
+    ("Times", "General", "twice", None),
+
+    # â”€â”€ UK date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("UK date", "General", "D Mon YYYY (long form)", "1 Jan 2020"),
+    ("UK date", "General", "D/M/YY or D/M/YYYY", None),
+    ("UK date", "General", "D.M.YY or D.M.YYYY", None),
+    ("UK date", "General", "D-M-YY or D-M-YYYY", None),
+
+    # â”€â”€ US date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("US date", "General", "Month D, YYYY (long form)", "January 1, 2020"),
+
+    # â”€â”€ Inline lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Inline lists", "General", "(A), (B)â€¦", None),
+    ("Inline lists", "General", "(a), (b)â€¦", None),
+    ("Inline lists", "General", "(I), (II)â€¦", None),
+    ("Inline lists", "General", "(i), (ii)â€¦", None),
+    ("Inline lists", "General", "(1), (2)â€¦", None),
+    ("Inline lists", "General", "A), B)â€¦", None),
+    ("Inline lists", "General", "a), b)â€¦", None),
+    ("Inline lists", "General", "I), II)â€¦", None),
+    ("Inline lists", "General", "i), ii)â€¦", None),
+    ("Inline lists", "General", "1), 2)â€¦", None),
+
+    # â”€â”€ Ellipse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Ellipse", "General", "... symbol (three ASCII dots)", None),
+    ("Ellipse", "General", "\u2026 three dots without spaces", None),
+    ("Ellipse", "General", ". . . Three dots with spaces", None),
+
+    # â”€â”€ Positional ref â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Positional ref", "General", "see below", None),
+    ("Positional ref", "General", "see above", None),
+    ("Positional ref", "General", "discussed below", None),
+    ("Positional ref", "General", "discussed above", None),
+    ("Positional ref", "General", "infra", None),
+    ("Positional ref", "General", "supra", None),
+
+    # â”€â”€ Ordinals - numerals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Ordinals - numerals", "General", "^#st", None),
+    ("Ordinals - numerals", "General", "^#nd", None),
+    ("Ordinals - numerals", "General", "^#rd", None),
+    ("Ordinals - numerals", "General", "^#th", None),
+
+    # â”€â”€ Ordinals - spelled out â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Ordinals - spelled out", "General", "first, second, \u2026 hundredth, thousandth", None),
+
+    # â”€â”€ Fractions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Fractions", "General", "\u00bd [symbol]", None),
+    ("Fractions", "General", "^#/^# [slash]", None),
+    ("Fractions", "General", "spelled fraction", None),
+
+    # â”€â”€ Leading zero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Leading zero", "General", "0.^#", None),
+    ("Leading zero (NO)", "General", ".^#", None),
+
+    # â”€â”€ x for times symbol â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("x for times symbol", "General", "\u00d7 (times symbol)", None),
+    ("x for times symbol", "General", "x [lc, whole word]", None),
+
+    # â”€â”€ Periods (AM/PM) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Periods", "General", "AM", None),
+    ("Periods", "General", "PM", None),
+    ("Periods", "General", "A.M", None),
+    ("Periods", "General", "A.M.", None),
+    ("Periods", "General", "P.M", None),
+    ("Periods", "General", "P.M.", None),
+    ("Periods", "General", "am", None),
+    ("Periods", "General", "pm", None),
+    ("Periods", "General", "a.m", None),
+    ("Periods", "General", "a.m.", None),
+    ("Periods", "General", "p.m", None),
+    ("Periods", "General", "p.m.", None),
+
+    # â”€â”€ Era â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Era", "General", "AD", None),
+    ("Era", "General", "A.D", None),
+    ("Era", "General", "A.D.", None),
+    ("Era", "General", "BC", None),
+    ("Era", "General", "B.C", None),
+    ("Era", "General", "B.C.", None),
+
+    # â”€â”€ Units (repeated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Time units", "General", "h / hr", None),
+    ("Time units", "General", "hour(s) (spelled)", None),
+    ("Time units", "General", "min", None),
+    ("Time units", "General", "minute(s) (spelled)", None),
+    ("Time units", "General", "s / sec", None),
+    ("Time units", "General", "second(s) (spelled)", None),
+
+    # â”€â”€ Degree â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Degree symbol", "General", "\u00b0 (bare degree)", None),
+    ("Degree Celsius", "General", "\u00b0C", None),
+    ("Degree Fahrenheit", "General", "\u00b0F", None),
+    ("Degree spelled", "General", "degree(s) (spelled)", None),
+    ("Degree spelled", "General", "Celsius (spelled)", None),
+    ("Degree spelled", "General", "Fahrenheit (spelled)", None),
+
+    # â”€â”€ Symbols â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Symbols", "General", "\u2122 trademark symbol", None),
+    ("Symbols", "General", "(TM) trademark text", None),
+    ("Symbols", "General", "\u00ae registered symbol", None),
+    ("Symbols", "General", "(R) registered text", None),
+    ("Symbols", "General", "\u00a9 copyright symbol", None),
+    ("Symbols", "General", "(C) copyright text", None),
+
+    # â”€â”€ Ranges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Ranges", "General", "X to Y", None),
+    ("Ranges", "General", "X\u2013Y (en dash)", None),
+    ("Ranges", "General", "X-Y (hyphen)", None),
+
+    # â”€â”€ Thousand separator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Thousand separator (use/non-use)", "General", "1,000 (comma)", None),
+    ("Thousand separator (use/non-use)", "General", "1\u00a0000 (space)", None),
+    ("Thousand separator (use/non-use)", "General", "1000 (none)", None),
+
+    # â”€â”€ Virgule / Per â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Virgule", "General", "/ (slash)", None),
+    ("Per", "General", "per (word)", None),
+
+    # â”€â”€ Gas abbreviations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Gas abbreviations", "General", "PaCO2 inline", None),
+    ("Gas abbreviations", "General", "PaCO\u2082 subscript", None),
+    ("Gas abbreviations", "General", "PCO2 inline", None),
+    ("Gas abbreviations", "General", "PCO\u2082 subscript", None),
+    ("Gas abbreviations", "General", "PaO2 inline", None),
+    ("Gas abbreviations", "General", "PaO\u2082 subscript", None),
+    ("Gas abbreviations", "General", "FIO2 / FiO2 inline", None),
+    ("Gas abbreviations", "General", "FIO\u2082 subscript", None),
+    ("Gas abbreviations", "General", "SaO2 inline", None),
+    ("Gas abbreviations", "General", "SaO\u2082 subscript", None),
+    ("Gas abbreviations", "General", "SpO2 inline", None),
+    ("Gas abbreviations", "General", "SpO\u2082 subscript", None),
+
+    # â”€â”€ Versus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Versus", "General", "versus", None),
+    ("Versus", "General", "vs.", None),
+    ("Versus", "General", "vs", None),
+    ("Versus", "General", "v.", None),
+
+    # â”€â”€ Latin abbreviations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Latin abbreviations", "General", "e.g.", None),
+    ("Latin abbreviations", "General", "eg", None),
+    ("Latin abbreviations", "General", "i.e.", None),
+    ("Latin abbreviations", "General", "ie", None),
+    ("Latin abbreviations", "General", "etc.", None),
+    ("Latin abbreviations", "General", "etc", None),
+    ("Citations", "Citation", "Bracketed numeric", "[1]"),
+
+    # â”€â”€ Percent (additional) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Percent", "General", "percentage", None),
+
+    # â”€â”€ Chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Chart", "Caption", "Chart ^#", "Chart 1"),
+    ("Chart", "Citation", "Chart ^#", "Chart 1"),
+    ("Chart", "Caption", "Chart ^#.^#", "Chart 1.1"),
+    ("Chart", "Citation", "Chart ^#.^#", "Chart 1.1"),
+    ("Chart", "Caption", "Chart ^#-^#", "Chart 1-1"),
+    ("Chart", "Citation", "Chart ^#-^#", "Chart 1-1"),
+    ("Chart", "Caption", "Charts ^#.^# to ^#.^#", "Charts 1.1 to 1.3"),
+    ("Chart", "Citation", "Charts ^#.^# to ^#.^#", "Charts 1.1 to 1.3"),
+    ("Chart", "Caption", "Charts ^#.^# and ^#.^#", "Charts 1.1 and 1.2"),
+    ("Chart", "Citation", "Charts ^#.^# and ^#.^#", "Charts 1.1 and 1.2"),
+    ("Chart", "Caption", "Charts ^#.^#-^#.^#", "Charts 1.1-1.3"),
+    ("Chart", "Citation", "Charts ^#.^#-^#.^#", "Charts 1.1-1.3"),
+    ("Chart", "Caption", "Charts ^#.^#â€“^#.^#", "Charts 1.1â€“1.3"),
+    ("Chart", "Citation", "Charts ^#.^#â€“^#.^#", "Charts 1.1â€“1.3"),
+    ("Chart", "Caption", "chart ^# (lowercase)", None),
+    ("Chart", "Citation", "chart ^# (lowercase)", None),
+    ("Chart", "Caption", "charts ^# (lowercase)", None),
+    ("Chart", "Citation", "charts ^# (lowercase)", None),
+
+    # â”€â”€ Diagram â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Diagram", "Citation", "diagram ^# (lowercase)", None),
+    ("Diagram", "Citation", "diagrams ^# (lowercase)", None),
+
+    # â”€â”€ Image â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Image", "Citation", "image ^# (lowercase)", None),
+    ("Image", "Citation", "images ^# (lowercase)", None),
+
+    # â”€â”€ Illustration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Illustration", "Citation", "illustration ^# (lowercase)", None),
+    ("Illustration", "Citation", "illustrations ^# (lowercase)", None),
+
+    # â”€â”€ Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Section", "General", "Section ^#", None),
+    ("Section", "General", "Sections ^#-^#", None),
+    ("Section", "General", "Sections ^#â€“^#", None),
+    ("Section", "General", "Sections ^# to ^#", None),
+    ("Section", "General", "Sections ^# and ^#", None),
+    ("Section", "General", "section ^# (lowercase)", None),
+    ("Section", "General", "sections ^# (lowercase)", None),
+
+    # â”€â”€ Units (abbreviated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Units (abbreviated)", "General", "mg", "mg"),
+    ("Units (abbreviated)", "General", "kg", "kg"),
+    ("Units (abbreviated)", "General", "mL / ml", "mL"),
+    ("Units (abbreviated)", "General", "Î¼g / mcg", "Î¼g"),
+    ("Units (abbreviated)", "General", "mm", "mm"),
+    ("Units (abbreviated)", "General", "cm", "cm"),
+    ("Units (abbreviated)", "General", "km", "km"),
+
+    # â”€â”€ Units (spelled out) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Units (spelled out)", "General", "milligram(s)", "milligrams"),
+    ("Units (spelled out)", "General", "kilogram(s)", "kilograms"),
+    ("Units (spelled out)", "General", "millilitre(s)/milliliter(s)", "millilitres"),
+    ("Units (spelled out)", "General", "microgram(s)", "micrograms"),
+    ("Units (spelled out)", "General", "millimetre(s)/millimeter(s)", "millimetres"),
+    ("Units (spelled out)", "General", "centimetre(s)/centimeter(s)", "centimetres"),
+    ("Units (spelled out)", "General", "kilometre(s)/kilometer(s)", "kilometres"),
+
+    # â”€â”€ Section (dotted and dashed forms) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Section", "General", "Section ^#.^#", None),
+    ("Section", "General", "Section ^#-^#", None),
+
+    # â”€â”€ Abbreviations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Abbreviations", "General", "<[A-Z]{2,}>", None),
+    ("Abbreviations", "Heading", "Abbreviations in heading", None),
+    ("Abbreviations", "Caption", "Abbreviations in FC/TC", None),
+    ("Abbreviations", "Table", "Abbreviations in CT/TC", None),
+
+    # â”€â”€ AUX verbs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("AUX verbs in headings/captions", "General", "be, am, is, do, are, was, has, had, did, may, can, will", None),
+
+    # â”€â”€ Latin terms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Latin terms in italics", "General", "a priori, in vivo, in vitro, in situ, per diemâ€¦", None),
+
+    # â”€â”€ Paras ending without full stop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Paras ending without full point", "General", "Last char â‰  . ! ?", None),
+
+    # â”€â”€ Genus species â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Genus species", "General", "[Genus species]", "Escherichia coli"),
+    ("Genus species", "General", "[G. species] (abbreviated)", "E. coli"),
+    ("Genus species", "General", "[G species] (no dot)", "E coli"),
+
+    # â”€â”€ Greek letters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Greek letters", "General", "Lowercase Greek", "Î± Î² Î³"),
+    ("Greek letters", "General", "Uppercase Greek", "Î‘ Î’ Î“"),
+
+    # â”€â”€ WK terms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("WK terms", "General", "transsexual", None),
+    ("WK terms", "General", "Concepts in Action", None),
+    ("WK terms", "General", "Watch & Learn", None),
+    ("WK terms", "General", "Practice & Learn", None),
+    ("WK terms", "General", "Interactive Tutorial", None),
+    ("WK terms", "General", "Mongolian spot(s)", None),
+
+    # â”€â”€ General style â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Caps after colon (:)", "General", "Caps after colon (:)", ": A"),
+    ("Lowercase after colon (:)", "General", "Lowercase after colon (:)", ": a"),
+    ("Spaced hyphens", "General", "Spaced hyphens", " - "),
+    ("Currency symbols", "General", "Currency symbols", "$"),
+    ("Currency spelled out", "General", "Currency spelled out", "dollars"),
+    ("(-al) endings", "General", "(-al) endings", "medical"),
+    # â”€â”€ Mechanical Editing â€” Grammar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Article usage", "Grammar", "a/an mismatch", "a hour â†’ an hour"),
+    ("Wrong usage / Typos", "Grammar", "Incorrect word form", None),
+    # â”€â”€ Mechanical Editing â€” Bias â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ("Bias terms", "Inclusive language", "Clinical jargon", "preemie â†’ premature infant"),
+    ("Bias terms", "Inclusive language", "Death euphemisms", "passed away â†’ died"),
+]
+
+
+# ---------------------------------------------------------------------------
+# RULE_ID_TO_IA
+# Maps each rule_id â†’ (element, pattern_label) matching an IA_TEMPLATE_ROW.
+# ---------------------------------------------------------------------------
+RULE_ID_TO_IA: dict[str, tuple[str, str, str]] = {
+    # â”€â”€ Figure references â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_figure_single": ("Figure", "Citation", "Figure ^#"),
+    "cap_figure_single": ("Figure", "Caption", "Figure ^#"),
+    "ref_figure_dotted": ("Figure", "Citation", "Figure ^#.^#"),
+    "cap_figure_dotted": ("Figure", "Caption", "Figure ^#.^#"),
+    "ref_figure_dash": ("Figure", "Citation", "Figure ^#-^#"),
+    "cap_figure_dash": ("Figure", "Caption", "Figure ^#-^#"),
+    "ref_figures_to": ("Figure", "Citation", "Figures ^#.^# to ^#.^#"),
+    "cap_figures_to": ("Figure", "Caption", "Figures ^#.^# to ^#.^#"),
+    "ref_figures_and": ("Figure", "Citation", "Figures ^#.^# and ^#.^#"),
+    "cap_figures_and": ("Figure", "Caption", "Figures ^#.^# and ^#.^#"),
+    "ref_figures_amp": ("Figure", "Citation", "Figures ^#.^# & ^#.^#"),
+    "cap_figures_amp": ("Figure", "Caption", "Figures ^#.^# & ^#.^#"),
+    "ref_figures_dash": ("Figure", "Citation", "Figures ^#.^#-^#.^#"),
+    "cap_figures_dash": ("Figure", "Caption", "Figures ^#.^#-^#.^#"),
+    "ref_figures_endash": ("Figure", "Citation", "Figures ^#.^#\u2013^#.^#"),
+    "cap_figures_endash": ("Figure", "Caption", "Figures ^#.^#\u2013^#.^#"),
+    "ref_figures_through": ("Figure", "Citation", "Figures ^#.^# through ^#.^#"),
+    "cap_figures_through": ("Figure", "Caption", "Figures ^#.^# through ^#.^#"),
+    "ref_fig_single": ("Figure", "Citation", "Fig ^#"),
+    "cap_fig_single": ("Figure", "Caption", "Fig ^#"),
+    "ref_fig_dotted": ("Figure", "Citation", "Fig ^#.^#"),
+    "cap_fig_dotted": ("Figure", "Caption", "Fig ^#.^#"),
+    "ref_fig_dash": ("Figure", "Citation", "Fig ^#-^#"),
+    "cap_fig_dash": ("Figure", "Caption", "Fig ^#-^#"),
+    "ref_figs_dotted": ("Figure", "Citation", "Figs ^#.^#"),
+    "cap_figs_dotted": ("Figure", "Caption", "Figs ^#.^#"),
+    "ref_figs_single_num": ("Figure", "Citation", "Figs ^#"),
+    "cap_figs_single_num": ("Figure", "Caption", "Figs ^#"),
+    "ref_figs_to": ("Figure", "Citation", "Figs ^#.^# to ^#.^#"),
+    "cap_figs_to": ("Figure", "Caption", "Figs ^#.^# to ^#.^#"),
+    "ref_figs_and": ("Figure", "Citation", "Figs ^#.^# and ^#.^#"),
+    "cap_figs_and": ("Figure", "Caption", "Figs ^#.^# and ^#.^#"),
+    "ref_figs_amp": ("Figure", "Citation", "Figs ^#.^# & ^#.^#"),
+    "cap_figs_amp": ("Figure", "Caption", "Figs ^#.^# & ^#.^#"),
+    "ref_figs_dash": ("Figure", "Citation", "Figs ^#.^#-^#.^#"),
+    "cap_figs_dash": ("Figure", "Caption", "Figs ^#.^#-^#.^#"),
+    "ref_figs_endash": ("Figure", "Citation", "Figs ^#.^#\u2013^#.^#"),
+    "cap_figs_endash": ("Figure", "Caption", "Figs ^#.^#\u2013^#.^#"),
+    "ref_figs_through": ("Figure", "Citation", "Figs ^#.^# through ^#.^#"),
+    "cap_figs_through": ("Figure", "Caption", "Figs ^#.^# through ^#.^#"),
+    "ref_figure_lc": ("Figure", "Citation", "figure ^# (lowercase)"),
+    "cap_figure_lc": ("Figure", "Caption", "figure ^# (lowercase)"),
+    "ref_figure_lc_dotted": ("Figure", "Citation", "figure ^#.^# (lowercase)"),
+    "cap_figure_lc_dotted": ("Figure", "Caption", "figure ^#.^# (lowercase)"),
+    "ref_figure_lc_dash": ("Figure", "Citation", "figure ^#-^# (lowercase)"),
+    "cap_figure_lc_dash": ("Figure", "Caption", "figure ^#-^# (lowercase)"),
+    "ref_figures_lc": ("Figure", "Citation", "figures ^# (lowercase)"),
+    "cap_figures_lc": ("Figure", "Caption", "figures ^# (lowercase)"),
+    "ref_fig_lc_dotted": ("Figure", "Citation", "fig ^#.^# (lowercase)"),
+    "cap_fig_lc_dotted": ("Figure", "Caption", "fig ^#.^# (lowercase)"),
+    "ref_fig_lc_dash": ("Figure", "Citation", "fig ^#-^# (lowercase)"),
+    "cap_fig_lc_dash": ("Figure", "Caption", "fig ^#-^# (lowercase)"),
+
+    # â”€â”€ Table references â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_table_single": ("Table", "Citation", "Table ^#"),
+    "cap_table_single": ("Table", "Caption", "Table ^#"),
+    "ref_table_dotted": ("Table", "Citation", "Table ^#.^#"),
+    "cap_table_dotted": ("Table", "Caption", "Table ^#.^#"),
+    "ref_table_dash": ("Table", "Citation", "Table ^#-^#"),
+    "cap_table_dash": ("Table", "Caption", "Table ^#-^#"),
+    "ref_tables_to": ("Table", "Citation", "Tables ^#.^# to ^#.^#"),
+    "cap_tables_to": ("Table", "Caption", "Tables ^#.^# to ^#.^#"),
+    "ref_tables_and": ("Table", "Citation", "Tables ^#.^# and ^#.^#"),
+    "cap_tables_and": ("Table", "Caption", "Tables ^#.^# and ^#.^#"),
+    "ref_tables_amp": ("Table", "Citation", "Tables ^#.^# & ^#.^#"),
+    "cap_tables_amp": ("Table", "Caption", "Tables ^#.^# & ^#.^#"),
+    "ref_tables_dash": ("Table", "Citation", "Tables ^#.^#-^#.^#"),
+    "cap_tables_dash": ("Table", "Caption", "Tables ^#.^#-^#.^#"),
+    "ref_tables_endash": ("Table", "Citation", "Tables ^#.^#\u2013^#.^#"),
+    "cap_tables_endash": ("Table", "Caption", "Tables ^#.^#\u2013^#.^#"),
+    "ref_tables_through": ("Table", "Citation", "Tables ^#.^# through ^#.^#"),
+    "cap_tables_through": ("Table", "Caption", "Tables ^#.^# through ^#.^#"),
+    "ref_tab_single": ("Table", "Citation", "Tab ^#"),
+    "cap_tab_single": ("Table", "Caption", "Tab ^#"),
+    "ref_tab_dotted": ("Table", "Citation", "Tab ^#.^#"),
+    "cap_tab_dotted": ("Table", "Caption", "Tab ^#.^#"),
+    "ref_tab_dash": ("Table", "Citation", "Tab ^#-^#"),
+    "cap_tab_dash": ("Table", "Caption", "Tab ^#-^#"),
+    "ref_tabs_dotted": ("Table", "Citation", "Tabs ^#.^#"),
+    "cap_tabs_dotted": ("Table", "Caption", "Tabs ^#.^#"),
+    "ref_tabs_single_num": ("Table", "Citation", "Tabs ^#"),
+    "cap_tabs_single_num": ("Table", "Caption", "Tabs ^#"),
+    "ref_tabs_to": ("Table", "Citation", "Tabs ^#.^# to ^#.^#"),
+    "cap_tabs_to": ("Table", "Caption", "Tabs ^#.^# to ^#.^#"),
+    "ref_tabs_and": ("Table", "Citation", "Tabs ^#.^# and ^#.^#"),
+    "cap_tabs_and": ("Table", "Caption", "Tabs ^#.^# and ^#.^#"),
+    "ref_tabs_amp": ("Table", "Citation", "Tabs ^#.^# & ^#.^#"),
+    "cap_tabs_amp": ("Table", "Caption", "Tabs ^#.^# & ^#.^#"),
+    "ref_tabs_dash": ("Table", "Citation", "Tabs ^#.^#-^#.^#"),
+    "cap_tabs_dash": ("Table", "Caption", "Tabs ^#.^#-^#.^#"),
+    "ref_tabs_endash": ("Table", "Citation", "Tabs ^#.^#\u2013^#.^#"),
+    "cap_tabs_endash": ("Table", "Caption", "Tabs ^#.^#\u2013^#.^#"),
+    "ref_tabs_through": ("Table", "Citation", "Tabs ^#.^# through ^#.^#"),
+    "cap_tabs_through": ("Table", "Caption", "Tabs ^#.^# through ^#.^#"),
+    "ref_table_lc": ("Table", "Citation", "table ^# (lowercase)"),
+    "cap_table_lc": ("Table", "Caption", "table ^# (lowercase)"),
+    "ref_table_lc_dotted": ("Table", "Citation", "table ^#.^# (lowercase)"),
+    "cap_table_lc_dotted": ("Table", "Caption", "table ^#.^# (lowercase)"),
+    "ref_tab_lc_dotted": ("Table", "Citation", "tab ^#.^# (lowercase)"),
+    "cap_tab_lc_dotted": ("Table", "Caption", "tab ^#.^# (lowercase)"),
+    "ref_tables_lc": ("Table", "Citation", "tables ^# (lowercase)"),
+    "cap_tables_lc": ("Table", "Caption", "tables ^# (lowercase)"),
+
+    # â”€â”€ Box references â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_box_single": ("Box", "Citation", "Box ^#"),
+    "cap_box_single": ("Box", "Caption", "Box ^#"),
+    "ref_box_dotted": ("Box", "Citation", "Box ^#.^#"),
+    "cap_box_dotted": ("Box", "Caption", "Box ^#.^#"),
+    "ref_box_dash": ("Box", "Citation", "Box ^#-^#"),
+    "cap_box_dash": ("Box", "Caption", "Box ^#-^#"),
+    "ref_boxes_dotted": ("Box", "Citation", "Boxes ^#.^#"),
+    "cap_boxes_dotted": ("Box", "Caption", "Boxes ^#.^#"),
+    "ref_boxes_single_num": ("Box", "Citation", "Boxes ^#"),
+    "cap_boxes_single_num": ("Box", "Caption", "Boxes ^#"),
+    "ref_boxes_to": ("Box", "Citation", "Boxes ^#.^# to ^#.^#"),
+    "cap_boxes_to": ("Box", "Caption", "Boxes ^#.^# to ^#.^#"),
+    "ref_boxes_and": ("Box", "Citation", "Boxes ^#.^# and ^#.^#"),
+    "cap_boxes_and": ("Box", "Caption", "Boxes ^#.^# and ^#.^#"),
+    "ref_boxes_amp": ("Box", "Citation", "Boxes ^#.^# & ^#.^#"),
+    "cap_boxes_amp": ("Box", "Caption", "Boxes ^#.^# & ^#.^#"),
+    "ref_boxes_dash": ("Box", "Citation", "Boxes ^#.^#-^#.^#"),
+    "cap_boxes_dash": ("Box", "Caption", "Boxes ^#.^#-^#.^#"),
+    "ref_boxes_endash": ("Box", "Citation", "Boxes ^#.^#\u2013^#.^#"),
+    "cap_boxes_endash": ("Box", "Caption", "Boxes ^#.^#\u2013^#.^#"),
+    "ref_boxes_through": ("Box", "Citation", "Boxes ^#.^# through ^#.^#"),
+    "cap_boxes_through": ("Box", "Caption", "Boxes ^#.^# through ^#.^#"),
+    "ref_box_lc": ("Box", "Citation", "box ^# (lowercase)"),
+    "cap_box_lc": ("Box", "Caption", "box ^# (lowercase)"),
+    "ref_box_lc_dotted": ("Box", "Citation", "box ^#.^# (lowercase)"),
+    "cap_box_lc_dotted": ("Box", "Caption", "box ^#.^# (lowercase)"),
+    "ref_boxes_lc": ("Box", "Citation", "boxes ^# (lowercase)"),
+    "cap_boxes_lc": ("Box", "Caption", "boxes ^# (lowercase)"),
+
+    # â”€â”€ Chapter references â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_chapter_single": ("Chapter", "General", "Chapter ^#"),
+    "ref_chapters_dash": ("Chapter", "General", "Chapters ^#-^#"),
+    "ref_chapters_endash": ("Chapter", "General", "Chapters ^#\u2013^#"),
+    "ref_chapters_to": ("Chapter", "General", "Chapters ^# to ^#"),
+    "ref_chapters_and": ("Chapter", "General", "Chapters ^# and ^#"),
+    "ref_chapters_through": ("Chapter", "General", "Chapters ^# to ^#"),
+    "ref_chapter_lc": ("Chapter", "General", "chapter ^# (lowercase)"),
+    "ref_chapters_lc": ("Chapter", "General", "chapters ^# (lowercase)"),
+
+    # â”€â”€ Numbers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "num_single_numeral": ("Numbers", "General", "0 to 9 numerals"),
+    "num_single_spelled": ("Numbers", "General", "0 to 9 spelled out"),
+    "num_double_numeral": ("Numbers", "General", "0 to 99 numerals"),
+    "num_double_spelled": ("Numbers", "General", "0 to 99 spelled out"),
+    "num_zero_numeral": ("Numbers", "General", "0 numeral"),
+    "num_zero_spelled": ("Numbers", "General", "zero spelled out"),
+
+    # â”€â”€ Percent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "percent_symbol": ("Percent", "General", "%"),
+    "percent_word": ("Percent", "General", "percent"),
+    "per_cent_word": ("Percent", "General", "per cent"),
+
+    # â”€â”€ Century â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "century_num_sg": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_num_pl": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_st_sg": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_st_pl": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_nd_sg": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_nd_pl": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_rd_sg": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_rd_pl": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_th_sg": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_th_pl": ("Century", "General", "^#st/nd/rd/th century (numeric)"),
+    "century_spelled_sg": ("Century", "General", "[first to hundredth] century (spelled)"),
+    "century_spelled_pl": ("Century", "General", "[first to hundredth] century (spelled)"),
+
+    # â”€â”€ Comparisons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "cmp_approx_words": ("Comparisons", "General", "comparison operators"),
+    "cmp_gt_sym": ("Comparisons", "General", "comparison operators"),
+    "cmp_gt_words": ("Comparisons", "General", "comparison operators"),
+    "cmp_gte_sym": ("Comparisons", "General", "comparison operators"),
+    "cmp_gte_words": ("Comparisons", "General", "comparison operators"),
+    "cmp_lt_sym": ("Comparisons", "General", "comparison operators"),
+    "cmp_lt_words": ("Comparisons", "General", "comparison operators"),
+    "cmp_lte_sym": ("Comparisons", "General", "comparison operators"),
+    "cmp_lte_words": ("Comparisons", "General", "comparison operators"),
+    "cmp_more_words": ("Comparisons", "General", "comparison operators"),
+    "cmp_tilde": ("Comparisons", "General", "comparison operators"),
+
+    # â”€â”€ Quote marks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "quote_double_curly": ("Quote marks", "General", "Double quote marks (curly pairs)"),
+    "quote_single_curly": ("Quote marks", "General", "Single quote marks (curly pairs)"),
+    "quote_double_straight": ("Quote marks", "General", "Double quote marks (straight)"),
+    "quote_single_straight": ("Quote marks", "General", "Single quote marks (straight)"),
+
+    # â”€â”€ Fold â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "fold_numeral_closed": ("Fold", "General", "^#fold"),
+    "fold_numeral_hyphen": ("Fold", "General", "^#-fold"),
+    "fold_numeral_open": ("Fold", "General", "^# fold"),
+    "fold_word_closed": ("Fold", "General", "[word]fold"),
+    "fold_word_hyphen": ("Fold", "General", "[word]-fold"),
+    "fold_word_open": ("Fold", "General", "[word] fold"),
+
+    # â”€â”€ Times â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "times_numeral": ("Times", "General", "^# times"),
+    "times_numeral_hyphen": ("Times", "General", "^#-times"),
+    "times_word": ("Times", "General", "[spelled numeral] times"),
+    "times_twice": ("Times", "General", "twice"),
+
+    # â”€â”€ UK / US date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "date_uk_long": ("UK date", "General", "D Mon YYYY (long form)"),
+    "date_us_long": ("US date", "General", "Month D, YYYY (long form)"),
+    "date_numeric_slash": ("UK date", "General", "D/M/YY or D/M/YYYY"),
+    "date_numeric_dot": ("UK date", "General", "D.M.YY or D.M.YYYY"),
+    "date_numeric_dash": ("UK date", "General", "D-M-YY or D-M-YYYY"),
+
+    # â”€â”€ Inline lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "list_paren_alpha_uc": ("Inline lists", "General", "(A), (B)â€¦"),
+    "list_paren_alpha_lc": ("Inline lists", "General", "(a), (b)â€¦"),
+    "list_paren_roman_uc": ("Inline lists", "General", "(I), (II)â€¦"),
+    "list_paren_roman_lc": ("Inline lists", "General", "(i), (ii)â€¦"),
+    "list_paren_num": ("Inline lists", "General", "(1), (2)â€¦"),
+    "list_alpha_close_uc": ("Inline lists", "General", "A), B)â€¦"),
+    "list_alpha_close_lc": ("Inline lists", "General", "a), b)â€¦"),
+    "list_roman_close_uc": ("Inline lists", "General", "I), II)â€¦"),
+    "list_roman_close_lc": ("Inline lists", "General", "i), ii)â€¦"),
+    "list_num_close": ("Inline lists", "General", "1), 2)â€¦"),
+
+    # â”€â”€ Ellipse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ellipsis_3dots": ("Ellipse", "General", "... symbol (three ASCII dots)"),
+    "ellipsis_symbol": ("Ellipse", "General", "\u2026 three dots without spaces"),
+    "ellipsis_spaced": ("Ellipse", "General", ". . . Three dots with spaces"),
+
+    # â”€â”€ Positional ref â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "pos_see_below": ("Positional ref", "General", "see below"),
+    "pos_see_above": ("Positional ref", "General", "see above"),
+    "pos_discussed_below": ("Positional ref", "General", "discussed below"),
+    "pos_discussed_above": ("Positional ref", "General", "discussed above"),
+    "pos_infra": ("Positional ref", "General", "infra"),
+    "pos_supra": ("Positional ref", "General", "supra"),
+
+    # â”€â”€ Ordinals - numerals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ordinal_st": ("Ordinals - numerals", "General", "^#st"),
+    "ordinal_nd": ("Ordinals - numerals", "General", "^#nd"),
+    "ordinal_rd": ("Ordinals - numerals", "General", "^#rd"),
+    "ordinal_th": ("Ordinals - numerals", "General", "^#th"),
+    "ordinal_spelled": ("Ordinals - spelled out", "General", "first, second, \u2026 hundredth, thousandth"),
+
+    # â”€â”€ Fractions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "fraction_symbol": ("Fractions", "General", "\u00bd [symbol]"),
+    "fraction_slash": ("Fractions", "General", "^#/^# [slash]"),
+    "fraction_spelled": ("Fractions", "General", "spelled fraction"),
+
+    # â”€â”€ Leading zero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "leading_zero_present": ("Leading zero", "General", "0.^#"),
+    "leading_zero_missing": ("Leading zero (NO)", "General", ".^#"),
+
+    # â”€â”€ x for times symbol â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "times_symbol": ("x for times symbol", "General", "\u00d7 (times symbol)"),
+    "times_letter": ("x for times symbol", "General", "x [lc, whole word]"),
+
+    # â”€â”€ Periods (AM/PM) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ampm_am_upper": ("Periods", "General", "AM"),
+    "ampm_pm_upper": ("Periods", "General", "PM"),
+    "ampm_am_upper_nodot": ("Periods", "General", "A.M"),
+    "ampm_pm_upper_nodot": ("Periods", "General", "P.M"),
+    "ampm_am_upper_dots": ("Periods", "General", "A.M."),
+    "ampm_pm_upper_dots": ("Periods", "General", "P.M."),
+    "ampm_am_lower": ("Periods", "General", "am"),
+    "ampm_pm_lower": ("Periods", "General", "pm"),
+    "ampm_am_lower_nodot": ("Periods", "General", "a.m"),
+    "ampm_pm_lower_nodot": ("Periods", "General", "p.m"),
+    "ampm_am_lower_dots": ("Periods", "General", "a.m."),
+    "ampm_pm_lower_dots": ("Periods", "General", "p.m."),
+
+    # â”€â”€ Era â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "era_ad": ("Era", "General", "AD"),
+    "era_ad_nodot": ("Era", "General", "A.D"),
+    "era_ad_dots": ("Era", "General", "A.D."),
+    "era_bc": ("Era", "General", "BC"),
+    "era_bc_nodot": ("Era", "General", "B.C"),
+    "era_bc_dots": ("Era", "General", "B.C."),
+
+    # â”€â”€ Units (repeated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "unit_hour_h": ("Time units", "General", "h / hr"),
+    "unit_hour_hr": ("Time units", "General", "h / hr"),
+    "unit_hour_spelled": ("Time units", "General", "hour(s) (spelled)"),
+    "unit_min_abbr": ("Time units", "General", "min"),
+    "unit_min_spelled": ("Time units", "General", "minute(s) (spelled)"),
+    "unit_sec_s": ("Time units", "General", "s / sec"),
+    "unit_sec_abbr": ("Time units", "General", "s / sec"),
+    "unit_sec_spelled": ("Time units", "General", "second(s) (spelled)"),
+
+    # â”€â”€ Degree â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "degree_symbol_alone": ("Degree symbol", "General", "\u00b0 (bare degree)"),
+    "degree_celsius": ("Degree Celsius", "General", "\u00b0C"),
+    "degree_fahrenheit": ("Degree Fahrenheit", "General", "\u00b0F"),
+    "degree_deg_c": ("Degree Celsius", "General", "\u00b0C"),
+    "degree_deg_f": ("Degree Fahrenheit", "General", "\u00b0F"),
+    "degree_celsius_spelled": ("Degree spelled", "General", "Celsius (spelled)"),
+    "degree_fahrenheit_spelled": ("Degree spelled", "General", "Fahrenheit (spelled)"),
+    "degree_spelled": ("Degree spelled", "General", "degree(s) (spelled)"),
+
+    # â”€â”€ Symbols â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "sym_trademark_char": ("Symbols", "General", "\u2122 trademark symbol"),
+    "sym_trademark_text": ("Symbols", "General", "(TM) trademark text"),
+    "sym_registered_char": ("Symbols", "General", "\u00ae registered symbol"),
+    "sym_registered_text": ("Symbols", "General", "(R) registered text"),
+    "sym_copyright_char": ("Symbols", "General", "\u00a9 copyright symbol"),
+    "sym_copyright_text": ("Symbols", "General", "(C) copyright text"),
+
+    # â”€â”€ Ranges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "range_to": ("Ranges", "General", "X to Y"),
+    "range_endash": ("Ranges", "General", "X\u2013Y (en dash)"),
+    "range_hyphen": ("Ranges", "General", "X-Y (hyphen)"),
+
+    # â”€â”€ Thousands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "thousands_comma": ("Thousand separator (use/non-use)", "General", "1,000 (comma)"),
+    "thousands_nbsp": ("Thousand separator (use/non-use)", "General", "1\u00a0000 (space)"),
+    "thousands_nosep": ("Thousand separator (use/non-use)", "General", "1000 (none)"),
+
+    # â”€â”€ Virgule / Per â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "virgule_slash": ("Virgule", "General", "/ (slash)"),
+    "per_word": ("Per", "General", "per (word)"),
+
+    # â”€â”€ Gas abbreviations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "gas_paco2_inline": ("Gas abbreviations", "General", "PaCO2 inline"),
+    "gas_paco2_sub": ("Gas abbreviations", "General", "PaCO\u2082 subscript"),
+    "gas_pco2_inline": ("Gas abbreviations", "General", "PCO2 inline"),
+    "gas_pco2_sub": ("Gas abbreviations", "General", "PCO\u2082 subscript"),
+    "gas_pao2_inline": ("Gas abbreviations", "General", "PaO2 inline"),
+    "gas_pao2_sub": ("Gas abbreviations", "General", "PaO\u2082 subscript"),
+    "gas_fio2_inline": ("Gas abbreviations", "General", "FIO2 / FiO2 inline"),
+    "gas_fio2_sub": ("Gas abbreviations", "General", "FIO\u2082 subscript"),
+    "gas_sao2_inline": ("Gas abbreviations", "General", "SaO2 inline"),
+    "gas_sao2_sub": ("Gas abbreviations", "General", "SaO\u2082 subscript"),
+    "gas_spo2_inline": ("Gas abbreviations", "General", "SpO2 inline"),
+    "gas_spo2_sub": ("Gas abbreviations", "General", "SpO\u2082 subscript"),
+
+    # â”€â”€ Versus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "versus_full": ("Versus", "General", "versus"),
+    "versus_vs_dot": ("Versus", "General", "vs."),
+    "versus_vs": ("Versus", "General", "vs"),
+    "versus_v_dot": ("Versus", "General", "v."),
+
+    # â”€â”€ Latin abbreviations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "latin_eg_dots": ("Latin abbreviations", "General", "e.g."),
+    "latin_eg_nodots": ("Latin abbreviations", "General", "eg"),
+    "latin_ie_dots": ("Latin abbreviations", "General", "i.e."),
+    "latin_ie_nodots": ("Latin abbreviations", "General", "ie"),
+    "latin_etc_dot": ("Latin abbreviations", "General", "etc."),
+    "latin_etc_nodot": ("Latin abbreviations", "General", "etc"),
+
+    # â”€â”€ British spellings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "spelling_uk": ("British spellings", "General", "UK spelling forms"),
+
+    # â”€â”€ American spellings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "spelling_us": ("American spellings", "General", "US spelling forms"),
+
+    # â”€â”€ Citations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "citation_bracket_numeric": ("Citations", "Citation", "Bracketed numeric"),
+
+    # â”€â”€ Miscellaneous conditions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "caps_after_colon": ("Caps after colon (:)", "General", "Caps after colon (:)"),
+    "lowercase_after_colon": ("Lowercase after colon (:)", "General", "Lowercase after colon (:)"),
+    "spaced_hyphens": ("Spaced hyphens", "General", "Spaced hyphens"),
+    "currency_symbols": ("Currency symbols", "General", "Currency symbols"),
+    "currency_spelled": ("Currency spelled out", "General", "Currency spelled out"),
+    "al_endings": ("(-al) endings", "General", "(-al) endings"),
+
+    # â”€â”€ Percent (additional) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "percent_percentage": ("Percent", "General", "percentage"),
+
+    # â”€â”€ Chart references â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_chart_single":   ("Chart", "Citation", "Chart ^#"),
+    "cap_chart_single":   ("Chart", "Caption",  "Chart ^#"),
+    "ref_chart_dotted":   ("Chart", "Citation", "Chart ^#.^#"),
+    "cap_chart_dotted":   ("Chart", "Caption",  "Chart ^#.^#"),
+    "ref_chart_dash":     ("Chart", "Citation", "Chart ^#-^#"),
+    "cap_chart_dash":     ("Chart", "Caption",  "Chart ^#-^#"),
+    "ref_charts_to":      ("Chart", "Citation", "Charts ^#.^# to ^#.^#"),
+    "cap_charts_to":      ("Chart", "Caption",  "Charts ^#.^# to ^#.^#"),
+    "ref_charts_and":     ("Chart", "Citation", "Charts ^#.^# and ^#.^#"),
+    "cap_charts_and":     ("Chart", "Caption",  "Charts ^#.^# and ^#.^#"),
+    "ref_charts_dash":    ("Chart", "Citation", "Charts ^#.^#-^#.^#"),
+    "cap_charts_dash":    ("Chart", "Caption",  "Charts ^#.^#-^#.^#"),
+    "ref_charts_endash":  ("Chart", "Citation", "Charts ^#.^#â€“^#.^#"),
+    "cap_charts_endash":  ("Chart", "Caption",  "Charts ^#.^#â€“^#.^#"),
+    "ref_chart_lc":       ("Chart", "Citation", "chart ^# (lowercase)"),
+    "cap_chart_lc":       ("Chart", "Caption",  "chart ^# (lowercase)"),
+    "ref_charts_lc":      ("Chart", "Citation", "charts ^# (lowercase)"),
+    "cap_charts_lc":      ("Chart", "Caption",  "charts ^# (lowercase)"),
+
+    # â”€â”€ Diagram / Image / Illustration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_diagram_lc":       ("Diagram",      "Citation", "diagram ^# (lowercase)"),
+    "ref_diagrams_lc":      ("Diagram",      "Citation", "diagrams ^# (lowercase)"),
+    "ref_image_lc":         ("Image",        "Citation", "image ^# (lowercase)"),
+    "ref_images_lc":        ("Image",        "Citation", "images ^# (lowercase)"),
+    "ref_illustration_lc":  ("Illustration", "Citation", "illustration ^# (lowercase)"),
+    "ref_illustrations_lc": ("Illustration", "Citation", "illustrations ^# (lowercase)"),
+
+    # â”€â”€ Section references â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_section_single":   ("Section", "General", "Section ^#"),
+    "ref_sections_dash":    ("Section", "General", "Sections ^#-^#"),
+    "ref_sections_endash":  ("Section", "General", "Sections ^#â€“^#"),
+    "ref_sections_to":      ("Section", "General", "Sections ^# to ^#"),
+    "ref_sections_and":     ("Section", "General", "Sections ^# and ^#"),
+    "ref_sections_through": ("Section", "General", "Sections ^# to ^#"),
+    "ref_section_lc":       ("Section", "General", "section ^# (lowercase)"),
+
+    # â”€â”€ SI units â€” abbreviated â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "unit_mg_abbr":   ("Units (abbreviated)", "General", "mg"),
+    "unit_kg_abbr":   ("Units (abbreviated)", "General", "kg"),
+    "unit_ml_abbr":   ("Units (abbreviated)", "General", "mL / ml"),
+    "unit_mcg_abbr":  ("Units (abbreviated)", "General", "Î¼g / mcg"),
+    "unit_mm_abbr":   ("Units (abbreviated)", "General", "mm"),
+    "unit_cm_abbr":   ("Units (abbreviated)", "General", "cm"),
+    "unit_km_abbr":   ("Units (abbreviated)", "General", "km"),
+
+    # â”€â”€ SI units â€” spelled out â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "unit_mg_spelled":  ("Units (spelled out)", "General", "milligram(s)"),
+    "unit_kg_spelled":  ("Units (spelled out)", "General", "kilogram(s)"),
+    "unit_ml_spelled":  ("Units (spelled out)", "General", "millilitre(s)/milliliter(s)"),
+    "unit_mcg_spelled": ("Units (spelled out)", "General", "microgram(s)"),
+    "unit_mm_spelled":  ("Units (spelled out)", "General", "millimetre(s)/millimeter(s)"),
+    "unit_cm_spelled":  ("Units (spelled out)", "General", "centimetre(s)/centimeter(s)"),
+    "unit_km_spelled":  ("Units (spelled out)", "General", "kilometre(s)/kilometer(s)"),
+
+    # â”€â”€ Section (extended dotted/compound patterns from _ref_patterns) â”€â”€â”€â”€â”€â”€â”€â”€
+    "ref_section_dotted":   ("Section", "General", "Section ^#.^#"),
+    "ref_section_dash":     ("Section", "General", "Section ^#-^#"),
+    "ref_sections_amp":     ("Section", "General", "Sections ^# and ^#"),
+    "ref_sections_lc":      ("Section", "General", "sections ^# (lowercase)"),
+
+    # â”€â”€ Abbreviations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "abbrev_body":    ("Abbreviations", "General", "<[A-Z]{2,}>"),
+    "abbrev_heading": ("Abbreviations", "Heading", "Abbreviations in heading"),
+    "abbrev_caption": ("Abbreviations", "Caption", "Abbreviations in FC/TC"),
+    "abbrev_table":   ("Abbreviations", "Table",   "Abbreviations in CT/TC"),
+
+    # â”€â”€ AUX verbs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    **{f"aux_verb_{w}": ("AUX verbs in headings/captions", "General",
+                         "be, am, is, do, are, was, has, had, did, may, can, will")
+       for w in ["be","am","is","do","are","was","has","had","did","may","can","will"]},
+
+    # â”€â”€ Latin terms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "latin_term": ("Latin terms in italics", "General", "a priori, in vivo, in vitro, in situ, per diemâ€¦"),
+
+    # â”€â”€ Paras ending without full stop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "para_no_full_stop": ("Paras ending without full point", "General", "Last char â‰  . ! ?"),
+
+    # â”€â”€ Genus species â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "genus_species_full":  ("Genus species", "General", "[Genus species]"),
+    "genus_species_abbr":  ("Genus species", "General", "[G. species] (abbreviated)"),
+    "genus_species_nodot": ("Genus species", "General", "[G species] (no dot)"),
+
+    # â”€â”€ Greek letters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "greek_lowercase": ("Greek letters", "General", "Lowercase Greek"),
+    "greek_uppercase": ("Greek letters", "General", "Uppercase Greek"),
+
+    # â”€â”€ WK terms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "wk_transsexual":        ("WK terms", "General", "transsexual"),
+    "wk_concepts_action":    ("WK terms", "General", "Concepts in Action"),
+    "wk_watch_learn":        ("WK terms", "General", "Watch & Learn"),
+    "wk_practice_learn":     ("WK terms", "General", "Practice & Learn"),
+    "wk_interactive_tutorial": ("WK terms", "General", "Interactive Tutorial"),
+    "wk_mongolian_spot":     ("WK terms", "General", "Mongolian spot(s)"),
+
+    # â”€â”€ Mechanical Editing â€” Grammar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "article_an_a_mismatch": ("Article usage", "Grammar", "a/an mismatch"),
+    "wrong_usage":            ("Wrong usage / Typos", "Grammar", "Incorrect word form"),
+
+    # â”€â”€ Mechanical Editing â€” Bias â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    "clinical_jargon":        ("Bias terms", "Inclusive language", "Clinical jargon"),
+    "death_euphemism":        ("Bias terms", "Inclusive language", "Death euphemisms"),
+}
+

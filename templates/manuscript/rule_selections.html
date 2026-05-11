@@ -1,0 +1,507 @@
+{% extends "base.html" %}
+{% block title %}Saved Rule Selections - Manuscript Analysis{% endblock %}
+
+{% block extra_css %}
+<style>
+  .selections-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  .page-header {
+    margin-bottom: 2rem;
+  }
+
+  .page-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #1a2742;
+    margin-bottom: 0.5rem;
+  }
+
+  .page-subtitle {
+    font-size: 0.95rem;
+    color: #6c757d;
+  }
+
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .btn {
+    padding: 0.625rem 1.25rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: #2563eb;
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #1d4ed8;
+  }
+
+  .btn-secondary {
+    background: #e9ecef;
+    color: #495057;
+  }
+
+  .btn-secondary:hover {
+    background: #dee2e6;
+  }
+
+  .btn-sm {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+  }
+
+  .btn-danger {
+    color: #dc2626;
+  }
+
+  .btn-danger:hover {
+    background: #fee2e2;
+  }
+
+  .selections-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 0.5rem;
+    border: 1px solid #dde3ef;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+
+  .selections-table thead {
+    background: #f8fafc;
+    border-bottom: 1px solid #dde3ef;
+  }
+
+  .selections-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #333;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .selections-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #edf2f7;
+    font-size: 0.875rem;
+  }
+
+  .selections-table tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  .selection-name {
+    font-weight: 600;
+    color: #2563eb;
+    cursor: pointer;
+  }
+
+  .selection-name:hover {
+    text-decoration: underline;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .status-active {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .status-inactive {
+    background: #f3f4f6;
+    color: #6b7280;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .action-btn {
+    padding: 0.375rem 0.75rem;
+    background: white;
+    border: 1px solid #dde3ef;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+  }
+
+  .action-btn:hover {
+    background: #f8fafc;
+    border-color: #2563eb;
+    color: #2563eb;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 2rem;
+    background: white;
+    border-radius: 0.5rem;
+    border: 1px solid #dde3ef;
+    color: #6c757d;
+  }
+
+  .empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+  }
+
+  .modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-content {
+    background-color: white;
+    padding: 2rem;
+    border-radius: 0.5rem;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .modal-header {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+  }
+
+  .modal-body {
+    margin-bottom: 1.5rem;
+  }
+
+  .modal-footer {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #333;
+  }
+
+  .form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #dde3ef;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-family: inherit;
+  }
+
+  .form-control:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="padding: 2rem 1.5rem; background: #1a2742; min-height: 100vh;">
+  <div class="selections-container">
+    <!-- Header -->
+    <div class="page-header">
+      <h1 class="page-title">Rule Selections</h1>
+      <p class="page-subtitle">Manage saved rule selections for different projects and clients.</p>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div>
+        <span style="color: #6c757d; font-size: 0.875rem;" id="selectionCount">Loading...</span>
+      </div>
+      <button class="btn btn-primary" onclick="createNewSelection()">+ New Selection</button>
+    </div>
+
+    <!-- Selections Table or Empty State -->
+    <div id="tableContainer"></div>
+  </div>
+</div>
+
+<!-- Create/Edit Selection Modal -->
+<div class="modal" id="selectionModal">
+  <div class="modal-content">
+    <div class="modal-header">New Selection</div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Selection Name *</label>
+        <input type="text" class="form-control" id="selectionName" placeholder="e.g., WKH_Pataki_Essential">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" id="selectionDescription" placeholder="Optional description of this selection" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Project</label>
+        <input type="text" class="form-control" id="selectionProject" placeholder="Optional project name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Client</label>
+        <input type="text" class="form-control" id="selectionClient" placeholder="Optional client name">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSelection()">Save Selection</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let allSelections = [];
+
+  async function loadSelections() {
+    try {
+      const response = await fetch('/manuscript/rule-selections/api');
+      const data = await response.json();
+      allSelections = data.selections || [];
+      renderTable();
+    } catch (error) {
+      console.error('Error loading selections:', error);
+      document.getElementById('tableContainer').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">⚠️</div>
+          <p>Failed to load selections. Please try again.</p>
+        </div>
+      `;
+    }
+  }
+
+  function renderTable() {
+    const container = document.getElementById('tableContainer');
+    const count = allSelections.length;
+
+    document.getElementById('selectionCount').textContent =
+      count === 0 ? 'No selections yet' :
+      count === 1 ? '1 selection' :
+      `${count} selections`;
+
+    if (count === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📋</div>
+          <p>No selections saved yet. Create one to get started.</p>
+        </div>
+      `;
+      return;
+    }
+
+    let html = `
+      <table class="selections-table">
+        <thead>
+          <tr>
+            <th>Selection Name</th>
+            <th>Project</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th style="width: 200px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    allSelections.forEach(sel => {
+      const status = sel.active ? 'active' : 'inactive';
+      const statusClass = sel.active ? 'status-active' : 'status-inactive';
+      const created = new Date(sel.created_at).toLocaleDateString();
+
+      html += `
+        <tr>
+          <td><span class="selection-name" onclick="viewSelection(${sel.id})">${sel.selection_name}</span></td>
+          <td>${sel.project_name || '-'}</td>
+          <td><span class="status-badge ${statusClass}">${status}</span></td>
+          <td>${created}</td>
+          <td>
+            <div class="actions">
+              <button class="action-btn" onclick="activateSelection(${sel.id})" ${sel.active ? 'disabled' : ''}>Activate</button>
+              <button class="action-btn" onclick="editSelection(${sel.id})">Edit</button>
+              <button class="action-btn btn-danger" onclick="deleteSelection(${sel.id})">Delete</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+
+    html += `
+        </tbody>
+      </table>
+    `;
+
+    container.innerHTML = html;
+  }
+
+  let currentEditId = null;
+
+  function createNewSelection() {
+    currentEditId = null;
+    document.querySelector('.modal-header').textContent = 'New Selection';
+    document.getElementById('selectionModal').classList.add('active');
+    document.getElementById('selectionName').focus();
+  }
+
+  function closeModal() {
+    document.getElementById('selectionModal').classList.remove('active');
+    document.getElementById('selectionName').value = '';
+    document.getElementById('selectionDescription').value = '';
+    document.getElementById('selectionProject').value = '';
+    document.getElementById('selectionClient').value = '';
+    currentEditId = null;
+  }
+
+  async function saveSelection() {
+    const name = document.getElementById('selectionName').value.trim();
+    if (!name) {
+      alert('Selection name is required');
+      return;
+    }
+
+    const data = {
+      selection_name: name,
+      description: document.getElementById('selectionDescription').value.trim(),
+      project_name: document.getElementById('selectionProject').value.trim(),
+      client_name: document.getElementById('selectionClient').value.trim()
+    };
+
+    if (currentEditId) {
+      // Update existing
+      try {
+        const response = await fetch(`/manuscript/rule-selections/${currentEditId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        if (response.ok) {
+          closeModal();
+          loadSelections();
+        } else {
+          alert('Failed to update selection');
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Error updating selection');
+      }
+    } else {
+      // Typically creating new happens via discovery UI, but if they hit this:
+      alert('To create a new selection with rules, please use the Discovery UI.');
+      window.location.href = '/manuscript/discovery';
+    }
+  }
+
+  async function activateSelection(id) {
+    try {
+      const response = await fetch(`/manuscript/rule-selections/${id}/activate`, {
+        method: 'POST'
+      });
+      if (response.ok) {
+        loadSelections();
+      } else {
+        alert('Failed to activate selection');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error activating selection');
+    }
+  }
+
+  function editSelection(id) {
+    const sel = allSelections.find(s => s.id === id);
+    if (!sel) return;
+
+    currentEditId = id;
+    document.querySelector('.modal-header').textContent = 'Edit Selection';
+    document.getElementById('selectionName').value = sel.selection_name;
+    document.getElementById('selectionDescription').value = sel.description || '';
+    document.getElementById('selectionProject').value = sel.project_name || '';
+    document.getElementById('selectionClient').value = sel.client_name || '';
+    document.getElementById('selectionModal').classList.add('active');
+  }
+
+  async function deleteSelection(id) {
+    if (!confirm('Are you sure you want to delete this selection?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/manuscript/rule-selections/${id}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        loadSelections();
+      } else {
+        alert('Failed to delete selection');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error deleting selection');
+    }
+  }
+
+  function viewSelection(id) {
+    // Navigate back to technical edit or discovery to see the rules?
+    // Since the actual rules are just JSON data, we can download the report for them
+    const sel = allSelections.find(s => s.id === id);
+    if (sel && sel.session_id) {
+      window.location.href = `/manuscript/discovery/${sel.session_id}/ia-report?selection_id=${id}`;
+    } else {
+      alert(`No session data linked for selection ${id}`);
+    }
+  }
+
+  // Close modal when clicking outside
+  document.getElementById('selectionModal').addEventListener('click', (e) => {
+    if (e.target.id === 'selectionModal') {
+      closeModal();
+    }
+  });
+
+  // Load selections on page load
+  window.addEventListener('load', loadSelections);
+</script>
+{% endblock %}

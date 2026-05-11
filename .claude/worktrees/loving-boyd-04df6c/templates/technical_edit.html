@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+
+{% block title %}Technical Editing - S4carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* same CSS as macro_processing.html for consistency */
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        transition: var(--transition);
+        background: rgba(67, 97, 238, 0.05);
+        cursor: pointer;
+    }
+
+    .drop-zone:hover {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: var(--primary-dark);
+    }
+
+    .drop-zone.highlight {
+        background: rgba(67, 97, 238, 0.15);
+        border-color: var(--secondary);
+        transform: scale(1.02);
+    }
+
+    .file-list {
+        margin-top: 1.5rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .file-icon {
+        color: var(--primary);
+        font-size: 1rem;
+    }
+
+    .remove-file {
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+
+    .remove-file:hover {
+        background: rgba(239, 71, 111, 0.1);
+    }
+
+    .tasks-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1rem;
+        margin: 1.5rem 0;
+    }
+
+    .task-item {
+        display: flex;
+        align-items: center;
+        padding: 1rem;
+        background: var(--gray-100);
+        border-radius: var(--border-radius-sm);
+        cursor: pointer;
+        transition: var(--transition);
+    }
+
+    .task-item:hover {
+        background: rgba(67, 97, 238, 0.1);
+        transform: translateX(5px);
+    }
+
+    .task-checkbox {
+        margin-right: 1rem;
+        width: 20px;
+        height: 20px;
+        accent-color: var(--primary);
+    }
+
+    .download-section {
+        background: rgba(6, 214, 160, 0.1);
+        padding: 1.5rem;
+        border-radius: var(--border-radius);
+        border-left: 4px solid var(--success);
+        text-align: center;
+        margin: 1.5rem 0;
+    }
+    .page-header { margin-bottom: 24px; }
+    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+
+<div class="page-header">
+    <div class="page-title">Technical Editing</div>
+    <div class="page-sub">Process Word documents with specialized Technical Editing workflow</div>
+</div>
+
+<div class="content-card">
+
+    <form method="POST" enctype="multipart/form-data" id="macroForm" action="{{ url_for('technical') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-group">
+            <label class="form-label">Upload Word Files</label>
+            <div class="drop-zone" id="wordDropZone">
+                <i class="fas fa-cloud-upload-alt"
+                    style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+                <p>Drag & drop your Word files here or click to browse</p>
+                <p class="text-muted">Supports .doc and .docx files</p>
+                <input type="file" id="wordFiles" name="word_files[]" multiple accept=".doc,.docx"
+                    style="display: none;">
+            </div>
+            <div class="file-list" id="wordFileList"></div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Processing Tasks</label>
+            <div class="tasks-grid">
+                <!-- <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="0" class="task-checkbox"> Reference Mismatch and Sequence Check
+        </label>
+
+        <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="1" class="task-checkbox"> Reference Renumber
+        </label>
+
+        <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="2" class="task-checkbox"> Reference Find Duplicate
+        </label>
+
+        <label class="task-item">
+            <input type="checkbox" name="tasks[]" value="3" class="task-checkbox"> Reference Update Citation
+        </label>-->
+
+                <!-- UPDATED TASK 4 -->
+                <label class="task-item">
+                    <input type="checkbox" name="tasks[]" value="4" class="task-checkbox" id="techQA">
+                    Technical Editing QA
+                </label>
+
+                <input type="hidden" name="run_technical_editing" id="runTechnicalEditing" value="0">
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 justify-between" id="actionButtons">
+            <button type="submit" class="btn btn-primary" id="submitBtn"><i class="fas fa-play"></i> Process Files</button>
+            <button type="button" id="resetBtn" class="btn btn-outline"><i class="fas fa-trash"></i> Clear All</button>
+        </div>
+
+        <!-- Success Message Container -->
+        <div id="successMessageContainer" class="mt-3"></div>
+    </form>
+</div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const wordDropZone = document.getElementById('wordDropZone');
+    const wordFileInput = document.getElementById('wordFiles');
+    const wordFileList = document.getElementById('wordFileList');
+    let wordFiles = [];
+
+    wordDropZone.addEventListener('click', () => wordFileInput.click());
+    wordDropZone.addEventListener('dragover', e => { e.preventDefault(); wordDropZone.classList.add('highlight'); });
+    ['dragleave', 'dragend'].forEach(type => wordDropZone.addEventListener(type, () => wordDropZone.classList.remove('highlight')));
+    wordDropZone.addEventListener('drop', e => { e.preventDefault(); wordDropZone.classList.remove('highlight'); handleFiles(e.dataTransfer.files); });
+    wordFileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+    function handleFiles(files) {
+        const newFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.doc') || f.name.toLowerCase().endsWith('.docx'));
+        if (newFiles.length < files.length) showAlert('Only .doc and .docx files are supported', 'error');
+        if (newFiles.length > 0) { wordFiles = [...wordFiles, ...newFiles]; updateFileList(); }
+    }
+
+    function updateFileList() {
+        wordFileList.innerHTML = '';
+        if (wordFiles.length === 0) { wordFileList.innerHTML = '<p class="text-center text-muted">No files selected</p>'; return; }
+        wordFiles.forEach((file, index) => {
+            const div = document.createElement('div');
+            div.className = 'file-item';
+            div.innerHTML = `
+                <div class="file-info">
+                    <i class="fas fa-file-word file-icon"></i>
+                    <div><div>${file.name}</div><div class="text-muted">${formatFileSize(file.size)}</div></div>
+                </div>
+                <i class="fas fa-times remove-file" data-index="${index}"></i>`;
+            wordFileList.appendChild(div);
+        });
+        document.querySelectorAll('.remove-file').forEach(btn => btn.addEventListener('click', e => { wordFiles.splice(e.target.dataset.index, 1); updateFileList(); }));
+    }
+
+    function formatFileSize(b) { if (b === 0) return '0 Bytes'; const k = 1024, sizes = ['Bytes', 'KB', 'MB', 'GB'], i = Math.floor(Math.log(b) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]; }
+
+    // Reset Button Logic
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (confirm('Are you sure you want to clear all files and settings?')) {
+                // Clear state
+                wordFiles = [];
+                updateFileList();
+
+                // Reset form
+                const form = document.getElementById('macroForm');
+                if (form) form.reset();
+
+                // Clear hidden input just in case
+                document.getElementById("runTechnicalEditing").value = "0";
+            }
+        });
+    }
+    let pollInterval = null;
+
+    document.getElementById('macroForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        if (wordFiles.length === 0) { showAlert('Please select at least one file', 'error'); return; }
+        const dt = new DataTransfer(); wordFiles.forEach(f => dt.items.add(f)); wordFileInput.files = dt.files;
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+
+        const formData = new FormData(document.getElementById('macroForm'));
+        try {
+            const resp = await fetch('{{ url_for("technical") }}', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (data.error) { showAlert(data.error, 'error'); submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-play"></i> Process Files'; return; }
+            
+            // Show success message with Job Queue link
+            showSuccessMessage(data.job_id);
+            wordFiles = [];
+            updateFileList();
+            document.getElementById('macroForm').reset();
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-play"></i> Process Files';
+
+        } catch(err) {
+            showAlert('Upload failed: ' + err.message, 'error');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-play"></i> Process Files';
+        }
+    });
+
+    function showSuccessMessage(jobId) {
+        const msg = document.createElement('div');
+        msg.className = 'alert alert-success alert-dismissible fade show';
+        msg.innerHTML = `
+            <i class="fas fa-check-circle me-2"></i>
+            <strong>Job submitted!</strong>
+            <a href="/batch-queue" class="alert-link">View in Job Queue →</a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        const container = document.getElementById('successMessageContainer');
+        container.innerHTML = '';
+        container.appendChild(msg);
+        setTimeout(() => msg.remove(), 8000);
+    }
+
+    function showAlert(msg, type) {
+        const div = document.createElement('div'); div.className = `flash ${type}`;
+        div.innerHTML = `${msg}<button class="close">&times;</button>`;
+        const fc = document.querySelector('.flash-messages') || document.createElement('div');
+        if (!document.querySelector('.flash-messages')) { fc.className = 'flash-messages'; document.querySelector('.main-content').prepend(fc); }
+        fc.appendChild(div); div.querySelector('.close').addEventListener('click', () => div.remove()); setTimeout(() => div.remove(), 5000);
+    }
+
+    updateFileList();
+
+    document.getElementById("techQA").addEventListener("change", function () {
+        document.getElementById("runTechnicalEditing").value = this.checked ? "1" : "0";
+    });
+</script>
+{% endblock %}
