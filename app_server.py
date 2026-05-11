@@ -881,12 +881,31 @@ def get_progress(job_id):
 # -----------------------
 # Database Connection Pool (SQLite + Postgres)
 # -----------------------
+class CursorProxy:
+    """Wraps a psycopg2 cursor to provide SQLite-compatible lastrowid attribute."""
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.lastrowid = None
+
+    def execute(self, *args, **kwargs):
+        return self._cursor.execute(*args, **kwargs)
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
 class PostgresWrapper:
     def __init__(self, conn, pool_ref):
         self.conn = conn
         self.pool_ref = pool_ref
         self.cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         self.is_postgres = True
+        self.lastrowid = None
 
     def execute(self, query, params=None):
         # Translate SQLite ? placeholders to Postgres %s
@@ -912,11 +931,13 @@ class PostgresWrapper:
         if pg_query.strip().upper().startswith('INSERT') and 'RETURNING' in pg_query.upper():
             result = self.cursor.fetchone()
             if result:
-                self.cursor.lastrowid = result[0]
+                self.lastrowid = result[0]
             else:
-                self.cursor.lastrowid = 0
+                self.lastrowid = 0
 
-        return self.cursor
+        proxy = CursorProxy(self.cursor)
+        proxy.lastrowid = self.lastrowid
+        return proxy
 
     def fetchone(self):
         return self.cursor.fetchone()
@@ -942,24 +963,26 @@ class SQLiteWrapper:
         self.conn = conn
         self.pool_ref = pool_ref
         self.is_postgres = False
+        self.cursor = None
+        self.lastrowid = None
 
     def execute(self, query, params=None):
         try:
             if params:
-                return self.conn.execute(query, params)
+                self.cursor = self.conn.execute(query, params)
             else:
-                return self.conn.execute(query)
+                self.cursor = self.conn.execute(query)
+            self.lastrowid = self.cursor.lastrowid
+            return self.cursor
         except Exception:
             self.conn.rollback()
             raise
 
     def fetchone(self):
-        # SQLite cursor is returned by execute
-        pass
+        return self.cursor.fetchone() if self.cursor else None
 
     def fetchall(self):
-        # SQLite cursor is returned by execute
-        pass
+        return self.cursor.fetchall() if self.cursor else []
 
     def commit(self):
         self.conn.commit()
