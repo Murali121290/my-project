@@ -1,22 +1,17 @@
 """Compound variant detection â€” hyphenated / closed-up / spaced.
-
 We maintain a curated list of compound "bases" (like "decision making",
 "health care", "e-mail"). For each, we scan for all three surface forms:
 hyphenated, spaced, and closed-up. Every occurrence becomes a Finding;
 the aggregator later groups them by `canonical` so the dashboard can
 report "decision-making (34) Â· decision making (12) Â· decisionmaking (1)".
-
 Casing variants (Likert vs likert) are surfaced by the aggregator when the
 same canonical form appears in multiple casings.
 """
 from __future__ import annotations
-
 import re
 from typing import Iterable
-
 from manuscript_core.extractor import Segment
 from manuscript_core.rules.base import Finding, context_snippet, iter_unmasked_matches
-
 # Curated list from the brief. Each entry is the "spaced" canonical form;
 # we auto-generate hyphenated and closed-up patterns from it.
 COMPOUND_BASES: tuple[str, ...] = (
@@ -47,7 +42,6 @@ COMPOUND_BASES: tuple[str, ...] = (
     "peer review",
     "Student t test",
     "Cronbach alpha",
-
     # From the brief â€” core editorial triplets
     "decision making",
     "health care",
@@ -149,11 +143,8 @@ COMPOUND_BASES: tuple[str, ...] = (
     "web cast",
     "web cam",
 )
-
-
 def _build_compound_patterns() -> list[tuple[re.Pattern, str, str, str]]:
     """Return list of (pattern, canonical_key, rule_id, form_label).
-
     form_label is "spaced" | "hyphenated" | "closed".
     canonical_key is the normalized form (lowercased, single-spaced) used to
     group all variants together.
@@ -168,7 +159,6 @@ def _build_compound_patterns() -> list[tuple[re.Pattern, str, str, str]]:
         spaced = r"\b" + r"\s+".join(re.escape(w) for w in words) + r"\b"
         hyphenated = r"\b" + r"-".join(re.escape(w) for w in words) + r"\b"
         closed = r"\b" + "".join(re.escape(w) for w in words) + r"\b"
-
         rule_id = canonical.replace(" ", "_")
         out.append((re.compile(spaced, re.IGNORECASE), canonical, rule_id, "spaced"))
         out.append((re.compile(hyphenated, re.IGNORECASE), canonical, rule_id, "hyphenated"))
@@ -178,31 +168,22 @@ def _build_compound_patterns() -> list[tuple[re.Pattern, str, str, str]]:
         # but the aggregator will only flag if multiple forms co-occur.
         out.append((re.compile(closed, re.IGNORECASE), canonical, rule_id, "closed"))
     return out
-
-
 _COMPOUND_PATTERNS = _build_compound_patterns()
-
-
-
 _CUSTOM_COMPOUND_PATTERNS = [
     # (pattern, canonical, rule_id, form_label)
     (re.compile(r"\bthree dimensional\b", re.IGNORECASE), "three dimensional", "three_dimensional", "spaced"),
     (re.compile(r"\bthree-dimensional\b", re.IGNORECASE), "three dimensional", "three_dimensional", "hyphenated"),
     (re.compile(r"\b3D\b", re.IGNORECASE), "three dimensional", "three_dimensional", "3D"),
     (re.compile(r"\b3-D\b", re.IGNORECASE), "three dimensional", "three_dimensional", "3-D"),
-    
     (re.compile(r"\btwo dimensional\b", re.IGNORECASE), "two dimensional", "two_dimensional", "spaced"),
     (re.compile(r"\btwo-dimensional\b", re.IGNORECASE), "two dimensional", "two_dimensional", "hyphenated"),
     (re.compile(r"\b2D\b", re.IGNORECASE), "two dimensional", "two_dimensional", "2D"),
     (re.compile(r"\b2-D\b", re.IGNORECASE), "two dimensional", "two_dimensional", "2-D"),
-    
-    (re.compile(r"\bÃŽÂ² blocker\b", re.IGNORECASE), "beta blocker", "beta_blocker_greek", "spaced"),
-    (re.compile(r"\bÃŽÂ²-blocker\b", re.IGNORECASE), "beta blocker", "beta_blocker_greek", "hyphenated"),
-    (re.compile(r"\bÃŽÂ²blocker\b", re.IGNORECASE), "beta blocker", "beta_blocker_greek", "closed"),
+    (re.compile(r"\bβ blocker\b", re.IGNORECASE), "beta blocker", "beta_blocker_greek", "spaced"),
+    (re.compile(r"\bβ-blocker\b", re.IGNORECASE), "beta blocker", "beta_blocker_greek", "hyphenated"),
+    (re.compile(r"\bβblocker\b", re.IGNORECASE), "beta blocker", "beta_blocker_greek", "closed"),
 ]
-
 _LY_HYPHEN_PATTERN = re.compile(r"\b\w+ly-\w+\b")
-
 def run_compound_rules(seg: Segment) -> Iterable[Finding]:
     # Run the standard compound bases
     for pat, canonical, rule_id, form in _COMPOUND_PATTERNS:
@@ -220,7 +201,6 @@ def run_compound_rules(seg: Segment) -> Iterable[Finding]:
                 para_index=seg.para_index,
                 context=context_snippet(seg.text, m.start(), m.end()),
             )
-            
     # Run custom patterns (3D, etc.)
     for pat, canonical, rule_id, form in _CUSTOM_COMPOUND_PATTERNS:
         for m in iter_unmasked_matches(pat, seg.text, seg.mask):
@@ -237,7 +217,6 @@ def run_compound_rules(seg: Segment) -> Iterable[Finding]:
                 para_index=seg.para_index,
                 context=context_snippet(seg.text, m.start(), m.end()),
             )
-            
     # Run -ly hyphen pattern
     for m in iter_unmasked_matches(_LY_HYPHEN_PATTERN, seg.text, seg.mask):
         yield Finding(
@@ -253,5 +232,3 @@ def run_compound_rules(seg: Segment) -> Iterable[Finding]:
             para_index=seg.para_index,
             context=context_snippet(seg.text, m.start(), m.end()),
         )
-
-

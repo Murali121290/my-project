@@ -1,5 +1,4 @@
 import re
-
 def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
     """
     Given a detection rule and its regex match, dynamically calculate what the 
@@ -7,7 +6,6 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
     auto-fixed and requires manual human review.
     """
     surface = m.group(0)
-
     # 1. Percent
     if rule_id == "percent_symbol":
         # "\b\d+(?:\.\d+)?\s*%"  -> numbers percent
@@ -15,68 +13,54 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
         return f"{v} percent"
     if rule_id in ("percent_word", "per_cent_word"):
         return "%"
-
     # 2. Ellipsis
     if rule_id in ("ellipsis_3dots", "ellipsis_spaced"):
-        return "â€¦"
-
+        return "…"
     # 3. AM/PM
     if rule_id in ("ampm_am_upper", "ampm_am_upper_dots", "ampm_am_lower"):
         return "a.m."
     if rule_id in ("ampm_pm_upper", "ampm_pm_upper_dots", "ampm_pm_lower"):
         return "p.m."
-
     # 4. Leading zero
-    if rule_id == "lead_zero_missing":
+    if rule_id == "leading_zero_missing":
         # "(?<!\d)\.(?=\d)" matches "."
         return "0."
-
     # 5. Spaced locators
-    if rule_id == "spaced_hyphen":
-        return "â€”"
-    
+    if rule_id == "spaced_hyphens":
+        return "—"
     # 6. Dimensions (x)
     if rule_id == "times_x_char":
-        return " Ã— "
-    
+        return " × "
     # 7. Versus
     if rule_id in ("versus_vs", "versus_v", "versus_vs_dot", "versus_v_dot"):
         return "versus"
-    
     # 8. Era
-    if rule_id in ("era_ad_nodots", "era_ad_dots", "era_ad_spaced", "era_ad_dots_spaced"):
+    if rule_id in ("era_ad_nodot", "era_ad_dots", "era_ad_spaced", "era_ad_dots_spaced"):
         return "A.D."
-    if rule_id in ("era_bc_nodots", "era_bc_dots", "era_bc_spaced", "era_bc_dots_spaced"):
+    if rule_id in ("era_bc_nodot", "era_bc_dots", "era_bc_spaced", "era_bc_dots_spaced"):
         return "B.C."
-
     # 9. Centuries numeric
     cent_map = {"21st": "twenty-first", "20th": "twentieth", "19th": "nineteenth", "18th": "eighteenth"}
     if rule_id == "century_numeric":
         for n, w in cent_map.items():
             if n in surface.lower():
                 return f"{w} century"
-
     # 10. Table/Figure/Box casing (e.g. figure -> Figure)
     if rule_id in ("ref_figure_lower", "ref_table_lower", "ref_box_lower", "ref_chapter_lower"):
         return surface.capitalize()
-    
     # Plural expansions (e.g. Figs -> Figures)
     if rule_id == "ref_figs_single": return "Figures"
     if rule_id == "ref_fig_single": return "Figure"
     if rule_id == "ref_figs_and": return "Figures"
     if rule_id == "ref_fig_and": return "Figure"
-    
     if rule_id == "ref_tabs_single": return "Tables"
     if rule_id == "ref_tab_single": return "Table"
     if rule_id == "ref_tabs_and": return "Tables"
     if rule_id == "ref_tab_and": return "Table"
-
     if rule_id == "ref_boxes_single": return "Boxes"
     if rule_id == "ref_box_single": return "Box"
-    
     if rule_id == "ref_chapters_single": return "Chapters"
     if rule_id == "ref_chapter_single": return "Chapter"
-
     # Abbreviated plural dotted forms (e.g. Tabs 3.2 -> Tables 3.2, Figs 1.2 -> Figures 1.2)
     if rule_id in ("ref_tabs_dotted", "cap_tabs_dotted"):
         return re.sub(r'\bTabs\.?\b', 'Tables', surface, flags=re.IGNORECASE)
@@ -90,7 +74,6 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
         return re.sub(r'\bBoxes?\.?\b', 'Boxes', surface, flags=re.IGNORECASE)
     if rule_id in ("ref_boxes_single_num", "cap_boxes_single_num"):
         return re.sub(r'\bBoxes?\.?\b', 'Boxes', surface, flags=re.IGNORECASE)
-
     # 11. Ordinals Spelled Out -> Numeric
     ordinal_map = {
         "first": "1st", "second": "2nd", "third": "3rd", "fourth": "4th",
@@ -109,69 +92,60 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
         w = surface.lower().strip()
         if w in ordinal_map:
             return ordinal_map[w]
-
     # 12. Fractions
     if rule_id == "fract_symbol_half": return "1/2"
     if rule_id == "fract_symbol_quarter": return "1/4"
     if rule_id == "fract_symbol_three_quarters": return "3/4"
-
     # 13. Degree -> Symbol
-    if rule_id == "deg_celsius_word": return "Â°C"
-    if rule_id == "deg_fahrenheit_word": return "Â°F"
-    if rule_id in ("deg_word_degrees", "deg_word_degree"): return "Â°"
-
+    if rule_id == "deg_celsius_word": return "°C"
+    if rule_id == "deg_fahrenheit_word": return "°F"
+    if rule_id in ("deg_word_degrees", "deg_word_degree"): return "°"
     # 14. Symbols
-    if rule_id == "sym_trademark_text": return "â„¢"
-    if rule_id == "sym_registered_text": return "Â®"
-    if rule_id == "sym_copyright_text": return "Â©"
-
+    if rule_id == "sym_trademark_text": return "™"
+    if rule_id == "sym_registered_text": return "®"
+    if rule_id == "sym_copyright_text": return "©"
     # 15. Ranges En-Dash
     if rule_id == "range_hyphen":
         try:
             pt = re.compile(r'(\d)\s*-\s*(\d)')
-            return pt.sub(r'\1â€“\2', surface)
+            return pt.sub(r'\1–\2', surface)
         except Exception:
             return None
     if rule_id == "range_to":
         try:
             pt = re.compile(r'(\d)\s+to\s+(\d)')
-            return pt.sub(r'\1â€“\2', surface)
+            return pt.sub(r'\1–\2', surface)
         except Exception:
             return None
-
     # 16. Quotes
     if rule_id == "quote_single_straight":
-        # "'hello'" -> "â€˜helloâ€™"
+        # "'hello'" -> "‘hello’"
         try:
             pt = re.compile(r"'([^']+)'")
-            return pt.sub(r'â€˜\1â€™', surface)
+            return pt.sub(r'‘\1’', surface)
         except Exception:
             return None
     if rule_id == "quote_double_straight":
         try:
             pt = re.compile(r'"([^"]+)"')
-            return pt.sub(r'â€œ\1â€”', surface)
+            return pt.sub(r'“\1”', surface)
         except Exception:
             return None
-
     # 17. Fold (Num fold -> Num-fold)
     if rule_id == "fold_numeral_open":
         return surface.replace(' ', '-')
-    if rule_id == "fold_numeral_close":
+    if rule_id == "fold_numeral_closed":
         v = re.findall(r'\d+', surface)
         if v: return f"{v[0]}-fold"
-
     # 18. Caps after colon
-    if rule_id == "colon_lower":
-        return surface[:2] + surface[2:].upper()
-    if rule_id == "colon_upper":
+    if rule_id == "caps_after_colon":
         return surface[:2] + surface[2:].lower()
-
+    if rule_id == "lowercase_after_colon":
+        return surface[:2] + surface[2:].upper()
     # 19. Latin abbreviations
     if rule_id in ("latin_eg_nodots", "latin_eg_upper", "latin_eg_spaced"): return "e.g.,"
     if rule_id in ("latin_ie_nodots", "latin_ie_upper", "latin_ie_spaced"): return "i.e.,"
     if rule_id == "latin_etc_nodot": return "etc."
-
     # 20. Thousand separated
     if rule_id == "thous_sep_missing":
         try:
@@ -181,7 +155,6 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
             pass
     if rule_id in ("thous_sep_space", "thous_sep_nbsp"):
         return surface.replace(' ', ',').replace('\u00A0', ',')
-
     # 21. Time unit abbrevs (table mode filters happen naturally, rule_id still applies)
     if rule_id in ("unit_hour_h", "unit_hour_hr"):
         return "hours"
@@ -198,7 +171,6 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
     if rule_id == "time_y_word":
         v = re.sub(r'\s*(?:y|yr|yrs)\b', '', surface, flags=re.IGNORECASE)
         return f"{v} years"
-
     # 22. Numbers (0-9, 0-99 mapping numerals <-> spelled)
     if rule_id in ("num_single_numeral", "num_double_numeral", "num_zero_numeral"):
         # numeral to spelled
@@ -211,7 +183,6 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
         else:
             t, o = divmod(val, 10)
             return tens[t] if o == 0 else f"{tens[t]}-{ones[o]}"
-    
     if rule_id in ("num_single_spelled", "num_double_spelled", "num_zero_spelled"):
         # spelled to numeral
         w = surface.lower().strip()
@@ -220,55 +191,43 @@ def get_te_replacement(rule_id: str, m: re.Match) -> str | None:
         tens_map = {"twenty":20,"thirty":30,"forty":40,"fifty":50,"sixty":60,"seventy":70,"eighty":80,"ninety":90}
         if w in ones_map: return str(ones_map[w])
         if w in teens_map: return str(teens_map[w])
-        
         parts = re.split(r'[-\s]+', w)
         if len(parts) == 1:
             if parts[0] in tens_map: return str(tens_map[parts[0]])
         elif len(parts) == 2:
             if parts[0] in tens_map and parts[1] in ones_map:
                 return str(tens_map[parts[0]] + ones_map[parts[1]])
-
     return None
-
-
 # ────────────────────────────────────────────────────────────────────────────
 # Multi-option replacements for dropdown UI in editor_review.html
 # ────────────────────────────────────────────────────────────────────────────
-
 _NUM_WORDS = {1:"one",2:"two",3:"three",4:"four",5:"five",6:"six",7:"seven",8:"eight",9:"nine",10:"ten",11:"eleven",12:"twelve"}
 _ORD_WORDS = {1:"first",2:"second",3:"third",4:"fourth",5:"fifth",6:"sixth",7:"seventh",8:"eighth",9:"ninth",10:"tenth",
               11:"eleventh",12:"twelfth",13:"thirteenth",14:"fourteenth",15:"fifteenth",20:"twentieth",21:"twenty-first"}
-
 def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
     """Return ordered list of valid replacement choices for editor review dropdown."""
     surface = m.group(0)
     nums = re.findall(r'\d+', surface)
-
     # Percent style
     if rule_id in ("percent_symbol", "percent_word", "per_cent_word", "percent_percentage"):
         return ["%", "per cent", "percent"]
-
     # Ellipsis style
     if rule_id in ("ellipsis_symbol", "ellipsis_3dots", "ellipsis_spaced"):
         return ["…", "...", ". . ."]
-
     # AM/PM
     if "ampm_am" in rule_id:
         return ["AM", "A.M.", "a.m.", "am"]
     if "ampm_pm" in rule_id:
         return ["PM", "P.M.", "p.m.", "pm"]
-
     # Era (AD/BC)
     if "era_ad" in rule_id:
         return ["AD", "A.D."]
     if "era_bc" in rule_id:
         return ["BC", "B.C."]
-
     # Number ranges
     if rule_id in ("range_to", "range_endash", "range_hyphen") and len(nums) >= 2:
         n1, n2 = nums[0], nums[1]
         return [f"{n1} to {n2}", f"{n1}–{n2}", f"{n1}-{n2}"]
-
     # Leading zero
     if rule_id == "leading_zero_missing":
         decimal_m = re.search(r'(\.\d+)', surface)
@@ -279,15 +238,12 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         if decimal_m:
             dec_str = decimal_m.group(1)
             return [dec_str, dec_str.lstrip('0')]
-
     # Times symbol (×)
     if rule_id in ("times_symbol", "times_letter"):
         return ["×", "x"]
-
     # Versus
     if rule_id in ("versus_full", "versus_vs_dot", "versus_vs", "versus_v_dot", "versus_v"):
         return ["versus", "vs.", "vs", "v.", "v"]
-
     # Latin abbreviations
     if "latin_eg" in rule_id:
         return ["e.g.", "e.g.,", "eg.", "eg"]
@@ -295,7 +251,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         return ["i.e.", "i.e.,", "ie.", "ie"]
     if "latin_etc" in rule_id:
         return ["etc.", "etc"]
-
     # Numbers (digit/spell)
     if rule_id in ("num_single_numeral", "num_single_spelled", "num_double_numeral", "num_double_spelled",
                    "num_zero_numeral", "num_zero_spelled") and nums:
@@ -305,7 +260,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
             return [str(n), word]
         else:
             return [word, str(n)]
-
     # Ordinals
     if rule_id in ("ordinal_st", "ordinal_nd", "ordinal_rd", "ordinal_th") and nums:
         n = int(nums[0])
@@ -321,7 +275,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
                  "nd" if n % 10 == 2 and n % 100 != 12 else \
                  "rd" if n % 10 == 3 and n % 100 != 13 else "th"
         return [word, f"{n}{suffix}"]
-
     # Trademark / Register / Copyright
     if rule_id in ("sym_trademark_char", "sym_trademark_text"):
         return ["™", "(TM)"]
@@ -329,13 +282,11 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         return ["®", "(R)"]
     if rule_id in ("sym_copyright_char", "sym_copyright_text"):
         return ["©", "(C)"]
-
     # Quote style
     if rule_id in ("quote_double_curly", "quote_double_straight"):
         return ['"', '"', '"']
     if rule_id in ("quote_single_curly", "quote_single_straight"):
         return ["'", "'", "'"]
-
     # Fold
     if "fold" in rule_id:
         n_match = re.search(r'(\d+|one|two|three|four|five|six|seven|eight|nine|ten)', surface, re.I)
@@ -349,7 +300,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
                 word = part.lower()
                 part = str(n) if n else part
             return [f"{part}-fold", f"{part} fold", f"{word}fold"]
-
     # Times word (X times)
     if "times_numeral" in rule_id or "times_word" in rule_id or "times_twice" in rule_id:
         if nums:
@@ -359,7 +309,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
                 return [f"{n} times", "twice", f"{word} times"]
             return [f"{n} times", f"{word} times"]
         return ["twice", "2 times"]
-
     # Date
     _MONTHS = {"jan":"January","feb":"February","mar":"March","apr":"April",
                "may":"May","jun":"June","jul":"July","aug":"August",
@@ -375,7 +324,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
             month = _MONTHS.get(month_m.group(1).lower(), month_m.group(1))
             d, y = day_m.group(1), year_m.group(1)
             return [f"{d} {month} {y}", f"{month} {d}, {y}"]
-
     # Century
     if "century" in rule_id and nums:
         n = int(nums[0])
@@ -386,7 +334,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         plural = "centuries" if "centur" in surface.lower() and \
                  ("centuri" in surface.lower() or "centuries" in surface.lower()) else "century"
         return [f"{n}{suffix} {plural}", f"{word} {plural}"]
-
     # Fractions
     _FRAC_MAP = {
         ("1","2"): ("½", "1/2", "one-half"),
@@ -400,7 +347,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         if key in _FRAC_MAP:
             return list(_FRAC_MAP[key])
         return [f"{nums[0]}/{nums[1]}"]
-
     # Temperature
     if "celsius" in rule_id or "deg_c" in rule_id:
         n = nums[0] if nums else "#"
@@ -410,7 +356,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         return [f"{n}°F", f"{n} degrees Fahrenheit"]
     if rule_id == "degree_symbol_alone":
         return ["°C", "°F"]
-
     # Comparison symbols
     if rule_id in ("cmp_gte_sym", "cmp_gte_words"):
         return ["≥", "greater than or equal to"]
@@ -422,7 +367,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         return ["<", "less than"]
     if rule_id in ("cmp_approx_words", "cmp_tilde"):
         return ["≈", "~", "approximately"]
-
     # Thousands separator
     if "thousands" in rule_id and nums:
         raw = re.sub(r'[,\s ]', '', surface)
@@ -431,17 +375,14 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
             return [f"{n:,}", f"{n:}"]
         except ValueError:
             pass
-
     # Virgule (per)
     if rule_id in ("per_word", "virgule_slash"):
         slash_m = re.search(r'(\S+)/(\S+)', surface)
         if slash_m:
             return [surface, f"{slash_m.group(1)} per {slash_m.group(2)}"]
-
     # Inline list marker
     if "list" in rule_id:
         return ["(a)", "(1)", "(i)", "a)", "1)", "i)", "A)", "I)"]
-
     # SI units
     _SI = {"mg":("mg","milligram"), "kg":("kg","kilogram"),
            "ml":("ml","mL","millilitre"), "mcg":("mcg","microgram"),
@@ -450,7 +391,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
     for abbr, opts in _SI.items():
         if abbr in rule_id:
             return list(opts)
-
     # Time units
     if "unit_hour" in rule_id:
         n = nums[0] if nums else ""
@@ -464,7 +404,6 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
         n = nums[0] if nums else ""
         pre = f"{n} " if n else ""
         return [f"{pre}s", f"{pre}sec", f"{pre}second"]
-
     # Gas abbreviations (inline vs subscript)
     _GAS = {"paco2":("PaCO₂","PaCO2"), "pco2":("PCO₂","PCO2"),
             "pao2":("PaO₂","PaO2"), "fio2":("FiO₂","FIO2"),
@@ -472,6 +411,4 @@ def get_te_replacement_options(rule_id: str, m: re.Match) -> list[str]:
     for gas, opts in _GAS.items():
         if gas in rule_id:
             return list(opts)
-
     return []
-

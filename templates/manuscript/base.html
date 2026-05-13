@@ -544,6 +544,10 @@
                 </details>
                 {% endif %}
 
+                <a href="{{ url_for('excel_validator.upload_page') }}"
+                    class="nav-link {% if request.endpoint and request.endpoint.startswith('excel_validator') %}active{% endif %}">
+                    <i class="fas fa-table"></i> Excel Merge &amp; Compare
+                </a>
                 <a href="{{ url_for('batch_queue_view') }}"
                     class="nav-link {% if request.endpoint == 'batch_queue_view' %}active{% endif %}">
                     <i class="fas fa-layer-group"></i> Job Queue

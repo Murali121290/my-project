@@ -1,13 +1,9 @@
 """Bias terms (JBL-style inclusive-language flags) and article errors."""
 from __future__ import annotations
-
 import re
 from typing import Iterable
-
 from manuscript_core.extractor import Segment
 from manuscript_core.rules.base import Finding, context_snippet, iter_unmasked_matches
-
-
 # Each entry is (pattern_source, label, suggestion).
 # Patterns are matched case-insensitively with word boundaries.
 BIAS_TERMS: tuple[tuple[str, str, str], ...] = (
@@ -15,7 +11,7 @@ BIAS_TERMS: tuple[tuple[str, str, str], ...] = (
     (r"the\s+aged", "the aged", "older adults"),
     (r"aging\s+dependents", "aging dependents", "older adults who need support"),
     (r"old-old", "old-old", "adults aged 85+"),
-    (r"young-old", "young-old", "adults aged 65â€“74"),
+    (r"young-old", "young-old", "adults aged 65-74"),
     (r"the\s+poor", "the poor", "people with low incomes"),
     (r"the\s+unemployed", "the unemployed", "people who are unemployed"),
     (r"the\s+blind", "the blind", "people who are blind"),
@@ -65,7 +61,6 @@ BIAS_TERMS: tuple[tuple[str, str, str], ...] = (
     (r"spokesmen", "spokesmen", "spokespeople"),
     (r"spokeswoman", "spokeswoman", "spokesperson"),
     (r"\bstewardess\b", "stewardess", "flight attendant"),
-
     (r"chairwomen", "chairwomen", "chairs"),
     (r"corpsmen", "corpsmen", "corps members"),
     (r"policewomen", "policewomen", "police officers"),
@@ -75,8 +70,6 @@ BIAS_TERMS: tuple[tuple[str, str, str], ...] = (
     (r"\bhis/her\b", "his/her", "their"),
     (r"\bhim/her\b", "him/her", "them"),
 )
-
-
 def _build_bias_patterns() -> list[tuple[re.Pattern, str, str]]:
     out = []
     for src, label, suggestion in BIAS_TERMS:
@@ -84,11 +77,7 @@ def _build_bias_patterns() -> list[tuple[re.Pattern, str, str]]:
         pat = src if r"\b" in src else r"\b" + src + r"\b"
         out.append((re.compile(pat, re.IGNORECASE), label, suggestion))
     return out
-
-
 _BIAS_PATTERNS = _build_bias_patterns()
-
-
 def run_bias_rules(seg: Segment) -> Iterable[Finding]:
     for pat, label, suggestion in _BIAS_PATTERNS:
         for m in iter_unmasked_matches(pat, seg.text, seg.mask):
@@ -107,14 +96,12 @@ def run_bias_rules(seg: Segment) -> Iterable[Finding]:
                 severity="warn",
                 replacement=suggestion,
             )
-
-
 # ---------------------------------------------------------------------------
 # Article a/an errors
 # ---------------------------------------------------------------------------
 # Common cases from the brief. We check the literal following token.
 # We flag BOTH directions: "an" before a consonant-sound word, "a" before
-# a vowel-sound word â€” but only for cases we're reasonably confident about.
+# a vowel-sound word Ã¢â‚¬â€ but only for cases we're reasonably confident about.
 AN_WRONG = {
     # Words starting with a consonant sound despite the vowel letter
     "eukaryote",
@@ -134,9 +121,7 @@ AN_WRONG = {
     "unique",
     "urine",
     "xenograft",
-    "eukaryote", "histogram", "laryngoscope", "mammogram", "neurologist", "user", "xenograft", "MRSA outbreak", "NICU incubator",
 }
-
 A_WRONG = {
     # Words starting with a vowel sound despite the consonant letter
     # (honor, hour, etc.) or that start with a vowel letter
@@ -156,12 +141,8 @@ A_WRONG = {
     "nicu",
     "icu",
     "iv",
-    "eye", "hour", "MMSE", "NSAID", "otoscope", "ulcer", "x-ray",
 }
-
 ARTICLE_PATTERN = re.compile(r"\b(a|an)\s+([A-Za-z][A-Za-z0-9\-]*)", re.IGNORECASE)
-
-
 def run_article_rules(seg: Segment) -> Iterable[Finding]:
     for m in iter_unmasked_matches(ARTICLE_PATTERN, seg.text, seg.mask):
         article = m.group(1).lower()
@@ -191,8 +172,6 @@ def run_article_rules(seg: Segment) -> Iterable[Finding]:
             severity="error",
             replacement=f"{expected} {following}",
         )
-
-
 # ---------------------------------------------------------------------------
 # Country Style
 # ---------------------------------------------------------------------------
@@ -211,7 +190,6 @@ def run_country_style(seg: Segment) -> Iterable[Finding]:
                 chapter_name=seg.chapter_name, source=seg.source, page=seg.page,
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
             )
-
 # ---------------------------------------------------------------------------
 # Death Euphemism
 # ---------------------------------------------------------------------------
@@ -232,7 +210,6 @@ def run_death_euphemism(seg: Segment) -> Iterable[Finding]:
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
                 severity="warn"
             )
-
 # ---------------------------------------------------------------------------
 # Clinical Jargon
 # ---------------------------------------------------------------------------
@@ -264,7 +241,6 @@ def run_clinical_jargon(seg: Segment) -> Iterable[Finding]:
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
                 severity="warn"
             )
-
 # ---------------------------------------------------------------------------
 # Subject Terms
 # ---------------------------------------------------------------------------
@@ -282,7 +258,6 @@ def run_subject_terms(seg: Segment) -> Iterable[Finding]:
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
                 severity="info"
             )
-
 # ---------------------------------------------------------------------------
 # Eponym Style
 # ---------------------------------------------------------------------------
@@ -300,7 +275,6 @@ def run_eponym_style(seg: Segment) -> Iterable[Finding]:
                 chapter_name=seg.chapter_name, source=seg.source, page=seg.page,
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
             )
-
 # ---------------------------------------------------------------------------
 # Wrong Usage
 # ---------------------------------------------------------------------------
@@ -313,7 +287,6 @@ WRONG_USAGE_TERMS = [
     (re.compile(r"\bTrendelenberg\b"), "Trendelenburg"),
     (re.compile(r"\bHbA1C\b"), "HbA1c"),
     (re.compile(r"\bHBA1c\b"), "HbA1c"),
-    (re.compile(r"\bHbA1c\b"), "HbA1c (correct)"),
 ]
 def run_wrong_usage(seg: Segment) -> Iterable[Finding]:
     for pat, suggestion in WRONG_USAGE_TERMS:
@@ -325,7 +298,6 @@ def run_wrong_usage(seg: Segment) -> Iterable[Finding]:
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
                 severity="error", replacement=suggestion
             )
-
 # ---------------------------------------------------------------------------
 # Punctuation Pattern
 # ---------------------------------------------------------------------------
@@ -348,7 +320,6 @@ def run_punctuation_style(seg: Segment) -> Iterable[Finding]:
                 chapter_name=seg.chapter_name, source=seg.source, page=seg.page,
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
             )
-
 # ---------------------------------------------------------------------------
 # Sic and Special
 # ---------------------------------------------------------------------------
@@ -368,7 +339,6 @@ def run_sic_special(seg: Segment) -> Iterable[Finding]:
                 para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
                 severity="info"
             )
-
 def run_pronoun_check(seg: Segment) -> Iterable[Finding]:
     # Placeholder for single pronouns (low severity)
     # the "he or she" are already in bias terms
@@ -380,4 +350,3 @@ def run_pronoun_check(seg: Segment) -> Iterable[Finding]:
             para_index=seg.para_index, context=context_snippet(seg.text, m.start(), m.end()),
             severity="info"
         )
-

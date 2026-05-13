@@ -23,7 +23,7 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from manuscript_core.analyzer import analyze_manuscript
-from manuscript_core.exporters import build_csv, build_excel, build_ia_excel
+from manuscript_core.exporters import build_combined_excel, build_csv, build_excel, build_ia_excel
 from manuscript_core.fixer import apply_fixes_to_docx, apply_fixes_targeted, build_fixes_from_selection
 from manuscript_core.tasks import analyze_job, fix_job
 
@@ -182,46 +182,13 @@ def _ensure_ia_mapping_from_selection(
     except Exception:
         pass
 
-    # Strategy 3: Search DB with broader matching
-    try:
-        from manuscript_core.models import RuleSelection
-        from app_server import get_db
-
-        with get_db() as db:
-            cursor = db.execute(
-                "SELECT * FROM rule_selections ORDER BY created_at DESC LIMIT 20"
-            )
-            for row in cursor.fetchall():
-                sel = RuleSelection.from_dict(dict(row))
-                sp = sel.project_name or ""
-                sc = sel.client_name or ""
-                if sp in (project_name, client_name) or sc in (project_name, client_name) or \
-                   not (project_name or client_name):
-                    if _rows_to_ia_file(sel.selected_ia_rows or []):
-                        return True
-    except Exception:
-        pass
-
-    # Strategy 4: Desperate — pick most recent selection regardless of name
+    # Strategy 3: Desperate — pick most recent JSON file regardless of name
     try:
         if MANU_IA_DIR.exists():
             json_files = sorted(MANU_IA_DIR.glob("*_*_rules.json"), key=lambda p: p.stat().st_mtime, reverse=True)
             if json_files:
                 sel_data = json.loads(json_files[0].read_text(encoding="utf-8"))
                 if _rows_to_ia_file(sel_data.get("selected_ia_rows", [])):
-                    return True
-    except Exception:
-        pass
-
-    try:
-        from manuscript_core.models import RuleSelection
-        from app_server import get_db
-        with get_db() as db:
-            cursor = db.execute("SELECT * FROM rule_selections ORDER BY created_at DESC LIMIT 1")
-            row = cursor.fetchone()
-            if row:
-                sel = RuleSelection.from_dict(dict(row))
-                if _rows_to_ia_file(sel.selected_ia_rows or []):
                     return True
     except Exception:
         pass
@@ -861,6 +828,20 @@ def download_ia_excel(job_id: str):
         download_name=f"ia_report_{job_id}.xlsx",
     )
 
+@manuscript_bp.route('/download/<job_id>/combined_report.xlsx', methods=['GET'])
+def download_combined_excel(job_id: str):
+    """Download combined Excel report (consistency + IA report in one workbook)."""
+    data = _load_results(job_id)
+    if data is None:
+        return jsonify({"error": "not found"}), 404
+    xlsx_bytes = build_combined_excel(data, job_id)
+    return send_file(
+        path_or_file=io.BytesIO(xlsx_bytes),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"manuscript_report_{job_id}.xlsx",
+    )
+
 @manuscript_bp.route('/download/<job_id>/findings.csv', methods=['GET'])
 def download_csv(job_id: str):
     """Download CSV findings."""
@@ -970,10 +951,7 @@ def discovery_ia_rows(session_id: str):
 @manuscript_bp.route('/discovery/<session_id>/create-selection', methods=['POST'])
 @manuscript_auth_required
 def create_selection(session_id: str):
-    """Create and save a rule selection (to database and JSON file)."""
-    from manuscript_core.models import RuleSelection
-    from app_server import get_db
-
+    """Create and save a rule selection to a JSON file."""
     try:
         data = request.get_json()
         selection_name = data.get("selection_name", "").strip()
@@ -986,20 +964,7 @@ def create_selection(session_id: str):
         if not selection_name:
             return jsonify({"error": "selection_name required"}), 400
 
-        selection = RuleSelection(
-            session_id=session_id,
-            selection_name=selection_name,
-            description=description,
-            selected_ia_rows=selected_ia_rows,
-            custom_grouping=custom_grouping,
-            project_name=project_name,
-            client_name=client_name,
-            created_by=session.get("username", "unknown"),
-            active=False,
-        )
-
-        with get_db() as db:
-            selection_id = selection.save(db)
+        selection_id = str(uuid.uuid4())
 
         # Save to JSON file
         try:
@@ -1022,11 +987,11 @@ def create_selection(session_id: str):
                 "custom_grouping": custom_grouping,
                 "created_at": str(datetime.now()),
                 "created_by": session.get("username", "unknown"),
+                "active": False,
             }
 
             filepath.write_text(json.dumps(selection_data, indent=2, ensure_ascii=False), encoding="utf-8")
-            print(f"✓ Selection saved to database (ID: {selection_id})")
-            print(f"✓ Selection also saved to file: {filepath}")
+            print(f"✓ Selection saved to file: {filepath}")
         except Exception as file_error:
             print(f"Warning: Could not save selection file: {file_error}")
 
@@ -1073,12 +1038,8 @@ def discovery_ia_report(session_id: str):
     if not selection_id:
         return jsonify({"error": "selection_id required"}), 400
 
-    from manuscript_core.models import RuleSelection
-    from app_server import get_db
-
-    with get_db() as db:
-        selection = RuleSelection.load(db, int(selection_id))
-    if not selection:
+    _, sel_data = _find_selection_json(selection_id)
+    if not sel_data:
         return jsonify({"error": "Selection not found"}), 404
 
     data = _load_results(session_id)
@@ -1090,7 +1051,7 @@ def discovery_ia_report(session_id: str):
     chapter_indices = ia_report.get("chapter_indices", [])
     chapter_names = ia_report.get("chapter_names", {})
 
-    selected_patterns = selection.selected_ia_rows
+    selected_patterns = sel_data.get("selected_ia_rows", [])
     selected_set = {(r.get("element"), r.get("subtype"), r.get("pattern")) for r in selected_patterns}
 
     filtered_rows = [
@@ -1155,122 +1116,111 @@ def rule_selections_list():
 @manuscript_bp.route('/rule-selections/api', methods=['GET'])
 @manuscript_auth_required
 def rule_selections_api():
-    """JSON API listing all saved selections."""
-    from manuscript_core.models import RuleSelection
-    from app_server import get_db
-
+    """JSON API listing all saved selections (from JSON files)."""
     session_id = request.args.get("session_id")
     try:
-        with get_db() as db:
-            if session_id:
-                selections = RuleSelection.load_by_session(db, session_id)
-            else:
-                cursor = db.execute(
-                    "SELECT * FROM rule_selections ORDER BY created_at DESC LIMIT 50"
-                )
-                selections = [RuleSelection.from_dict(dict(r)) for r in cursor.fetchall()]
-
-        return jsonify({
-            "selections": [
-                {
-                    "id": s.id,
-                    "selection_name": s.selection_name,
-                    "description": s.description,
-                    "project_name": s.project_name,
-                    "client_name": s.client_name,
-                    "session_id": s.session_id,
-                    "num_rules": len(s.selected_ia_rows) if s.selected_ia_rows else 0,
-                    "created_at": s.created_at,
-                    "created_by": s.created_by,
-                    "active": s.active,
-                }
-                for s in selections
-            ]
-        })
+        selections = []
+        if MANU_IA_DIR.exists():
+            files = sorted(MANU_IA_DIR.glob("*_rules.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+            for f in files[:50]:
+                try:
+                    s = json.loads(f.read_text(encoding="utf-8"))
+                    if session_id and s.get("session_id") != session_id:
+                        continue
+                    selections.append({
+                        "id": s.get("id", ""),
+                        "selection_name": s.get("selection_name", ""),
+                        "description": s.get("description", ""),
+                        "project_name": s.get("project_name", ""),
+                        "client_name": s.get("client_name", ""),
+                        "session_id": s.get("session_id", ""),
+                        "num_rules": len(s.get("selected_ia_rows", [])),
+                        "created_at": s.get("created_at", ""),
+                        "created_by": s.get("created_by", ""),
+                        "active": s.get("active", False),
+                    })
+                except Exception:
+                    continue
+        return jsonify({"selections": selections})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@manuscript_bp.route('/rule-selections/<int:selection_id>/activate', methods=['POST'])
+def _find_selection_json(selection_id: str) -> tuple:
+    """Return (path, data) for the JSON file whose 'id' matches, or (None, None)."""
+    if not MANU_IA_DIR.exists():
+        return None, None
+    for f in MANU_IA_DIR.glob("*_rules.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if data.get("id") == selection_id:
+                return f, data
+        except Exception:
+            continue
+    return None, None
+
+
+@manuscript_bp.route('/rule-selections/<selection_id>/activate', methods=['POST'])
 @manuscript_auth_required
-def activate_selection(selection_id: int):
+def activate_selection(selection_id: str):
     """Activate a specific selection and deactivate others for the same project/client."""
-    from app_server import get_db
-    is_postgres = False
     try:
-        with get_db() as db:
-            is_postgres = getattr(db, "is_postgres", False)
-            # Find the selection to get its project/client context
-            query = "SELECT project_name, client_name FROM rule_selections WHERE id=%s" if is_postgres else "SELECT project_name, client_name FROM rule_selections WHERE id=?"
-            cursor = db.execute(query, [selection_id])
-            result = cursor.fetchone()
-            
-            if not result:
-                return jsonify({"error": "Selection not found"}), 404
-                
-            project_name, client_name = result[0] if isinstance(result, tuple) else result["project_name"], result[1] if isinstance(result, tuple) else result["client_name"]
-            
-            # Deactivate all others with same context
-            deact_q = "UPDATE rule_selections SET active=false WHERE project_name=%s AND client_name=%s" if is_postgres else "UPDATE rule_selections SET active=0 WHERE project_name=? AND client_name=?"
-            db.execute(deact_q, [project_name, client_name])
-            
-            # Activate chosen one
-            act_q = "UPDATE rule_selections SET active=true WHERE id=%s" if is_postgres else "UPDATE rule_selections SET active=1 WHERE id=?"
-            db.execute(act_q, [selection_id])
-            db.commit()
-            
+        target_path, target_data = _find_selection_json(selection_id)
+        if not target_data:
+            return jsonify({"error": "Selection not found"}), 404
+
+        project_name = target_data.get("project_name", "")
+        client_name = target_data.get("client_name", "")
+
+        # Deactivate all JSON files with same project/client, then activate the target
+        for f in MANU_IA_DIR.glob("*_rules.json"):
+            try:
+                d = json.loads(f.read_text(encoding="utf-8"))
+                if d.get("project_name") == project_name and d.get("client_name") == client_name:
+                    d["active"] = (d.get("id") == selection_id)
+                    f.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                continue
+
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@manuscript_bp.route('/rule-selections/<int:selection_id>', methods=['DELETE'])
+@manuscript_bp.route('/rule-selections/<selection_id>', methods=['DELETE'])
 @manuscript_auth_required
-def delete_selection(selection_id: int):
-    """Delete a rule selection."""
-    from app_server import get_db
-    is_postgres = False
+def delete_selection(selection_id: str):
+    """Delete a rule selection JSON file."""
     try:
-        with get_db() as db:
-            is_postgres = getattr(db, "is_postgres", False)
-            query = "DELETE FROM rule_selections WHERE id=%s" if is_postgres else "DELETE FROM rule_selections WHERE id=?"
-            db.execute(query, [selection_id])
-            db.commit()
-            
+        target_path, _ = _find_selection_json(selection_id)
+        if not target_path:
+            return jsonify({"error": "Selection not found"}), 404
+        target_path.unlink()
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@manuscript_bp.route('/rule-selections/<int:selection_id>', methods=['PUT'])
+@manuscript_bp.route('/rule-selections/<selection_id>', methods=['PUT'])
 @manuscript_auth_required
-def update_selection(selection_id: int):
-    """Update a rule selection details."""
-    from app_server import get_db
+def update_selection(selection_id: str):
+    """Update a rule selection's metadata in its JSON file."""
     try:
-        data = request.json
-        name = data.get("selection_name")
-        desc = data.get("description", "")
-        proj = data.get("project_name", "")
-        client = data.get("client_name", "")
-        
+        req_data = request.json
+        name = req_data.get("selection_name")
         if not name:
             return jsonify({"error": "Selection name required"}), 400
-            
-        with get_db() as db:
-            is_postgres = getattr(db, "is_postgres", False)
-            query = """
-                UPDATE rule_selections 
-                SET selection_name=%s, description=%s, project_name=%s, client_name=%s
-                WHERE id=%s
-            """ if is_postgres else """
-                UPDATE rule_selections 
-                SET selection_name=?, description=?, project_name=?, client_name=?
-                WHERE id=?
-            """
-            db.execute(query, [name, desc, proj, client, selection_id])
-            db.commit()
-            
+
+        target_path, target_data = _find_selection_json(selection_id)
+        if not target_data:
+            return jsonify({"error": "Selection not found"}), 404
+
+        target_data["selection_name"] = name
+        target_data["description"] = req_data.get("description", target_data.get("description", ""))
+        target_data["project_name"] = req_data.get("project_name", target_data.get("project_name", ""))
+        target_data["client_name"] = req_data.get("client_name", target_data.get("client_name", ""))
+        target_path.write_text(json.dumps(target_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

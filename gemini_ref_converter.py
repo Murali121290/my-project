@@ -64,38 +64,76 @@ def _acquire_api_slot() -> None:
 # CrossRef DOI LOOKUP
 # ─────────────────────────────────────────────
 
+def _extract_authors_from_pubmed_article(article: "Dict[str, Any]") -> Optional[List[str]]:
+    """Extract pipe-separated author list from PubMed article data."""
+    try:
+        authors = []
+        # PubMed article structure typically has authlist
+        if "authorlist" in article:
+            for author in article["authorlist"]:
+                if isinstance(author, dict):
+                    lastname = author.get("lastname", "")
+                    initials = author.get("initials", "")
+                    if lastname:
+                        authors.append(f"{lastname} {initials}".strip())
+        return authors if authors else None
+    except Exception as e:
+        logger.debug(f"  [PubMed] Author extraction error: {e}")
+        return None
+
+
+def _extract_authors_from_crossref_item(item: "Dict[str, Any]") -> Optional[List[str]]:
+    """Extract pipe-separated author list from CrossRef item data."""
+    try:
+        authors = []
+        # CrossRef author structure
+        if "author" in item:
+            for author in item["author"]:
+                if isinstance(author, dict):
+                    given = author.get("given", "")
+                    family = author.get("family", "")
+                    if family:
+                        # Convert to "Lastname I" format
+                        initials = "".join(c for c in given.split() if c and c[0].isupper())[:3]
+                        authors.append(f"{family} {initials}".strip())
+        return authors if authors else None
+    except Exception as e:
+        logger.debug(f"  [CrossRef] Author extraction error: {e}")
+        return None
+
+
 def _lookup_doi_from_pubmed(
     title: str,
     authors: List[str] = None,
     year: str = None,
     journal: str = None,
-) -> Optional[str]:
+) -> Optional[Dict[str, Optional[List[str]]]]:
     """
-    Look up a DOI from PubMed API using article metadata.
-    Returns the DOI (without https://doi.org/ prefix) if found, else None.
-    
+    Look up a DOI and full author list from PubMed API using article metadata.
+    Returns dict with 'doi' and 'authors' keys if found, else None.
+
     CRITICAL: Never fabricate DOIs. Only return DOIs from PubMed.
     """
     if not title or not title.strip():
         return None
-    
+
     try:
         # Build PubMed search query
         title_clean = re.sub(r'[^\w\s]', ' ', title.strip())  # Remove special chars
         query_parts = [title_clean[:100]]  # First 100 chars of title
-        
+
         if journal:
             journal_clean = re.sub(r'[^\w\s]', ' ', journal.strip())
             query_parts.append(f'"{journal_clean[:50]}"[Journal]')
-        
+
         if year:
             query_parts.append(f'{year.split()[0]}[PDAT]')
-        
+
         query = " AND ".join(query_parts)
-        
+
         # PubMed API endpoint
         headers = {"User-Agent": "PPH-ReferenceConverter/1.0"}
-        
+
         # Search for article
         search_params = {
             "db": "pubmed",
@@ -103,76 +141,80 @@ def _lookup_doi_from_pubmed(
             "rettype": "json",
             "retmax": 1,
         }
-        
+
         search_response = requests.get(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
             params=search_params,
             headers=headers,
             timeout=5
         )
-        
+
         if search_response.status_code != 200:
             logger.debug(f"  [PubMed] Search returned {search_response.status_code}")
             return None
-        
+
         search_data = search_response.json()
         pmids = search_data.get("esearchresult", {}).get("idlist", [])
-        
+
         if not pmids:
             logger.debug(f"  [PubMed] No PMID found for: {title[:50]}")
             return None
-        
+
         pmid = pmids[0]
-        
+
         # Fetch full article info
         fetch_params = {
             "db": "pubmed",
             "id": pmid,
             "rettype": "json",
         }
-        
+
         fetch_response = requests.get(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
             params=fetch_params,
             headers=headers,
             timeout=5
         )
-        
+
         if fetch_response.status_code != 200:
             logger.debug(f"  [PubMed] Fetch returned {fetch_response.status_code}")
             return None
-        
+
         fetch_data = fetch_response.json()
         articles = fetch_data.get("result", {}).get("uids", [])
-        
+
         if not articles or articles[0] not in fetch_data.get("result", {}):
             return None
-        
+
         article = fetch_data["result"][articles[0]]
-        
+
         # Try to find DOI in article
         doi = None
-        
+
         # Check uid_list
         for uid_entry in article.get("uid_list", []):
             if uid_entry.get("name") == "DOI":
                 doi = uid_entry.get("value")
                 break
-        
+
         # Check article attributes
         if not doi:
             for attr in article.get("article_ids", []):
                 if attr.get("idtype") == "doi":
                     doi = attr.get("value")
                     break
-        
+
         if doi:
             logger.info(f"  [PubMed] Found DOI: {doi}")
-            return doi
+            # Extract authors from the article
+            author_list = _extract_authors_from_pubmed_article(article)
+            if author_list:
+                logger.info(f"  [PubMed] Found {len(author_list)} authors")
+            return {"doi": doi, "authors": author_list}
         else:
             logger.debug(f"  [PubMed] PMID found ({pmid}) but no DOI available")
             return None
-        
+
     except requests.RequestException as e:
         logger.debug(f"  [PubMed] Request failed: {e}")
         return None
@@ -192,16 +234,16 @@ def _lookup_doi_from_crossref(
     volume: str = None,
     issue: str = None,
     fpage: str = None,
-) -> Optional[str]:
+) -> Optional[Dict[str, Optional[List[str]]]]:
     """
-    Look up a DOI from CrossRef API using article metadata.
-    Returns the DOI (without https://doi.org/ prefix) if found, else None.
-    
+    Look up a DOI and full author list from CrossRef API using article metadata.
+    Returns dict with 'doi' and 'authors' keys if found, else None.
+
     CRITICAL: Never fabricate DOIs. Only return DOIs from CrossRef.
     """
     if not title or not title.strip():
         return None
-    
+
     try:
         # Build CrossRef query
         query_parts = [title.strip()]
@@ -211,9 +253,9 @@ def _lookup_doi_from_crossref(
             query_parts.append(journal.strip())
         if year:
             query_parts.append(year.strip())
-        
+
         query = " ".join(query_parts)
-        
+
         # CrossRef API endpoint
         headers = {"User-Agent": "PPH-ReferenceConverter/1.0"}
         params = {
@@ -221,50 +263,54 @@ def _lookup_doi_from_crossref(
             "rows": 1,
             "select": "DOI,title,author,published-print,published-online"
         }
-        
+
         response = requests.get(
             "https://api.crossref.org/works",
             params=params,
             headers=headers,
             timeout=5
         )
-        
+
         if response.status_code != 200:
             logger.debug(f"  [CrossRef] API returned {response.status_code}")
             return None
-        
+
         data = response.json()
         if not data.get("message", {}).get("items"):
             logger.debug(f"  [CrossRef] No matches found for: {query}")
             return None
-        
+
         # Get first result
         item = data["message"]["items"][0]
         doi = item.get("DOI")
-        
+
         if not doi:
             logger.debug(f"  [CrossRef] Match found but no DOI: {item.get('title')}")
             return None
-        
+
         # Verify title similarity (basic check)
         matched_title = item.get("title", [""])[0] if isinstance(item.get("title"), list) else item.get("title", "")
         if not matched_title:
             return None
-        
+
         # Simple title matching: check if key words match
         source_words = set(re.findall(r'\w+', title.lower()))
         matched_words = set(re.findall(r'\w+', matched_title.lower()))
-        
+
         # If less than 50% of source words match, consider it a mismatch
         if source_words and matched_words:
             overlap = len(source_words & matched_words) / len(source_words)
             if overlap < 0.5:
                 logger.debug(f"  [CrossRef] Title match too weak ({overlap:.1%})")
                 return None
-        
+
         logger.info(f"  [CrossRef] Found DOI: {doi}")
-        return doi
-        
+        # Extract authors from the item
+        author_list = _extract_authors_from_crossref_item(item)
+        if author_list:
+            logger.info(f"  [CrossRef] Found {len(author_list)} authors")
+        return {"doi": doi, "authors": author_list}
+
     except requests.RequestException as e:
         logger.debug(f"  [CrossRef] Request failed: {e}")
         return None
@@ -305,8 +351,8 @@ def _validate_metadata_not_fabricated(metadata: Dict, raw_text: str) -> bool:
     # Check 4: If source has multiple authors (et al.), metadata should reflect it
     if " et al" in raw_text.lower() or "et al." in raw_text.lower():
         surnames = [s.strip() for s in (surname or "").split("|") if s.strip()]
-        # Should have at least 3 authors before et al
-        if len(surnames) < 3:
+        # Should have at least 2 authors before et al (fewer than 2 indicates extraction failure)
+        if len(surnames) < 2:
             logger.warning(f"  [Validation] Source has 'et al' but only {len(surnames)} surnames extracted")
     
     return True
@@ -458,7 +504,7 @@ FORMAT (letter/editorial): Surname FM. Title [letter/editorial/commentary]. Jour
 RULES:
 - AUTHORS: Last name followed by SPACE (never comma) then initials with NO periods or spaces between initials.
   Format: "Smith JA" NOT "Smith, JA". Comma-space ONLY between author pairs: "Smith JA, Jones BC".
-  Up to 6 authors list all; if 7 or more, list first 6 then ", et al." (WITH period after "al").
+  Up to 6 authors list all; if 7 or more, list first 3 then ", et al." (WITH period after "al").
   CRITICAL: NO COMMA between surname and initials. CRITICAL: Retain EVERY initial exactly as in the source. Never collapse "JA" to "J" or drop
   any initial. bib_fname MUST be populated.
   CRITICAL: Do NOT remove study groups or steering committees (e.g., "International Steering Committee for...") attached to the author list. Treat them as part of the author group.
@@ -1633,6 +1679,76 @@ def _resolve_api_key() -> Optional[str]:
 
 
 # ─────────────────────────────────────────────
+# EARLY METADATA EXTRACTION (for DOI lookup before Gemini)
+# ─────────────────────────────────────────────
+
+def _extract_metadata_from_raw_text(raw_text: str) -> "Dict[str, Any]":
+    """
+    Quick extraction of title, authors, year, journal from raw reference text.
+    Parses AMA, APA, and formatted references without Gemini.
+
+    Returns dict with keys: title, authors (list), year, journal
+    """
+    metadata: Dict[str, Any] = {
+        "title": "",
+        "authors": [],
+        "year": "",
+        "journal": ""
+    }
+
+    try:
+        # Remove reference number prefix if present (e.g., "1. Author..." → "Author...")
+        text = re.sub(r'^\s*\d+[\.\)]\s+', '', raw_text.strip())
+
+        # Extract year (4 digits, often in formats like "2022;", "(2022)", "2022.")
+        year_match = re.search(r'\b(19|20)\d{2}\b', text)
+        if year_match:
+            metadata["year"] = year_match.group(0)
+
+        # Extract authors from start (before title or first sentence)
+        # AMA format: "Author1 AB, Author2 CD, et al. Title..."
+        # APA format: "Author, A. B., & Author, C. D. (2022). Title..."
+        author_pattern = r'^([A-Z][a-z\'-]*(?:\s+[a-z]{1,4})*\s+[A-Z\.]+(?:,\s*(?:[A-Z][a-z\'-]*(?:\s+[a-z]{1,4})*\s+[A-Z\.]+ *(?:&|\,)?)*)*)'
+        author_match = re.match(author_pattern, text)
+        if author_match:
+            author_section = author_match.group(1)
+            # Split by comma or & to get individual authors
+            author_parts = re.split(r',\s*|\s+&\s+', author_section)
+            metadata["authors"] = [a.strip() for a in author_parts if a.strip() and "et al" not in a.lower()]
+
+        # Extract title: text between authors and journal/year
+        # Look for capitalized text before journal name or year
+        title_pattern = r'(?:et al\.?\s+)?([A-Z][^\.]*?[a-z\?\!]+[\.\?\!]?)\s+(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\.?\s+\d{4}|[A-Z][a-z]+\s+\d{4}|[A-Z][a-z]+\.?\s*\d{4})'
+        title_match = re.search(title_pattern, text)
+        if title_match:
+            metadata["title"] = title_match.group(1).strip()
+        else:
+            # Fallback: take text up to first 4-digit year or known journal patterns
+            text_before_year = text
+            if year_match:
+                text_before_year = text[:year_match.start()]
+            # Remove author section to isolate title
+            if author_match:
+                text_before_year = text_before_year[len(author_match.group(0)):].strip()
+            # Clean up and extract meaningful part
+            metadata["title"] = re.sub(r'^[\.\,\s]+', '', text_before_year)[:200].strip()
+
+        # Extract journal name: usually capitalized, before volume/pages
+        # Common patterns: "Journal Name. Year" or "Journal Name Year;Volume"
+        journal_pattern = r'([A-Z][A-Za-z\s&\-]*?)\.?\s*(?:\d{4}|[Vv]ol\.?|;|\()'
+        journal_match = re.search(journal_pattern, text)
+        if journal_match:
+            metadata["journal"] = journal_match.group(1).strip()
+
+        logger.debug(f"  [Metadata Extract] Found: {len(metadata['authors'])} authors, title={metadata['title'][:50] if metadata['title'] else 'N/A'}")
+
+    except Exception as e:
+        logger.debug(f"  [Metadata Extract] Error: {e}")
+
+    return metadata
+
+
+# ─────────────────────────────────────────────
 # PUBLIC API
 # ─────────────────────────────────────────────
 
@@ -1660,6 +1776,56 @@ def convert_reference(
             "GEMINI_API_KEY, and GOOGLE_API_KEY)."
         )
         return None
+
+    # ─────────────────────────────────────────────
+    # [EARLY] Try DOI lookup BEFORE Gemini call
+    # This allows us to enrich authors in a single pass
+    # ─────────────────────────────────────────────
+    early_enriched_authors = None
+    if not cr_item:  # Only do early lookup if no cr_item already provided
+        try:
+            early_metadata = _extract_metadata_from_raw_text(raw_text)
+            if early_metadata.get("title") and early_metadata.get("year"):
+                logger.info(f"  [Early DOI Lookup] Extracted metadata from raw text")
+
+                # Try PubMed first
+                logger.info(f"  [Early DOI Lookup] Trying PubMed...")
+                pubmed_result = _lookup_doi_from_pubmed(
+                    title=early_metadata.get("title"),
+                    authors=early_metadata.get("authors"),
+                    year=early_metadata.get("year"),
+                    journal=early_metadata.get("journal")
+                )
+                if pubmed_result:
+                    doi = pubmed_result.get("doi")
+                    early_enriched_authors = pubmed_result.get("authors")
+                    logger.info(f"  [Early DOI Lookup] Found {len(early_enriched_authors) if early_enriched_authors else 0} authors via PubMed")
+
+                # If PubMed failed, try CrossRef
+                if not early_enriched_authors:
+                    logger.info(f"  [Early DOI Lookup] Trying CrossRef...")
+                    crossref_result = _lookup_doi_from_crossref(
+                        title=early_metadata.get("title"),
+                        authors=early_metadata.get("authors"),
+                        year=early_metadata.get("year"),
+                        journal=early_metadata.get("journal")
+                    )
+                    if crossref_result:
+                        doi = crossref_result.get("doi")
+                        early_enriched_authors = crossref_result.get("authors")
+                        logger.info(f"  [Early DOI Lookup] Found {len(early_enriched_authors) if early_enriched_authors else 0} authors via CrossRef")
+
+                # If we found enriched authors, pass them to Gemini
+                if early_enriched_authors and not cr_item:
+                    cr_item = {
+                        "author": early_enriched_authors,
+                        "DOI": doi if doi else None,
+                        "_source": "early_doi_lookup"
+                    }
+                    logger.info(f"  [Early DOI Lookup] Passing enriched authors to Gemini prompt")
+        except Exception as e:
+            logger.debug(f"  [Early DOI Lookup] Exception (non-blocking): {e}")
+            # If early lookup fails, continue without enrichment - Gemini will process normally
 
     schema   = _get_response_schema()
     prompt   = _build_prompt(raw_text, source_style, target_style, cr_item)
@@ -1698,51 +1864,60 @@ def convert_reference(
         logger.warning(f"  [WARNING] Metadata validation failed — possible fabrication detected")
         # Don't reject outright, but log the concern
     
-    # For journal references, try to look up DOI if missing
+    # For journal references, try DOI lookup if missing (fallback to early lookup or if early failed)
     ref_type = meta.get("bib_reftype", "unknown")
     if ref_type == "journal" and not meta.get("bib_doi"):
-        logger.info(f"  [DOI Lookup] Attempting DOI lookup for journal reference...")
-        surnames = (meta.get("bib_surname") or "").split("|") if meta.get("bib_surname") else []
-        
-        doi = None
-        
-        # Try PubMed first (better for medical/biomedical literature)
-        logger.info(f"  [DOI Lookup] Trying PubMed...")
-        doi = _lookup_doi_from_pubmed(
-            title=meta.get("bib_title"),
-            authors=surnames,
-            year=meta.get("bib_year"),
-            journal=meta.get("bib_journal")
-        )
-        
-        # If PubMed failed, try CrossRef
-        if not doi:
-            logger.info(f"  [DOI Lookup] Trying CrossRef...")
-            doi = _lookup_doi_from_crossref(
+        # Skip fallback DOI lookup if we already did early enrichment
+        if cr_item and cr_item.get("_source") == "early_doi_lookup":
+            logger.info(f"  [DOI Lookup] Skipping fallback - early DOI lookup already enriched authors")
+        else:
+            logger.info(f"  [DOI Lookup] Fallback DOI lookup for journal reference (early lookup didn't find it)...")
+            surnames = (meta.get("bib_surname") or "").split("|") if meta.get("bib_surname") else []
+
+            doi = None
+
+            # Try PubMed first (better for medical/biomedical literature)
+            logger.info(f"  [DOI Lookup] Trying PubMed...")
+            pubmed_result = _lookup_doi_from_pubmed(
                 title=meta.get("bib_title"),
                 authors=surnames,
                 year=meta.get("bib_year"),
-                journal=meta.get("bib_journal"),
-                volume=meta.get("bib_volume"),
-                issue=meta.get("bib_issue"),
-                fpage=meta.get("bib_fpage")
+                journal=meta.get("bib_journal")
             )
-        
-        if doi:
-            logger.info(f"  [DOI Lookup] Found DOI: {doi}")
-            meta["bib_doi"] = doi
-            # Rebuild formatted output with DOI
-            if ref_type == "journal":
-                # Re-inject DOI into formatted output if it's missing
-                if "doi:" not in parsed["formatted_output"].lower() and "https://doi.org" not in parsed["formatted_output"]:
-                    # Append DOI to end before any period
-                    fmt_out = parsed["formatted_output"].rstrip(". ")
-                    if fmt_out.endswith("."):
-                        fmt_out = fmt_out[:-1]
-                    parsed["formatted_output"] = f"{fmt_out}. doi:{doi}"
-                    logger.info(f"  [DOI Injection] Injected DOI into formatted output")
-        else:
-            logger.debug(f"  [DOI Lookup] No DOI found via PubMed or CrossRef")
+            if pubmed_result:
+                doi = pubmed_result.get("doi")
+
+            # If PubMed failed, try CrossRef
+            if not doi:
+                logger.info(f"  [DOI Lookup] Trying CrossRef...")
+                crossref_result = _lookup_doi_from_crossref(
+                    title=meta.get("bib_title"),
+                    authors=surnames,
+                    year=meta.get("bib_year"),
+                    journal=meta.get("bib_journal"),
+                    volume=meta.get("bib_volume"),
+                    issue=meta.get("bib_issue"),
+                    fpage=meta.get("bib_fpage")
+                )
+                if crossref_result:
+                    doi = crossref_result.get("doi")
+
+            if doi:
+                logger.info(f"  [DOI Lookup] Found DOI: {doi}")
+                meta["bib_doi"] = doi
+                # Inject DOI into formatted output if missing
+                if ref_type == "journal":
+                    if "doi:" not in parsed["formatted_output"].lower() and "https://doi.org" not in parsed["formatted_output"]:
+                        # Append DOI to end before any period
+                        fmt_out = parsed["formatted_output"].rstrip(". ")
+                        if fmt_out.endswith("."):
+                            fmt_out = fmt_out[:-1]
+                        # Use correct DOI format based on target style
+                        doi_str = f"https://doi.org/{doi}" if target_style == CitationStyle.APA else f"doi:{doi}"
+                        parsed["formatted_output"] = f"{fmt_out}. {doi_str}"
+                        logger.info(f"  [DOI Injection] Injected DOI into formatted output")
+            else:
+                logger.debug(f"  [DOI Lookup] No DOI found via PubMed or CrossRef")
     
     source_lbl, target_lbl = CONVERSION_MAP[key]
     logger.info(f"Converted [{ref_type}] {source_lbl} → {target_lbl}")

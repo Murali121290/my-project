@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}Excel Merge &amp; Compare - S4Carlisle{% endblock %}
+
+{% block extra_css %}
+<style>
+    .content-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+    .fade-in { animation: fadeIn 0.5s ease-in-out; }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    .drop-zone {
+        border: 3px dashed var(--primary);
+        border-radius: var(--border-radius);
+        padding: 3rem 2rem;
+        text-align: center;
+        margin: 2rem 0;
+        transition: var(--transition);
+        background: rgba(67,97,238,0.05);
+        cursor: pointer;
+    }
+    .drop-zone:hover { background: rgba(67,97,238,0.1); border-color: var(--primary-dark); }
+    .drop-zone.highlight { background: rgba(67,97,238,0.15); border-color: var(--secondary); transform: scale(1.02); }
+    .file-list { margin-top: 1.5rem; max-height: 300px; overflow-y: auto; }
+    .file-item {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 0.5rem 0.75rem; background: var(--gray-100);
+        border-radius: var(--border-radius-sm); margin-bottom: 0.25rem; font-size: 0.9rem;
+    }
+    .file-info { display: flex; align-items: center; gap: 0.75rem; }
+    .file-icon { color: var(--primary); font-size: 1rem; }
+    .remove-file { color: var(--danger); cursor: pointer; padding: 0.25rem; border-radius: 50%; transition: var(--transition); }
+    .remove-file:hover { background: rgba(239,71,111,0.1); }
+    .page-header { margin-bottom: 24px; }
+    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
+    .info-banner { background: rgba(67,97,238,0.06); border-left: 4px solid var(--primary); padding: 1rem 1.5rem; }
+    .info-banner ul { margin: 0; padding-left: 1.2rem; color: #444; font-size: 0.9rem; }
+    .info-banner li { margin-bottom: 4px; }
+    .legend-grid { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.75rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+    .legend-swatch { width: 22px; height: 22px; border-radius: 4px; border: 1px solid #ccc; flex-shrink: 0; }
+    #spinner { display: none; margin-top: 1rem; color: var(--primary); font-size: 0.95rem; }
+    #alertArea { margin-top: 1rem; }
+    #legendCard { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+
+<div class="page-header">
+    <div class="page-title">Excel Merge &amp; Compare</div>
+    <div class="page-sub">Upload multiple .xlsx or .csv files &mdash; merge and find duplicate rows across files</div>
+</div>
+
+<div class="content-card info-banner">
+    <ul>
+        <li>Files are stacked one after another in the merged sheet in the order you upload them.</li>
+        <li>Rows that are <strong>100% identical</strong> across two or more files are highlighted with the same color.</li>
+        <li>Different duplicate groups get different colors. Rows unique to one file are not highlighted.</li>
+        <li>A <strong>Duplicate Summary</strong> sheet lists all matched groups with file names and row counts.</li>
+    </ul>
+</div>
+
+<div class="content-card">
+    <div class="form-group">
+        <label class="form-label">Upload Excel / CSV Files</label>
+        <div id="dropZone" class="drop-zone">
+            <i class="fas fa-file-excel" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
+            <p>Drag &amp; drop files here or click to browse</p>
+            <p class="text-muted">Supports .xlsx and .csv &mdash; minimum 2 files required</p>
+            <input type="file" id="files" name="files" multiple accept=".xlsx,.csv" style="display:none;">
+        </div>
+        <div id="fileList" class="file-list"></div>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button id="processBtn" class="btn btn-primary px-4 py-2">
+            <i class="fas fa-layer-group me-2"></i>Merge &amp; Compare
+        </button>
+        <button id="resetBtn" class="btn btn-outline">
+            <i class="fas fa-trash me-2"></i>Clear All
+        </button>
+    </div>
+
+    <div id="spinner"><i class="fas fa-spinner fa-spin me-2"></i>Processing&hellip;</div>
+    <div id="alertArea"></div>
+</div>
+
+<div id="legendCard" class="content-card">
+    <h5 style="margin-bottom: 0.5rem;">Highlight Color Legend</h5>
+    <p class="text-muted" style="font-size:0.85rem; margin-bottom: 0.5rem;">
+        Cells with the same color share identical row content across 2+ files.
+    </p>
+    <div class="legend-grid" id="legendGrid"></div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const dropZone    = document.getElementById('dropZone');
+const fileInput   = document.getElementById('files');
+const fileList    = document.getElementById('fileList');
+const processBtn  = document.getElementById('processBtn');
+const resetBtn    = document.getElementById('resetBtn');
+const spinner     = document.getElementById('spinner');
+const alertArea   = document.getElementById('alertArea');
+const legendCard  = document.getElementById('legendCard');
+const legendGrid  = document.getElementById('legendGrid');
+
+const MATCH_COLORS = [
+    {hex: '#FFFF00', name: 'Group 1 (Yellow)'},
+    {hex: '#90EE90', name: 'Group 2 (Light Green)'},
+    {hex: '#FFB6C1', name: 'Group 3 (Light Pink)'},
+    {hex: '#FFA500', name: 'Group 4 (Orange)'},
+    {hex: '#E6E6FA', name: 'Group 5 (Lavender)'},
+    {hex: '#FFDAB9', name: 'Group 6 (Peach)'},
+    {hex: '#87CEEB', name: 'Group 7 (Sky Blue)'},
+    {hex: '#98FB98', name: 'Group 8 (Pale Green)'},
+    {hex: '#F08080', name: 'Group 9 (Light Coral)'},
+    {hex: '#00FFFF', name: 'Group 10 (Cyan)'},
+];
+
+let files = [];
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('highlight'); });
+['dragleave', 'dragend'].forEach(t => dropZone.addEventListener(t, () => dropZone.classList.remove('highlight')));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('highlight'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+resetBtn.addEventListener('click', () => { if (confirm('Clear all files?')) clearState(); });
+processBtn.addEventListener('click', runProcess);
+
+function clearState() {
+    files = [];
+    updateFileList();
+    legendCard.style.display = 'none';
+    alertArea.innerHTML = '';
+}
+
+function handleFiles(newFiles) {
+    const valid = Array.from(newFiles).filter(f =>
+        f.name.toLowerCase().endsWith('.xlsx') || f.name.toLowerCase().endsWith('.csv')
+    );
+    if (valid.length < newFiles.length) {
+        showAlert('Only .xlsx and .csv files are supported. Other files were skipped.', 'error');
+    }
+    if (valid.length > 0) {
+        files = [...files, ...valid];
+        updateFileList();
+    }
+}
+
+function updateFileList() {
+    fileList.innerHTML = '';
+    if (files.length === 0) {
+        fileList.innerHTML = '<p class="text-center text-muted">No files selected</p>';
+        return;
+    }
+    files.forEach((file, index) => {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        const ext = file.name.split('.').pop().toLowerCase();
+        const icon = ext === 'xlsx' ? 'fa-file-excel' : 'fa-file-csv';
+        div.innerHTML = `
+            <div class="file-info">
+                <i class="fas ${icon} file-icon"></i>
+                <div>
+                    <div>${file.name}</div>
+                    <div class="text-muted">${formatSize(file.size)}</div>
+                </div>
+            </div>
+            <i class="fas fa-times remove-file" data-index="${index}"></i>`;
+        fileList.appendChild(div);
+    });
+    document.querySelectorAll('.remove-file').forEach(btn =>
+        btn.addEventListener('click', e => { files.splice(+e.target.dataset.index, 1); updateFileList(); })
+    );
+    if (files.length >= 2) {
+        const note = document.createElement('p');
+        note.className = 'text-muted';
+        note.style.fontSize = '0.8rem';
+        note.style.marginTop = '0.5rem';
+        note.textContent = 'Files will be merged in the order shown above.';
+        fileList.appendChild(note);
+    }
+}
+
+function formatSize(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024, s = ['B','KB','MB','GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + s[i];
+}
+
+async function runProcess() {
+    alertArea.innerHTML = '';
+    if (files.length < 2) {
+        showAlert('Please upload at least 2 files.', 'error');
+        return;
+    }
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    const headers = csrfToken ? {'X-CSRFToken': csrfToken} : {};
+
+    processBtn.disabled = true;
+    spinner.style.display = 'block';
+    legendCard.style.display = 'none';
+
+    try {
+        const res = await fetch('/excel-validator/process', {method: 'POST', body: formData, headers});
+
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({error: 'Unknown error'}));
+            showAlert(data.error || 'Processing failed.', 'error');
+            return;
+        }
+
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url;
+        a.download = 'merged_comparison.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+
+        showLegend();
+        showAlert('Done! Your file has been downloaded.', 'success');
+
+    } catch (e) {
+        showAlert('An error occurred: ' + e.message, 'error');
+    } finally {
+        processBtn.disabled = false;
+        spinner.style.display = 'none';
+    }
+}
+
+function showLegend() {
+    legendGrid.innerHTML = '';
+    MATCH_COLORS.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `<div class="legend-swatch" style="background:${c.hex};"></div><span>${c.name}</span>`;
+        legendGrid.appendChild(item);
+    });
+    legendCard.style.display = 'block';
+}
+
+function showAlert(msg, type) {
+    const d = document.createElement('div');
+    d.className = `alert alert-${type === 'error' ? 'danger' : 'success'} alert-dismissible fade show`;
+    d.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    alertArea.appendChild(d);
+    setTimeout(() => { if (d.parentNode) d.remove(); }, 6000);
+}
+
+updateFileList();
+</script>
+{% endblock %}

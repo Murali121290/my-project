@@ -255,6 +255,10 @@ from manuscript_bp import manuscript_bp
 app.register_blueprint(manuscript_bp, url_prefix='/manuscript')
 csrf.exempt(manuscript_bp)
 
+from excel_validator_bp import excel_validator_bp
+app.register_blueprint(excel_validator_bp, url_prefix='/excel-validator')
+csrf.exempt(excel_validator_bp)
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['COMMON_MACRO_FOLDER'] = COMMON_MACRO_FOLDER
 app.config['REPORT_FOLDER'] = REPORT_FOLDER
@@ -1586,28 +1590,6 @@ def init_db():
                             error_msg    TEXT,
                             FOREIGN KEY (user_id) REFERENCES users(id))''')
 
-            # Manuscript Core: IA Report Builder - Rule Selections
-            create_table_safe(f'''CREATE TABLE IF NOT EXISTS rule_selections (
-                            id {pk_type},
-                            session_id TEXT NOT NULL,
-                            project_name TEXT,
-                            client_name TEXT,
-                            selection_name TEXT NOT NULL,
-                            description TEXT,
-                            selected_ia_rows TEXT NOT NULL,
-                            custom_grouping TEXT NOT NULL,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            created_by TEXT,
-                            active BOOLEAN DEFAULT FALSE)''')
-
-            create_table_safe(f'''CREATE TABLE IF NOT EXISTS selection_history (
-                            id {pk_type},
-                            selection_id INTEGER NOT NULL,
-                            version INTEGER NOT NULL,
-                            data TEXT NOT NULL,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            FOREIGN KEY (selection_id) REFERENCES rule_selections(id))''')
-
             # --- MIGRATION: Check and Add 'route_type' to macro_processing if missing ---
             try:
                 # Check for column existence (SQLite/Postgres agnostic check)
@@ -1634,9 +1616,6 @@ def init_db():
                 db.execute("CREATE INDEX IF NOT EXISTS idx_macro_route_type ON macro_processing(route_type)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_jq_status ON job_queue(status)")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_jq_user_id ON job_queue(user_id)")
-                db.execute("CREATE INDEX IF NOT EXISTS idx_rule_selections_session_id ON rule_selections(session_id)")
-                db.execute("CREATE INDEX IF NOT EXISTS idx_rule_selections_active ON rule_selections(active)")
-                db.execute("CREATE INDEX IF NOT EXISTS idx_selection_history_selection_id ON selection_history(selection_id)")
             except Exception as e:
                 # ignore specific index errors or just log
                 print(f"Index creation warning: {e}")

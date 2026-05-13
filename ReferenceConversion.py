@@ -205,19 +205,20 @@ def _to_sentence_case(text: str) -> str:
     is_all_caps = upper_ratio > 0.7
 
     if is_all_caps:
+        # For all-caps input, only match truly mixed-case acronyms (lowercase→uppercase),
+        # e.g. mRNA, DOHaD. Pure all-caps words are handled separately below.
         acronym_spans = []
-        acronym_pattern = r'\b(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*|[a-z][A-Z][A-Za-z0-9]*)\b'
+        acronym_pattern = r'\b[a-z][A-Z][A-Za-z0-9]*\b'
         for m in re.finditer(acronym_pattern, text):
             acronym_spans.append((m.start(), m.end(), m.group()))
         for m in _DOTTED_ABBREV_RE.finditer(text):
             acronym_spans.append((m.start(), m.end(), m.group()))
         proper_spans = [(m.start(), m.end(), m.group()) for m in _PROPER_NOUNS.finditer(text)]
 
-        # FIX 3: collect fully-uppercase words (>=3 chars) from the original that
-        # are likely acronyms — e.g. SURUSS, MELAS, BJOG, MMWR, DNA, PCR.
-        # We skip common English words (STUDY, SYNDROME, DISEASE…) since those
-        # should be lowercased; only short/rare tokens that aren't in the common
-        # word list are treated as acronyms and restored verbatim.
+        # Collect short all-caps words (2–5 chars) that are likely true acronyms
+        # e.g. HIV, DNA, PCR, BJOG, MELAS. Words longer than 5 chars are almost
+        # always regular English words (MECHANISMS, ADVANCED, RESISTANCE…) that
+        # should be lowercased. Common short words are excluded via the list below.
         _COMMON_TITLE_WORDS = frozenset({
             'the','and','for','are','but','not','you','all','can','had','her','was',
             'one','our','out','day','get','has','him','his','how','man','new','now',
@@ -230,10 +231,29 @@ def _to_sentence_case(text: str) -> str:
             'surgery','screening','testing','monitoring','evaluation','assessment',
             'perspective','characteristics','features','findings','population','adults',
             'children','women','men','care','based','related','associated','induced',
+            # Common 3–5 letter words that must NOT be restored as all-caps
+            'age','aim','arm','cut','due','end','flu','gap','gut','hit','key','lab',
+            'law','low','map','mix','non','per','pre','raw','red','run','sex','sub',
+            'top','via','war','pain','cell','bone','skin','lung','gene','dose','drug',
+            'form','flow','test','term','part','area','rate','site','type','mode',
+            'base','oral','post','mild','high','deep','main','full','left','real',
+            'open','free','need','make','move','stop','work','lack','help','fall',
+            'hold','dead','cold','warm','flat','thin','vast','rare','safe','pure',
+            'rich','weak','poor','dual','anti','semi','mono','poly','both','each',
+            'such','well','long','late','fast','hard','slow','soft','wide','small',
+            'acute','early','blood','brain','liver','heart','nasal','nerve','serum',
+            'stage','phase','group','trial','level','index','scale','ratio','score',
+            'value','local','focal','joint','novel','rapid','first','large','fluid',
+            'under','above','after','below','inter','trans','extra','super','cross',
+            'given','found','issue','field','since','other','these','those','their',
+            'among','which','while','young','adult','human','model','mouse','total',
+            'fatal','viral','toxic','solid','prior','proof','daily','brief','broad',
+            'clear','close','colon','death','eight','three','seven','inner','outer',
+            'whole','usual','valid','vital','range','route','urine','spleen','class',
         })
         allcaps_word_spans = [
             (m.start(), m.end(), m.group())
-            for m in re.finditer(r'\b([A-Z]{3,})\b', text)
+            for m in re.finditer(r'\b([A-Z]{2,5})\b', text)
             if m.group().lower() not in _COMMON_TITLE_WORDS
         ]
 
@@ -250,12 +270,24 @@ def _to_sentence_case(text: str) -> str:
         words = text.split(" ")
         result_words = []
         for i, word in enumerate(words):
+            _is_mixed = len(word) > 1 and any(c.islower() for c in word[1:]) and any(c.isupper() for c in word[1:])
             if i == 0:
-                result_words.append(word[0].upper() + word[1:] if word else word)
-            elif word.lower() in _SC_SMALL_WORDS and word == word.capitalize():
+                if _is_mixed:
+                    # Mixed-case brand name (StatPearls, UpToDate): ensure first letter
+                    # is capitalised but preserve internal caps
+                    result_words.append(word[0].upper() + word[1:])
+                else:
+                    result_words.append(word[0].upper() + word[1:].lower() if word else word)
+            elif word.lower() in _SC_SMALL_WORDS:
                 result_words.append(word.lower())
-            else:
+            elif word.isupper() and len(word) >= 2:
+                # All-caps acronyms (HIV, DNA, BJOG): preserve
                 result_words.append(word)
+            elif _is_mixed:
+                # Mixed-case brand names (StatPearls, UpToDate, mRNA): preserve
+                result_words.append(word)
+            else:
+                result_words.append(word.lower())
         result = " ".join(result_words)
 
     result = re.sub(r'([:;—]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), result)
@@ -277,7 +309,11 @@ def _to_title_case(text: str) -> str:
         if len(w) >= 2 and w.isupper():
             result.append(w)
         elif i == 0 or w.lower() not in _TITLE_CASE_SMALL:
-            result.append(w[0].upper() + w[1:].lower() if len(w) > 1 else w.upper())
+            # Preserve mixed-case words like mRNA, CrossRef, DOHaD
+            if len(w) > 1 and any(c.islower() for c in w[1:]) and any(c.isupper() for c in w[1:]):
+                result.append(w)
+            else:
+                result.append(w[0].upper() + w[1:].lower() if len(w) > 1 else w.upper())
         else:
             result.append(w.lower())
     return " ".join(result)
@@ -380,6 +416,10 @@ def _looks_like_inline_citation(text: str) -> bool:
 # ─────────────────────────────────────────────
 
 def format_apa_from_metadata(meta: Dict) -> str:
+    return format_apa_from_metadata_old(meta)
+
+
+def format_apa_from_metadata_old(meta: Dict) -> str:
     ref_type = meta.get("bib_reftype", "journal")
     parts = []
     surnames = [s.strip() for s in (meta.get("bib_surname") or "").split("|") if s.strip()]
@@ -398,8 +438,7 @@ def format_apa_from_metadata(meta: Dict) -> str:
         if len(authors) > 20:
             author_str = ", ".join(authors[:19]) + ", ... " + authors[-1]
         elif has_etal:
-            # FIX 1: retain et al. from source — do not silently drop it
-            author_str = ", ".join(authors) + ", et al."
+            author_str = ", ".join(authors) + ", ..."
         elif len(authors) > 1:
             author_str = ", ".join(authors[:-1]) + ", & " + authors[-1]
         else:
@@ -451,10 +490,14 @@ def format_apa_from_metadata(meta: Dict) -> str:
         editors = []
         for i, s in enumerate(ed_surnames):
             ini = ed_fnames[i] if i < len(ed_fnames) else ""
-            initials_fmt = "".join(p[0] for p in ini.split() if p) if ini else ""
-            editors.append(f"{s} {initials_fmt}".strip())
+            initials_fmt = _format_initials_apa(ini)
+            editor_name = f"{initials_fmt} {s}".strip() if initials_fmt else s
+            editors.append(editor_name)
         ed_label = "Ed." if len(editors) == 1 else "Eds."
-        in_str = "In " + ", ".join(editors) + f" ({ed_label}), " if editors else "In "
+        if len(editors) > 1:
+            in_str = "In " + ", ".join(editors[:-1]) + f" & {editors[-1]} ({ed_label}), " if editors else "In "
+        else:
+            in_str = "In " + ", ".join(editors) + f" ({ed_label}), " if editors else "In "
         book_str = f"*{_to_sentence_case(book)}*" if book else ""
         inner = []
         if edition and _ordinal(edition) not in ("1st", "1", "first"):
@@ -493,10 +536,9 @@ def format_apa_from_metadata(meta: Dict) -> str:
         site     = meta.get("bib_journal") or meta.get("bib_book", "")
         accessed = _clean_accessed(meta.get("bib_accessed", ""))
         url      = meta.get("bib_url", "")
+        if title:    parts.append(f"{_to_sentence_case(title)}.")
         if site and not _is_url(site):
             parts.append(f"*{_to_title_case(site)}*.")
-        if title:    parts.append(f"{_to_sentence_case(title)}.")
-        if accessed: parts.append(f"Retrieved {accessed}, from")
         if url:      parts.append(url)
     elif ref_type == "report":
         title  = meta.get("bib_title", "")
@@ -514,6 +556,10 @@ def format_apa_from_metadata(meta: Dict) -> str:
 
 
 def format_ama_from_metadata(meta: Dict) -> str:
+    return format_ama_from_metadata_old(meta)
+
+
+def format_ama_from_metadata_old(meta: Dict) -> str:
     ref_type = meta.get("bib_reftype", "journal")
     parts = []
     surnames = [s.strip() for s in (meta.get("bib_surname") or "").split("|") if s.strip()]
@@ -535,7 +581,7 @@ def format_ama_from_metadata(meta: Dict) -> str:
         if len(authors) <= 6 and not has_etal:
             author_str = ", ".join(authors)
         else:
-            author_str = ", ".join(authors[:6]) + ", et al"
+            author_str = ", ".join(authors[:6]) + ", et al."
         parts.append(author_str + ".")
     if ref_type == "journal":
         title   = meta.get("bib_title", "")
@@ -566,8 +612,11 @@ def format_ama_from_metadata(meta: Dict) -> str:
         if edition and _ordinal(edition) not in ("1st", "1", "first"):
             title_str += f". {_ordinal(edition)} ed."
         if title_str: parts.append(title_str + ".")
-        if publisher: parts.append(publisher + ";")
-        if year:      parts.append(year + ".")
+        if publisher and year:
+            parts.append(publisher + ";")
+            parts.append(year + ".")
+        elif publisher:
+            parts.append(publisher + ".")
         if doi:       parts.append(f"doi:{doi}")
         elif url:     parts.append(url)
     elif ref_type == "book_chapter":
@@ -591,7 +640,7 @@ def format_ama_from_metadata(meta: Dict) -> str:
         in_str = "In: " + ", ".join(editors) + f", {ed_label}. " if editors else "In: "
         book_str = _to_sentence_case(book) if book else ""
         if edition and _ordinal(edition) not in ("1st", "1", "first"):
-            book_str += f". {_ordinal(edition)} ed."
+            book_str += f". {_ordinal(edition)} ed"
         parts.append(in_str + book_str + ".")
         if publisher: parts.append(publisher + ";")
         if year:      parts.append(year + ".")
@@ -986,12 +1035,116 @@ def _fix_ama_author_format(text: str) -> str:
 
     # Pattern: (start|period|semicolon|colon|comma) + space? + Surname, INITIALS
     # Matches all positions where authors might appear (including after other authors)
+    # Handles: lowercase particles (van, de), all-caps surnames, mixed-case, apostrophes, and initials with periods
     text = re.sub(
-        r'(^|[\.\;\:,][\s]?)([A-Z][a-z]+(?: [a-z]{2,})*),\s+([A-Z]{1,})',
+        r'(^|[\.\;\:,][\s]?)((?:[a-z]{1,4} )?[A-Z][a-zA-Z\']+(?:\s+[a-z]{1,4})*),\s+([A-Z]{1,3}(?:\.[A-Z])*\.?)',
         fix_author,
         text,
         flags=re.MULTILINE
     )
+    return text
+
+
+def _truncate_ama_authors(text: str) -> str:
+    """Truncate AMA authors to first 3 if 7+ authors are present.
+
+    AMA style rule: Show first 3 + et al. for 7+ authors.
+    Example: "Smith JA, Jones BC, Brown CD, Williams DE, Green EF, Black GH, White HI, et al."
+    becomes: "Smith JA, Jones BC, Brown CD, et al."
+    """
+    # Pattern: Surname (with optional particles) followed by 1-3 capital letters (initials)
+    # Handles: P, JA, ABC, with or without periods between them
+    author_pattern = r'([A-Z][a-z]*(?:\s+[a-z]{1,4})?\s+[A-Z][A-Z]?[A-Z]?\.?)'
+
+    # Count comma-separated authors at the start
+    author_list = []
+    pos = 0
+    while pos < len(text):
+        match = re.match(author_pattern, text[pos:])
+        if match:
+            author_name = match.group(1).strip()
+            if author_name.lower() != 'et al':
+                author_list.append(author_name)
+            pos += len(match.group(1))
+            # Skip comma and whitespace
+            if text[pos:pos+1] == ',':
+                pos += 1
+                while text[pos:pos+1] == ' ':
+                    pos += 1
+            else:
+                break
+        else:
+            break
+
+    if len(author_list) > 6:
+        # 7+ authors: keep first 3, add et al.
+        first_three = ', '.join(author_list[:3])
+        # Find where the author list ended and insert truncated version
+        # Count how many characters were consumed
+        author_section = ', '.join(author_list) + ', ' if author_list else ''
+        author_section_len = re.match(r'^((?:[A-Z][a-z]*(?:\s+[a-z]+)?\s+[A-Z]+\.?(?:\s*,\s*)?)+)', text)
+        if author_section_len:
+            pos = len(author_section_len.group(1))
+            remainder = text[pos:].lstrip(', ')
+            # If remainder already starts with 'et al', don't add it again
+            if remainder.lower().startswith('et al'):
+                text = first_three + ', ' + remainder
+            else:
+                text = first_three + ', et al. ' + remainder
+
+    return text
+
+
+def _truncate_apa_authors(text: str) -> str:
+    """Truncate APA authors to first 19 + ... + last if 21+ authors are present.
+
+    APA style rule: Show first 19 ... last for 21+ authors.
+    Example: "Smith, A. A., Jones, B. B., ..., Williams, Z. Z."
+    """
+    # Pattern for APA format: Lastname, Initial(s).
+    # Handles: "Smith, A.", "Jones, A. B.", "Brown, A. B. C."
+    author_pattern = r'([A-Z][a-z]*(?:\s+[a-z]{1,4})?\s*,\s*[A-Z]\.(?:\s+[A-Z]\.)*)'
+
+    # Count comma-separated authors at the start
+    author_list = []
+    pos = 0
+    while pos < len(text):
+        match = re.match(author_pattern, text[pos:])
+        if match:
+            author_name = match.group(1).strip()
+            author_list.append(author_name)
+            pos += len(match.group(1))
+            # Skip comma, ampersand, and whitespace
+            ampersand_comma = text[pos:pos+3] if pos + 3 <= len(text) else ""
+            if ampersand_comma.startswith(', &'):
+                pos += 3
+                while text[pos:pos+1] == ' ':
+                    pos += 1
+            elif text[pos:pos+1] == ',':
+                pos += 1
+                while text[pos:pos+1] == ' ':
+                    pos += 1
+            else:
+                break
+        else:
+            break
+
+    if len(author_list) > 20:
+        # 21+ authors: keep first 19, add ellipsis, add last author
+        first_nineteen = ', '.join(author_list[:19])
+        last_author = author_list[-1]
+
+        # Find where the author list ended
+        author_section_match = re.match(
+            r'^((?:[A-Z][a-z]*(?:\s+[a-z]+)?\s*,\s*[A-Z]\.(?:\s+[A-Z]\.)*(?:\s*,\s*)?)+)',
+            text
+        )
+        if author_section_match:
+            pos = len(author_section_match.group(1))
+            remainder = text[pos:].lstrip(', &').lstrip()
+            # Build new author section with ellipsis
+            text = first_nineteen + ', ... ' + last_author + '. ' + remainder
+
     return text
 
 
@@ -1030,7 +1183,7 @@ def _remove_reference_numbers(text: str) -> str:
     This handles cases where numbering was accidentally included in the reference.
     """
     # Match: number(s), period, space at the start of the text
-    text = re.sub(r'^\\d+\\.\\s+', '', text)
+    text = re.sub(r'^\d+\.\s+', '', text)
     return text
 
 
@@ -1190,8 +1343,14 @@ def _add_review_comment(doc, para, comment_text: str) -> None:
         runs = para.runs
         if not runs:
             return
+        # Anchor to the year run (first run whose text contains a 4-digit year).
+        # Falls back to runs[0] only when no year is found in any run.
+        year_run = next(
+            (r for r in runs if re.search(r'\d{4}', r.text)),
+            runs[0]
+        )
         doc.add_comment(
-            runs=runs[0],
+            runs=year_run,
             text=comment_text,
             author="S4C Reference Converter",
             initials="S4C",
@@ -1242,7 +1401,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             ed_label = "ed." if len(ed_surnames) == 1 else "eds."
             segs.append((f", {ed_label}", None))
     else:
-        subset = surnames if n_auth <= 6 else surnames[:6]
+        subset = surnames if n_auth <= 6 else surnames[:3]
         for i, surname in enumerate(subset):
             if i > 0: segs.append((", ", None))
             initial = fnames[i] if i < len(fnames) else ""
@@ -1284,19 +1443,20 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         if ed_surnames:
             for i, es in enumerate(ed_surnames):
                 if i > 0: segs.append((", ", None))
-                segs.append((es, "bib_ed-surname"))
                 ei = ed_fnames[i] if i < len(ed_fnames) else ""
                 ei_str = _format_initials_ama(ei)
-                if ei_str:
-                    segs.append((ei_str + " ", "bib_ed-fname"))
                 if not ei_str and _is_organization(es):
                     segs.append((es, "bib_organization"))
                 else:
                     segs.append((es, "bib_ed-surname"))
-            ed_label = "(Ed.)," if len(ed_surnames) == 1 else "(Eds.),"
-            segs.append((" " + ed_label + " ", None))
-        if book_title:
-            segs.append((_to_sentence_case(book_title), "bib_book"))
+                    if ei_str:
+                        segs.append((" ", None))
+                        segs.append((ei_str, "bib_ed-fname"))
+            ed_label = ", ed." if len(ed_surnames) == 1 else ", eds."
+            segs.append((ed_label + " ", None))
+        display_book = book_title or main_title or ""
+        if display_book:
+            segs.append((_to_sentence_case(display_book), "bib_book"))
             segs.append((". ", None))
 
     if ref_type == "journal":
@@ -1337,7 +1497,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         if ref_type != "book_chapter" and book_title:
             segs.append((_to_sentence_case(book_title), "bib_book"))
             segs.append((". ", None))
-        if edition and _ordinal(edition) not in ("1st", "1"):
+        if edition and _ordinal(edition) not in ("1st", "1", "first"):
             segs.append((_ordinal(edition) + " ed. ", "bib_editionno"))
         org_used_as_author = (n_auth == 0 and publisher and
                               not meta.get("bib_organization") and
@@ -1454,7 +1614,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             ed_label = "ed." if len(ed_surnames) == 1 else "eds."
             segs.append((f", {ed_label} ", None))
         if book:
-            segs.append((book, "bib_book"))
+            segs.append((_to_sentence_case(book), "bib_book"))
             segs.append((". ", None))
         if pub:
             segs.append((pub, "bib_publisher"))
@@ -1654,6 +1814,16 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
 
     segs.append((" (", None))
     raw_year = meta.get("bib_year") or "n.d."
+    if ref_type in ("website", "ereference") and re.match(r'^\d{4}[a-z]?$', raw_year) and gemini_text:
+        # Try APA-formatted date first: (YYYY, Month Day)
+        _dm = re.search(r'\(' + re.escape(raw_year[:4]) + r',\s*([A-Za-z]+\s+\d{1,2})\)', gemini_text)
+        if _dm:
+            raw_year = raw_year[:4] + ", " + _dm.group(1)
+        else:
+            # Fall back to source date format: (Month Day, YYYY)
+            _dm2 = re.search(r'\(([A-Za-z]+\s+\d{1,2}),?\s*' + re.escape(raw_year[:4]) + r'\)', gemini_text)
+            if _dm2:
+                raw_year = raw_year[:4] + ", " + _dm2.group(1)
     segs.append((_normalize_apa_year(raw_year), "bib_year"))
     segs.append(("). ", None))
 
@@ -1693,7 +1863,9 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         if display_title:
             clean_title = _to_sentence_case(display_title.rstrip("."))
             segs.append((clean_title, "bib_book"))
-            segs.append((".", None))
+            _edi = meta.get("bib_editionno") or ""
+            if not (_edi and _ordinal(_edi) not in ("1st", "1", "first")):
+                segs.append((".", None))
 
     elif main_title:
         clean_title = _to_sentence_case(main_title.rstrip("."))
@@ -1761,7 +1933,6 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         lpage   = meta.get("bib_lpage") or ""
         if journal:
             segs.append((journal, "bib_journal"))
-            segs.append((".", None))
         if volume:
             if journal:
                 segs.append((", ", None))
@@ -1774,7 +1945,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((", ", None))
             segs.append((fpage, "bib_fpage"))
             if lpage:
-                segs.append(("-", None))
+                segs.append(("–", None))
                 segs.append((lpage, "bib_lpage"))
         elif not volume and not issue and "Advance online publication" in gemini_text:
             segs.append((". Advance online publication", None))
@@ -1858,7 +2029,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         confdate = meta.get("bib_confdate") or ""
         segs.append(("[Conference session]. ", None))
         if conf:
-            segs.append((conf, "bib_conference"))
+            segs.append((_to_title_case(conf), "bib_conference"))
         if confdate:
             segs.append((", " + confdate, None))
         if confloc:
@@ -2167,7 +2338,7 @@ def process_conversion(
 
         cr_it = task.get('cr_item')
         if cr_it:
-            if cr_it.get("DOI"):
+            if cr_it.get("DOI") and not metadata.get("bib_doi"):
                 db_doi = str(cr_it["DOI"]).replace("https://doi.org/","").replace("doi:","").strip()
                 if db_doi:
                     metadata["bib_doi"] = db_doi
@@ -2220,9 +2391,9 @@ def process_conversion(
         # ── AUTHOR EXPANSION ─────────────────────────────────────────────────
         # When source had "et al." the expansion logic must be style-aware:
         #
-        #   AMA: list up to 6 authors; 7+ -> first 6 + et al.
+        #   AMA: list up to 6 authors; 7+ -> first 3 + et al.
         #     - DB total <= 6  -> expand fully, DROP et al. from metadata
-        #     - DB total 7+    -> expand to first 6, KEEP et al. in metadata
+        #     - DB total 7+    -> expand to first 3, KEEP et al. in metadata
         #     - DB absent      -> keep source truncation (et al. remains)
         #
         #   APA: list up to 20 authors; 21+ -> first 19 ... last.
@@ -2242,29 +2413,25 @@ def process_conversion(
                 current_surnames = metadata.get("bib_surname", "").split("|") if metadata.get("bib_surname") else []
 
                 if source_had_etal:
-                    # Source was truncated — expand using DB with style-specific cutoff
-                    cutoff = 6 if resolved_target == "AMA" else 20
-                    if len(db_families) > len(current_surnames):
-                        if db_total <= cutoff:
-                            # Full list fits within style limit — expand, drop et al.
-                            metadata["bib_surname"] = "|".join(db_families)
-                            metadata["bib_fname"]   = "|".join(db_givens)
-                            logger.info(
-                                f"  [{count}] [Author Expansion] DB {db_total} authors <= "
-                                f"{cutoff} ({resolved_target} limit) — expanded fully, et al. dropped"
-                            )
-                        else:
-                            # DB total exceeds style limit — truncate to cutoff, keep et al.
-                            metadata["bib_surname"] = "|".join(db_families[:cutoff]) + "|et al"
-                            metadata["bib_fname"]   = "|".join(db_givens[:cutoff])   + "|"
-                            logger.info(
-                                f"  [{count}] [Author Expansion] DB {db_total} authors > "
-                                f"{cutoff} ({resolved_target} limit) — expanded to {cutoff}, et al. retained"
-                            )
-                    else:
+                    # Source was truncated — expand using DB with style-specific rules
+                    full_cutoff = 6 if resolved_target == "AMA" else 20
+                    truncate_to = 3 if resolved_target == "AMA" else 19
+                    if db_total <= full_cutoff:
+                        # Total real authors fit within style limit — always expand fully,
+                        # drop et al. regardless of whether Gemini already stored the full list
+                        metadata["bib_surname"] = "|".join(db_families)
+                        metadata["bib_fname"]   = "|".join(db_givens)
                         logger.info(
-                            f"  [{count}] [Author Expansion] DB {len(db_families)} named, "
-                            f"source already has {len(current_surnames)} — no expansion needed"
+                            f"  [{count}] [Author Expansion] DB {db_total} authors <= "
+                            f"{full_cutoff} ({resolved_target} limit) — expanded fully, et al. dropped"
+                        )
+                    elif len(db_families) > 0:
+                        # DB total exceeds limit — truncate to style-specific count, keep et al.
+                        metadata["bib_surname"] = "|".join(db_families[:truncate_to]) + "|et al"
+                        metadata["bib_fname"]   = "|".join(db_givens[:truncate_to])   + "|"
+                        logger.info(
+                            f"  [{count}] [Author Expansion] DB {db_total} authors > "
+                            f"{full_cutoff} ({resolved_target} limit) — expanded to {truncate_to}, et al. retained"
                         )
                 else:
                     # Source had no et al. — only expand if DB has more than Gemini listed.
@@ -2309,11 +2476,15 @@ def process_conversion(
             # Fix AMA author formatting: remove commas between surname and initials
             if resolved_target == "AMA":
                 final_text = _fix_ama_author_format(final_text)
+                # Truncate to first 3 + et al. if 7+ authors
+                final_text = _truncate_ama_authors(final_text)
+            elif resolved_target == "APA":
+                # Truncate to first 19 + ... + last if 21+ authors
+                final_text = _truncate_apa_authors(final_text)
             # Fix duplicate titles in website/ereference references
             if ref_type in ("website", "ereference") and metadata.get("bib_title"):
                 final_text = _fix_duplicate_title_website(final_text, metadata["bib_title"])
-            # Fix double periods and reference numbering
-            final_text = _fix_double_periods(final_text)
+            # Fix reference numbering
             final_text = _remove_reference_numbers(final_text)
             if metadata.get("bib_doi") and "doi:" not in final_text.lower() and "doi.org" not in final_text.lower():
                 if resolved_target == "AMA":
@@ -2333,8 +2504,6 @@ def process_conversion(
             else:
                 final_text = format_apa_from_metadata(metadata)
 
-        metadata, final_text = _strip_db_journal_qualifiers(raw_text, metadata, final_text)
-
         # Force local rebuild if Gemini stubbornly retained 'et al.' but we
         # now have the full author list AND the source itself did not have et al.
         if "et al" in final_text.lower() and metadata.get("bib_surname") and not source_had_etal:
@@ -2349,6 +2518,10 @@ def process_conversion(
                     final_text = format_ama_from_metadata(metadata)
                 elif resolved_target == "APA":
                     final_text = format_apa_from_metadata(metadata)
+
+        # Strip DB journal qualifiers after any forced rebuild so qualifiers
+        # like "(MEDLINE, 1950-present: 2023)" are always removed from final_text
+        metadata, final_text = _strip_db_journal_qualifiers(raw_text, metadata, final_text)
 
         final_text = _normalise_quotes(final_text)
         final_text = _normalise_double_periods(final_text)
