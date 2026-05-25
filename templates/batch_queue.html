@@ -3,123 +3,223 @@
 
 {% block extra_css %}
 <style>
-    .page-header { margin-bottom: 24px; }
-    .page-title  { font-size: 1.5rem; font-weight: 700; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-    .page-sub    { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-top: 4px; }
-
-    .queue-card {
-        background: white;
-        border-radius: var(--border-radius);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        overflow: hidden;
-    }
-    .queue-table { width: 100%; border-collapse: collapse; }
-    .queue-table th {
-        background: #f8f9fa;
-        padding: 12px 16px;
-        text-align: left;
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: #6c757d;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        border-bottom: 1px solid #e9ecef;
-    }
-    .queue-table td {
-        padding: 12px 16px;
-        border-bottom: 1px solid #f0f0f0;
-        font-size: 0.875rem;
-        vertical-align: middle;
-    }
-    .queue-table tr:last-child td { border-bottom: none; }
-    .queue-table tr:hover td { background: #fafafa; }
-    .queue-table tr.row-running td { background: #f0f5ff; }
-
-    /* Status badges */
-    .badge {
-        display: inline-block;
-        padding: 3px 10px;
-        border-radius: 20px;
-        font-size: 0.72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-    }
-    .badge-pending    { background: #e9ecef; color: #495057; }
-    .badge-running    { background: #cce5ff; color: #004085; animation: pulse 1.5s infinite; }
-    .badge-completed  { background: #d4edda; color: #155724; }
-    .badge-downloaded { background: #d1ecf1; color: #0c5460; }
-    .badge-failed     { background: #f8d7da; color: #721c24; }
-    .badge-cancelled  { background: #fff3cd; color: #856404; }
-    .badge-not-ready  { background: #f0f0f0; color: #999; }
-
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50%       { opacity: 0.65; }
+    /* ── PREMIUM STYLING SYSTEM ── */
+    :root {
+        --primary-gradient: linear-gradient(135deg, #6366f1, #4f46e5);
+        --success-gradient: linear-gradient(135deg, #10b981, #059669);
+        --info-gradient: linear-gradient(135deg, #0ea5e9, #0284c7);
+        --danger-gradient: linear-gradient(135deg, #ef4444, #dc2626);
+        --warning-gradient: linear-gradient(135deg, #f59e0b, #d97706);
+        --secondary-gradient: linear-gradient(135deg, #94a3b8, #475569);
+        
+        --card-bg: rgba(255, 255, 255, 0.95);
+        --card-border: rgba(226, 232, 240, 0.8);
+        --shadow-premium: 0 10px 25px -5px rgba(0, 0, 0, 0.04), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+        --shadow-glow-purple: 0 0 12px rgba(99, 102, 241, 0.35);
+        --shadow-glow-green: 0 0 12px rgba(16, 185, 129, 0.3);
     }
 
-    .route-label {
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: #495057;
+    .page-header {
+        margin-bottom: 28px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 16px;
     }
-
-    .file-list-small {
-        font-size: 0.75rem;
-        color: #6c757d;
-        max-width: 200px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+    .page-title {
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        letter-spacing: -0.02em;
     }
-
-    .progress-cell { min-width: 120px; }
-    .mini-progress {
-        width: 100%;
-        height: 6px;
-        border-radius: 3px;
-        overflow: hidden;
-        background: #e9ecef;
+    .page-sub {
+        font-size: 0.9rem;
+        color: rgba(255,255,255,0.75);
         margin-top: 4px;
-    }
-    .mini-progress-bar {
-        height: 100%;
-        background: linear-gradient(90deg, #4361ee, #6a7bd6);
-        border-radius: 3px;
-        transition: width 0.3s ease;
-    }
-    .progress-text { font-size: 0.72rem; color: #6c757d; }
-
-    .btn-sm {
-        padding: 4px 10px;
-        font-size: 0.75rem;
-        border-radius: 4px;
-        cursor: pointer;
-        border: none;
         font-weight: 500;
     }
-    .btn-cancel  { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
-    .btn-cancel:hover { background: #ffc107; color: #212529; }
-    .btn-download { background: #d4edda; color: #155724; border: 1px solid #28a745; text-decoration: none; }
-    .btn-download:hover { background: #28a745; color: white; }
 
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1rem;
-        color: #6c757d;
+    /* ── QUICK STATS OVERVIEW ── */
+    .queue-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
     }
-    .empty-state i { font-size: 3rem; margin-bottom: 1rem; color: #dee2e6; }
+    .stat-mini-card {
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        box-shadow: var(--shadow-premium);
+        transition: transform 0.2s;
+    }
+    .stat-mini-card:hover {
+        transform: translateY(-2px);
+    }
+    .stat-icon-wrap {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        color: white;
+    }
+    .stat-meta h4 {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: #64748b;
+        letter-spacing: 0.05em;
+        margin: 0 0 2px 0;
+        font-weight: 600;
+    }
+    .stat-meta .stat-val {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #1e293b;
+        line-height: 1.1;
+    }
 
-    /* ── NEW QUEUE TOOLBAR ──────────────────────────── */
+    /* ── SEARCH & FILTER CONTROLS ── */
+    .controls-card {
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: var(--shadow-premium);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        backdrop-filter: blur(10px);
+    }
+    .filter-row-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+    .search-box-wrapper {
+        position: relative;
+        flex: 1;
+        min-width: 280px;
+    }
+    .search-icon {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94a3b8;
+        font-size: 0.95rem;
+    }
+    .search-input {
+        width: 100%;
+        padding: 11px 16px 11px 40px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        font-size: 0.875rem;
+        color: #334155;
+        transition: all 0.2s;
+        font-weight: 500;
+    }
+    .search-input:focus {
+        outline: none;
+        background: #ffffff;
+        border-color: #6366f1;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+    }
+    .dropdown-filter-group {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+    .filter-select {
+        padding: 10px 14px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        font-size: 0.875rem;
+        color: #475569;
+        font-weight: 600;
+        cursor: pointer;
+        outline: none;
+        transition: all 0.2s;
+    }
+    .filter-select:hover {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+    .filter-select:focus {
+        border-color: #6366f1;
+    }
+
+    /* Filter pills */
+    .filter-pills-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        border-top: 1px solid #f1f5f9;
+        padding-top: 14px;
+    }
+    .filter-pill {
+        background: #f1f5f9;
+        color: #475569;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .filter-pill:hover {
+        background: #e2e8f0;
+        color: #1e293b;
+    }
+    .filter-pill.active {
+        background: #6366f1;
+        color: #ffffff;
+        box-shadow: var(--shadow-glow-purple);
+    }
+    .pill-badge {
+        background: rgba(0, 0, 0, 0.08);
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 0.72rem;
+    }
+    .filter-pill.active .pill-badge {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* ── QUEUE CARD & TABLE ── */
+    .queue-card {
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 16px;
+        box-shadow: var(--shadow-premium);
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+    }
     .queue-toolbar {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 14px 20px;
-        background: #f8f9fc;
-        border-bottom: 1px solid #e9ecef;
+        padding: 18px 24px;
+        background: #f8fafc;
+        border-bottom: 1px solid #f1f5f9;
         gap: 12px;
-        flex-wrap: wrap;
     }
     .queue-title-group {
         display: flex;
@@ -127,241 +227,582 @@
         gap: 10px;
     }
     .queue-title-group h2 {
-        font-size: 1rem;
-        font-weight: 600;
+        font-size: 1.05rem;
+        font-weight: 700;
         margin: 0;
-        color: #343a40;
+        color: #1e293b;
+        letter-spacing: -0.01em;
     }
     .queue-title-group i {
-        color: #4361ee;
-        font-size: 1.1rem;
+        color: #6366f1;
+        font-size: 1.15rem;
     }
     .view-badge {
-        font-size: 0.78rem;
-        font-weight: 600;
-        padding: 4px 10px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 3px 10px;
         border-radius: 20px;
-        background: #e8f0ff;
-        color: #4361ee;
+        background: #e0e7ff;
+        color: #4f46e5;
     }
 
-    /* ── Live refresh indicator (minimal) ──────────── */
     .refresh-bar {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
+    }
+    .live-dot-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
     }
     .live-dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #28a745;
-        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.6);
-        animation: ping-live 1.4s ease-out infinite;
-        flex-shrink: 0;
+        background: #10b981;
     }
-    @keyframes ping-live {
-        0%   { box-shadow: 0 0 0 0   rgba(40,167,69,0.6); }
-        70%  { box-shadow: 0 0 0 7px rgba(40,167,69,0);   }
-        100% { box-shadow: 0 0 0 0   rgba(40,167,69,0);   }
+    .live-dot-pulse {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: #10b981;
+        animation: pulse-ring 1.8s ease-out infinite;
+    }
+    @keyframes pulse-ring {
+        0% { transform: scale(0.6); opacity: 1; }
+        100% { transform: scale(2.2); opacity: 0; }
     }
     .live-label {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #10b981;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+    .last-refresh-txt {
         font-size: 0.72rem;
-        font-weight: 600;
-        color: #28a745;
+        color: #94a3b8;
+        font-weight: 500;
     }
 
-    /* ── Enhanced progress card ──────────────────────– */
-    .progress-cell { min-width: 240px; }
-    .progress-card {
-        background: linear-gradient(135deg, #f8f9ff 0%, #f3f6ff 100%);
-        border: 1px solid #dde4f0;
-        border-radius: 8px;
-        padding: 10px 12px;
-        font-size: 0.75rem;
-        box-shadow: 0 1px 3px rgba(67, 97, 238, 0.08);
+    /* Queue Table UI */
+    .queue-table { width: 100%; border-collapse: collapse; }
+    .queue-table th {
+        background: #f8fafc;
+        padding: 14px 20px;
+        text-align: left;
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid #e2e8f0;
     }
-    .progress-header {
+    .queue-table td {
+        padding: 14px 20px;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.875rem;
+        vertical-align: middle;
+        color: #334155;
+        font-weight: 500;
+    }
+    .queue-table tbody tr.job-row {
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .queue-table tbody tr.job-row:hover { background: #faf5ff; }
+    .queue-table tr.row-running td { background: #f5f3ff; }
+    
+    /* Dynamic Caret Indication */
+    .caret-cell {
+        width: 30px;
+        text-align: center;
+        color: #cbd5e1;
+        transition: transform 0.2s, color 0.2s;
+    }
+    .job-row:hover .caret-cell {
+        color: #6366f1;
+    }
+    .job-row.details-open .caret-cell i {
+        transform: rotate(180deg);
+        color: #6366f1;
+    }
+
+    /* Modernized Badges */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 30px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .badge i { font-size: 0.7rem; }
+    .badge-pending    { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+    .badge-running    { background: var(--primary-gradient); color: #ffffff; box-shadow: var(--shadow-glow-purple); }
+    .badge-completed  { background: var(--success-gradient); color: #ffffff; box-shadow: var(--shadow-glow-green); }
+    .badge-downloaded { background: var(--info-gradient); color: #ffffff; }
+    .badge-failed     { background: var(--danger-gradient); color: #ffffff; }
+    .badge-cancelled  { background: var(--warning-gradient); color: #ffffff; }
+    
+    /* ── UPGRADED PROGRESS AREA (PROGRESS BAR MODIFIED) ── */
+    .progress-cell { min-width: 250px; }
+    
+    /* Compact row-level linear progress bar */
+    .linear-progress-track {
+        width: 100%;
+        height: 6px;
+        background: #e2e8f0;
+        border-radius: 10px;
+        overflow: hidden;
+        position: relative;
+        margin-top: 6px;
+    }
+    .linear-progress-fill {
+        height: 100%;
+        background: var(--primary-gradient);
+        width: 0%;
+        border-radius: 10px;
+        transition: width 0.4s ease-out;
+        box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+    }
+    .linear-progress-info {
         display: flex;
         justify-content: space-between;
-        align-items: center;
-        margin-bottom: 7px;
-    }
-    .progress-status {
-        color: #4361ee;
+        font-size: 0.72rem;
         font-weight: 700;
+        color: #64748b;
+        margin-top: 4px;
+    }
+
+    /* Live Progress Ring Card inside expanded accordion */
+    .progress-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px 16px;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
+    }
+    .ring-wrap {
+        position: relative;
+        width: 60px;
+        height: 60px;
+        flex-shrink: 0;
+    }
+    .ring-wrap svg { transform: rotate(-90deg); }
+    .ring-bg   { fill: none; stroke: #e2e8f0; stroke-width: 6; }
+    .ring-fill {
+        fill: none;
+        stroke: #6366f1;
+        stroke-width: 6;
+        stroke-linecap: round;
+        stroke-dasharray: 144;
+        stroke-dashoffset: 144;
+        transition: stroke-dashoffset 0.45s ease;
+        filter: drop-shadow(0 0 3px rgba(99, 102, 241, 0.4));
+    }
+    .ring-label {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+    .ring-pct { font-size: 0.85rem; font-weight: 900; color: #4f46e5; }
+    .ring-sub { font-size: 0.5rem; color: #94a3b8; font-weight: 700; margin-top: 2px; text-transform: uppercase; }
+    
+    .ring-info { flex: 1; min-width: 0; }
+    .ring-step {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #1e293b;
         display: flex;
         align-items: center;
-        gap: 5px;
-        font-size: 0.75rem;
+        gap: 6px;
+        margin-bottom: 4px;
     }
-    .progress-meta {
+    .ring-step i { color: #6366f1; font-size: 0.72rem; }
+    .ring-counter { font-size: 0.7rem; color: #64748b; font-weight: 600; margin-bottom: 6px; }
+    
+    /* Modern step dots */
+    .dot-track { display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #e2e8f0; flex-shrink: 0; transition: all 0.3s; }
+    .dot.done   { background: #10b981; box-shadow: 0 0 4px rgba(16, 185, 129, 0.3); }
+    .dot.active {
+        background: #6366f1;
+        box-shadow: var(--shadow-glow-purple);
+        animation: dot-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes dot-pulse {
+        0%,100% { transform: scale(1); opacity: 1; }
+        50%      { transform: scale(1.2); opacity: 0.7; }
+    }
+    
+    .ring-file {
+        font-size: 0.7rem;
+        color: #475569;
+        font-family: 'Monaco', 'Courier New', monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-bottom: 2px;
+        font-weight: 600;
+    }
+    .ring-elapsed { font-size: 0.68rem; color: #94a3b8; font-weight: 600; }
+
+    /* ── DETAILS ACCORDION AREA ── */
+    .details-row {
+        background: #f8fafc;
+    }
+    .details-row td {
+        padding: 0 !important;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .details-drawer {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+    }
+    .details-row.expanded .details-drawer {
+        max-height: 800px; /* arbitrary high value for slide effect */
+        transition: max-height 0.35s ease-in;
+    }
+    .details-content {
+        padding: 24px;
+        display: grid;
+        grid-template-columns: 1fr 1.2fr;
+        gap: 20px;
+        background: #f8fafc;
+        border-left: 4px solid #cbd5e1;
+    }
+    .details-row.row-running-detail .details-content {
+        border-left-color: #6366f1;
+    }
+    .details-row.row-failed-detail .details-content {
+        border-left-color: #ef4444;
+    }
+    .details-row.row-completed-detail .details-content {
+        border-left-color: #10b981;
+    }
+
+    .detail-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.01), 0 2px 4px -1px rgba(0,0,0,0.01);
+    }
+    .detail-card h3 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        color: #475569;
+        margin: 0 0 14px 0;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid #f1f5f9;
+        padding-bottom: 8px;
         display: flex;
         align-items: center;
         gap: 8px;
     }
-    .file-counter {
-        font-size: 0.72rem;
-        color: #6c757d;
-        font-weight: 500;
-    }
-    .progress-percentage {
-        color: #343a40;
-        font-weight: 800;
-        font-size: 0.85rem;
-        min-width: 35px;
-        text-align: right;
-    }
-    .progress-bar-container {
-        width: 100%;
-        height: 7px;
-        border-radius: 4px;
-        background: #dde4f0;
-        margin-bottom: 8px;
-        overflow: hidden;
-    }
-    .progress-bar-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #4361ee 0%, #6a7bd6 100%);
-        border-radius: 4px;
-        transition: width 0.4s ease;
-        box-shadow: 0 0 2px rgba(67, 97, 238, 0.3);
-    }
-    .current-file {
-        background: linear-gradient(135deg, #e8f0ff 0%, #eff3ff 100%);
-        border-left: 4px solid #4361ee;
-        padding: 6px 9px;
-        border-radius: 4px;
+    .detail-card h3 i { color: #6366f1; }
+
+    /* Metadata details list */
+    .metadata-list {
         display: flex;
-        align-items: baseline;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .meta-item {
+        display: flex;
         justify-content: space-between;
-        gap: 6px;
+        font-size: 0.83rem;
+        line-height: 1.4;
     }
-    .current-file-name {
-        color: #343a40;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-family: 'Monaco', 'Courier New', monospace;
+    .meta-item .meta-label { color: #64748b; font-weight: 600; }
+    .meta-item .meta-value { color: #1e293b; font-weight: 700; text-align: right; }
+    .job-id-copy {
+        font-family: monospace;
         font-size: 0.78rem;
-        font-weight: 500;
-        flex: 1;
+        background: #f1f5f9;
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #334155;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border: 1px solid #e2e8f0;
+        transition: all 0.2s;
     }
-    .elapsed {
-        font-size: 0.65rem;
-        color: #6c757d;
-        white-space: nowrap;
-        flex-shrink: 0;
+    .job-id-copy:hover {
+        background: #e2e8f0;
+        color: #000;
     }
 
-    .ts { font-size: 0.72rem; color: #6c757d; }
-    .job-id-short { font-family: monospace; font-size: 0.8rem; color: #495057; }
+    /* Diagnostics error block */
+    .diagnostic-panel {
+        background: #fef2f2;
+        border: 1px solid #fee2e2;
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin-top: 10px;
+    }
+    .diagnostic-title {
+        font-size: 0.8rem;
+        color: #991b1b;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+    .diagnostic-msg {
+        font-family: 'Monaco', 'Courier New', monospace;
+        font-size: 0.78rem;
+        color: #b91c1c;
+        white-space: pre-wrap;
+        word-break: break-all;
+        background: rgba(255, 255, 255, 0.6);
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #fecaca;
+        margin: 0;
+        max-height: 120px;
+        overflow-y: auto;
+    }
+
+    /* Dynamic file item display */
+    .detail-files-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 240px;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .detail-file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .detail-file-name {
+        color: #334155;
+        font-family: monospace;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+        flex: 1;
+        margin-right: 12px;
+    }
+    .detail-file-status {
+        font-size: 0.68rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 12px;
+        background: #e2e8f0;
+        color: #475569;
+        text-transform: uppercase;
+    }
+    .details-row.row-completed-detail .detail-file-status { background: #d1fae5; color: #065f46; }
+
+    /* Empty and responsive designs */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 1rem;
+        color: #64748b;
+    }
+    .empty-state i { font-size: 3.5rem; margin-bottom: 1.2rem; color: #cbd5e1; }
+    .empty-state h3 { font-size: 1.15rem; font-weight: 700; color: #334155; margin: 0 0 6px 0; }
+    .empty-state p { font-size: 0.875rem; margin: 0; color: #94a3b8; }
+
+    .btn-sm {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        font-size: 0.78rem;
+        border-radius: 6px;
+        cursor: pointer;
+        border: none;
+        font-weight: 700;
+        transition: all 0.2s;
+    }
+    .btn-cancel  { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .btn-cancel:hover { background: #ef4444; color: white; border-color: #ef4444; }
+    .btn-download { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; text-decoration: none; }
+    .btn-download:hover { background: #10b981; color: white; border-color: #10b981; }
+
+    .ts { font-size: 0.78rem; color: #64748b; font-weight: 600; }
+    .route-label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #334155;
+        background: #f1f5f9;
+        padding: 3px 8px;
+        border-radius: 6px;
+        border: 1px solid #e2e8f0;
+    }
+
+    @media (max-width: 900px) {
+        .details-content {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <div class="page-title">Job Queue</div>
-    <div class="page-sub">Monitor and manage your background processing jobs</div>
+    <div>
+        <div class="page-title">Job Queue</div>
+        <div class="page-sub">Monitor and manage background processing pipelines in real time</div>
+    </div>
 </div>
 
+<!-- ── QUICK STATS ── -->
+<div class="queue-stats-grid">
+    <div class="stat-mini-card">
+        <div class="stat-icon-wrap" style="background: var(--primary-gradient);">
+            <i class="fas fa-cog fa-spin"></i>
+        </div>
+        <div class="stat-meta">
+            <h4>Active Jobs</h4>
+            <div class="stat-val" id="statActive">0</div>
+        </div>
+    </div>
+    <div class="stat-mini-card">
+        <div class="stat-icon-wrap" style="background: var(--success-gradient);">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <div class="stat-meta">
+            <h4>Completed</h4>
+            <div class="stat-val" id="statCompleted">0</div>
+        </div>
+    </div>
+    <div class="stat-mini-card">
+        <div class="stat-icon-wrap" style="background: var(--danger-gradient);">
+            <i class="fas fa-times-circle"></i>
+        </div>
+        <div class="stat-meta">
+            <h4>Failed</h4>
+            <div class="stat-val" id="statFailed">0</div>
+        </div>
+    </div>
+    <div class="stat-mini-card">
+        <div class="stat-icon-wrap" style="background: var(--info-gradient);">
+            <i class="fas fa-layer-group"></i>
+        </div>
+        <div class="stat-meta">
+            <h4>Total Jobs</h4>
+            <div class="stat-val" id="statTotal">0</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── INTERACTIVE CONTROLS ── -->
+<div class="controls-card">
+    <div class="filter-row-top">
+        <div class="search-box-wrapper">
+            <i class="fas fa-search search-icon"></i>
+            <input type="text" id="searchJobs" placeholder="Search by file name, job ID, or username..." class="search-input" onkeyup="applyFilters()" />
+        </div>
+        <div class="dropdown-filter-group">
+            <select id="filterTool" class="filter-select" onchange="applyFilters()">
+                <option value="all">All Tools</option>
+                <option value="ppd">Manuscript Reviews</option>
+                <option value="macro_processing">Pre-Editing</option>
+                <option value="validation">Reference Validate</option>
+                <option value="technical">Technical Editing</option>
+                <option value="bias_scan">Bias Scanner</option>
+                <option value="credit_extractor">Credit Extractor</option>
+                <option value="word_to_xml">Word to XML</option>
+                <option value="book_indexer">Book Indexer</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="filter-pills-container">
+        <button class="filter-pill active" data-status="all" onclick="setStatusFilter('all')">
+            All Statuses <span class="pill-badge" id="badgeAll">0</span>
+        </button>
+        <button class="filter-pill" data-status="running" onclick="setStatusFilter('running')">
+            Active <span class="pill-badge" id="badgeRunning">0</span>
+        </button>
+        <button class="filter-pill" data-status="completed" onclick="setStatusFilter('completed')">
+            Completed <span class="pill-badge" id="badgeCompleted">0</span>
+        </button>
+        <button class="filter-pill" data-status="failed" onclick="setStatusFilter('failed')">
+            Failed <span class="pill-badge" id="badgeFailed">0</span>
+        </button>
+        <button class="filter-pill" data-status="cancelled" onclick="setStatusFilter('cancelled')">
+            Cancelled <span class="pill-badge" id="badgeCancelled">0</span>
+        </button>
+    </div>
+</div>
+
+<!-- ── QUEUE CARD ── -->
 <div class="queue-card">
     <div class="queue-toolbar">
         <div class="queue-title-group">
-            <i class="fas fa-layer-group"></i>
-            <h2>Active & Recent Jobs</h2>
-            <span class="view-badge" id="viewType">{% if is_admin %}All Jobs (—){% else %}My Jobs (—){% endif %}</span>
+            <i class="fas fa-server"></i>
+            <h2>Pipeline Logs &amp; Progress</h2>
+            <span class="view-badge" id="viewType">{% if is_admin %}All Logs{% else %}My Logs{% endif %}</span>
         </div>
         <div class="refresh-bar">
-            <div class="live-dot"></div>
+            <div class="live-dot-wrap">
+                <div class="live-dot-pulse"></div>
+                <div class="live-dot"></div>
+            </div>
             <span class="live-label">Live</span>
+            <span class="last-refresh-txt" id="lastRefresh">Connecting...</span>
         </div>
     </div>
 
     <div id="queueTableContainer">
-        {% if jobs %}
-        <table class="queue-table">
+        <table class="queue-table" id="jobsTable" style="display: none;">
             <thead>
                 <tr>
-                    <th>Tool</th>
+                    <th style="width: 30px;"></th>
+                    <th>Pipeline Tool</th>
                     <th id="usernameHeader" style="display:{% if is_admin %}table-cell{% else %}none{% endif %};">User</th>
-                    <th>Files</th>
+                    <th>Files In Batch</th>
                     <th>Submitted</th>
                     <th>Status</th>
-                    <th>Progress</th>
+                    <th style="width: 250px;">Processing Progress</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="queueBody">
-                {% for job in jobs %}
-                <tr id="row-{{ job.job_id }}">
-                    <td><span class="route-label">{{ job.route_type | replace('_', ' ') | title }}</span></td>
-                    <td id="user-{{ job.job_id }}" style="display:{% if is_admin %}table-cell{% else %}none{% endif %};" class="username-cell"><span class="ts">{{ job.username }}</span></td>
-                    <td>
-                        {% if job.files %}
-                        <div class="file-list-small" title="{{ job.files | join(', ') }}">
-                            {{ job.files[0] }}{% if job.files | length > 1 %} <em>+{{ job.files | length - 1 }} more</em>{% endif %}
-                        </div>
-                        {% else %}<span class="ts">—</span>{% endif %}
-                    </td>
-                    <td><span class="ts time-format" data-utc="{{ job.queued_at }}">{{ job.queued_at[:16] if job.queued_at else '—' }}</span></td>
-                    <td>
-                        <span class="badge badge-{{ job.status }}" id="badge-{{ job.job_id }}">
-                            {{ job.status }}
-                        </span>
-                    </td>
-                    <td class="progress-cell">
-                        <div id="prog-{{ job.job_id }}">
-                            {% if job.status == 'running' %}
-                            <div class="progress-card">
-                                <div class="progress-header">
-                                    <span class="progress-status">
-                                        <i class="fas fa-cog fa-spin" style="font-size:0.65rem;"></i>
-                                        <span id="prog-text-{{ job.job_id }}">Starting</span>
-                                    </span>
-                                    <span class="progress-meta">
-                                        <span class="file-counter" id="prog-counter-{{ job.job_id }}">— / —</span>
-                                        <span class="progress-percentage" id="prog-pct-{{ job.job_id }}">0%</span>
-                                    </span>
-                                </div>
-                                <div class="progress-bar-container">
-                                    <div class="progress-bar-fill" id="prog-bar-{{ job.job_id }}" style="width:0%"></div>
-                                </div>
-                                <div class="current-file">
-                                    <span class="current-file-name" id="prog-file-{{ job.job_id }}">—</span>
-                                    <span class="elapsed" id="prog-elapsed-{{ job.job_id }}"></span>
-                                </div>
-                            </div>
-                            {% else %}
-                            <span class="ts">—</span>
-                            {% endif %}
-                        </div>
-                    </td>
-                    <td id="actions-{{ job.job_id }}">
-                        {% if job.status in ['pending', 'running'] %}
-                        <button class="btn-sm btn-cancel" onclick="cancelJob('{{ job.job_id }}')">
-                            <i class="fas fa-times"></i> Cancel
-                        </button>
-                        {% elif job.status == 'completed' %}
-                        <a class="btn-sm btn-download" href="/download_zip/{{ job.job_id }}">
-                            <i class="fas fa-download"></i> Download
-                        </a>
-                        {% elif job.status == 'downloaded' %}
-                        <span class="ts">—</span>
-                        {% else %}
-                        <span class="badge badge-not-ready">Not ready</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
+                <!-- Dynamically injected rows -->
             </tbody>
         </table>
-        {% else %}
+        
         <div class="empty-state" id="emptyState">
             <i class="fas fa-layer-group"></i>
-            <p>No jobs yet. Submit a file from any processing tool to see it here.</p>
+            <h3 id="emptyTitle">Loading job logs...</h3>
+            <p id="emptyDesc">Waiting for the background server connection.</p>
         </div>
-        {% endif %}
     </div>
 </div>
 {% endblock %}
@@ -376,90 +817,407 @@ const ROUTE_LABELS = {
     'ppd': 'Mss Reviews',
     'validation': 'Reference Validate',
     'technical': 'Technical Editing',
+    'structuring': 'Document Structuring',
+    'macro_processing': 'Pre-Editing'
 };
 
-// Get admin status from template variable
 const isAdmin = {{ 'true' if is_admin else 'false' }};
+let globalJobs = [];
+let polling = {};
+let activeStatusFilter = 'all';
+let expandedJobs = new Set();  // Set to track expanded job details open state
 
-let polling = {};  // job_id -> true if currently polling progress
+function setStatusFilter(status) {
+    activeStatusFilter = status;
+    document.querySelectorAll('.filter-pill').forEach(btn => {
+        if (btn.getAttribute('data-status') === status) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    applyFilters();
+}
 
 function statusBadgeClass(status) {
     const map = {
-        pending: 'badge-pending', running: 'badge-running',
-        completed: 'badge-completed', downloaded: 'badge-downloaded',
-        failed: 'badge-failed', cancelled: 'badge-cancelled'
+        pending: 'badge-pending',
+        running: 'badge-running',
+        completed: 'badge-completed',
+        downloaded: 'badge-downloaded',
+        failed: 'badge-failed',
+        cancelled: 'badge-cancelled'
     };
     return map[status] || 'badge-pending';
 }
 
-function actionsHtml(job) {
-    if (job.status === 'pending' || job.status === 'running') {
-        return `<button class="btn-sm btn-cancel" onclick="cancelJob('${job.job_id}')"><i class="fas fa-times"></i> Cancel</button>`;
-    } else if (job.status === 'completed') {
-        return `<a class="btn-sm btn-download" href="/download_zip/${job.job_id}"><i class="fas fa-download"></i> Download</a>`;
-    } else if (job.status === 'downloaded') {
-        return '<span class="ts">—</span>';
-    }
-    return '<span class="badge badge-not-ready">Not ready</span>';
+function statusBadgeIcon(status) {
+    const map = {
+        pending: 'fa-clock',
+        running: 'fa-cog fa-spin',
+        completed: 'fa-check-circle',
+        downloaded: 'fa-cloud-download-alt',
+        failed: 'fa-times-circle',
+        cancelled: 'fa-ban'
+    };
+    return map[status] || 'fa-clock';
 }
 
-function filesHtml(files) {
+function actionsHtml(job) {
+    if (job.status === 'pending' || job.status === 'running') {
+        return `<button class="btn-sm btn-cancel" onclick="event.stopPropagation(); cancelJob('${job.job_id}')"><i class="fas fa-times"></i> Cancel</button>`;
+    } else if (job.status === 'completed') {
+        return `<a class="btn-sm btn-download" onclick="event.stopPropagation();" href="/download_zip/${job.job_id}"><i class="fas fa-download"></i> Download</a>`;
+    } else if (job.status === 'downloaded') {
+        return '<span class="ts"><i class="fas fa-check-double text-success"></i> Saved</span>';
+    }
+    return '<span class="ts">—</span>';
+}
+
+function filesSummaryHtml(files) {
     if (!files || files.length === 0) return '<span class="ts">—</span>';
     const first = files[0];
-    const extra = files.length > 1 ? ` <em>+${files.length - 1} more</em>` : '';
-    return `<div class="file-list-small" title="${files.join(', ')}">${first}${extra}</div>`;
+    const cleanFirst = first.replace(/^.*[\\\/]/, ''); // get basename
+    if (files.length > 1) {
+        return `<div class="ts" style="font-weight: 700; color: #334155;">${cleanFirst} <em style="color: #6366f1;">+${files.length - 1} more</em></div>`;
+    }
+    return `<div class="ts" style="font-family: monospace; font-size: 0.78rem;">${cleanFirst}</div>`;
 }
 
 function formatLocalTime(utcStr) {
     if (!utcStr || utcStr === '—') return '—';
     try {
-        // Assume UTC if it looks like a standard SQL datetime but has no Z
         if (utcStr.indexOf('Z') === -1 && utcStr.indexOf('+') === -1) {
             utcStr += 'Z';
         }
         const d = new Date(utcStr);
         if (isNaN(d.getTime())) return utcStr;
         
-        // Format as YYYY-MM-DD HH:mm to match existing format but localized
-        const pad = (n) => n.toString().padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        return d.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
     } catch(e) {
         return utcStr;
     }
 }
 
-function rowHtml(job) {
-    const dt = formatLocalTime(job.queued_at);
+function getDuration(started, completed) {
+    if (!started) return '—';
+    const start = new Date(started.indexOf('Z') === -1 && started.indexOf('+') === -1 ? started + 'Z' : started);
+    const end = completed 
+        ? new Date(completed.indexOf('Z') === -1 && completed.indexOf('+') === -1 ? completed + 'Z' : completed)
+        : new Date();
+    
+    const diffMs = end - start;
+    if (isNaN(diffMs) || diffMs < 0) return '—';
+    
+    const secs = Math.floor(diffMs / 1000);
+    const mins = Math.floor(secs / 60);
+    const hours = Math.floor(mins / 60);
+    
+    if (hours > 0) return `${hours}h ${mins % 60}m`;
+    if (mins > 0) return `${mins}m ${secs % 60}s`;
+    return `${secs}s`;
+}
+
+// Click row toggling accordion drawer
+function toggleAccordion(jobId) {
+    const detailRow = document.getElementById('details-' + jobId);
+    const parentRow = document.getElementById('row-' + jobId);
+    if (!detailRow || !parentRow) return;
+
+    if (expandedJobs.has(jobId)) {
+        // Collapse
+        expandedJobs.delete(jobId);
+        detailRow.querySelector('.details-drawer').style.maxHeight = '0px';
+        setTimeout(() => {
+            detailRow.classList.remove('expanded');
+            parentRow.classList.remove('details-open');
+        }, 300);
+    } else {
+        // Expand
+        expandedJobs.add(jobId);
+        parentRow.classList.add('details-open');
+        detailRow.classList.add('expanded');
+        
+        // Compute proper height
+        const content = detailRow.querySelector('.details-content');
+        detailRow.querySelector('.details-drawer').style.maxHeight = (content.scrollHeight + 50) + 'px';
+    }
+}
+
+// Dynamic copy helper
+function copyJobId(btn, id) {
+    navigator.clipboard.writeText(id).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check text-success"></i> Copied!';
+        btn.style.borderColor = '#10b981';
+        setTimeout(() => {
+            btn.innerHTML = orig;
+            btn.style.borderColor = '';
+        }, 1500);
+    });
+}
+
+// ── FLICKER-FREE TARGETED UI UPDATER ──
+function buildAccordionDrawer(job) {
+    const cleanFiles = (job.files || []).map(f => f.replace(/^.*[\\\/]/, ''));
+    const filesListHtml = cleanFiles.length > 0 
+        ? cleanFiles.map(name => `
+            <div class="detail-file-item">
+                <span class="detail-file-name" title="${name}">${name}</span>
+                <span class="detail-file-status">${job.status}</span>
+            </div>`).join('')
+        : '<div class="ts" style="font-style: italic;">No uploaded files detected.</div>';
+
+    const diagnosticHtml = job.status === 'failed' && job.error_msg
+        ? `<div class="diagnostic-panel">
+            <div class="diagnostic-title"><i class="fas fa-exclamation-triangle"></i> Failure Diagnosis Stack</div>
+            <pre class="diagnostic-msg">${job.error_msg}</pre>
+           </div>`
+        : '';
+
     const label = ROUTE_LABELS[job.route_type] || job.route_type.replace(/_/g,' ');
-    const progHtml = (job.status === 'running')
-        ? `<div class="progress-card">
-            <div class="progress-header">
-                <span class="progress-status">
-                    <i class="fas fa-cog fa-spin" style="font-size:0.65rem;"></i>
-                    <span id="prog-text-${job.job_id}">Starting</span>
-                </span>
-                <span class="progress-meta">
-                    <span class="file-counter" id="prog-counter-${job.job_id}">— / —</span>
-                    <span class="progress-percentage" id="prog-pct-${job.job_id}">0%</span>
-                </span>
+    const duration = getDuration(job.started_at, job.completed_at);
+    
+    // Check if there is an active running progress block
+    const activeProgressCard = job.status === 'running' 
+        ? `<div class="progress-card" id="card-prog-${job.job_id}">
+            <div class="ring-wrap">
+                <svg width="60" height="60" viewBox="0 0 60 60">
+                    <circle class="ring-bg"   cx="30" cy="30" r="23"/>
+                    <circle class="ring-fill" cx="30" cy="30" r="23"
+                            id="prog-ring-${job.job_id}"
+                            style="stroke-dashoffset:144"/>
+                </svg>
+                <div class="ring-label">
+                    <span class="ring-pct" id="prog-pct-${job.job_id}">0%</span>
+                    <span class="ring-sub">done</span>
+                </div>
             </div>
-            <div class="progress-bar-container">
-                <div class="progress-bar-fill" id="prog-bar-${job.job_id}" style="width:0%"></div>
-            </div>
-            <div class="current-file">
-                <span class="current-file-name" id="prog-file-${job.job_id}">—</span>
-                <span class="elapsed" id="prog-elapsed-${job.job_id}"></span>
+            <div class="ring-info">
+                <div class="ring-step">
+                    <i class="fas fa-cog fa-spin"></i>
+                    <span id="prog-text-${job.job_id}">Starting Pipeline...</span>
+                </div>
+                <div class="ring-counter" id="prog-counter-${job.job_id}">File — of —</div>
+                <div class="dot-track" id="prog-dots-${job.job_id}">
+                    <div class="dot active"></div>
+                </div>
+                <div class="ring-file"    id="prog-file-${job.job_id}">Initial Setup</div>
+                <div class="ring-elapsed" id="prog-elapsed-${job.job_id}">0s</div>
             </div>
         </div>`
-        : '<span class="ts">—</span>';
+        : `<div class="ts" style="font-style: italic; color: #94a3b8;"><i class="fas fa-info-circle"></i> Pipeline process is static (status: ${job.status}).</div>`;
+
     return `
-        <td><span class="route-label">${label}</span></td>
-        <td id="user-${job.job_id}" class="username-cell" style="display:${isAdmin ? 'table-cell' : 'none'};"><span class="ts">${job.username || '—'}</span></td>
-        <td>${filesHtml(job.files)}</td>
-        <td><span class="ts time-format" data-utc="${job.queued_at || ''}">${dt}</span></td>
-        <td><span class="badge ${statusBadgeClass(job.status)}" id="badge-${job.job_id}">${job.status}</span></td>
-        <td class="progress-cell"><div id="prog-${job.job_id}">${progHtml}</div></td>
-        <td id="actions-${job.job_id}">${actionsHtml(job)}</td>`;
+    <td colspan="${isAdmin ? 8 : 7}">
+        <div class="details-drawer">
+            <div class="details-content">
+                <div class="detail-card">
+                    <h3><i class="fas fa-info-circle"></i> Specifications &amp; Stats</h3>
+                    <div class="metadata-list">
+                        <div class="meta-item">
+                            <span class="meta-label">Job UUID:</span>
+                            <span class="meta-value">
+                                <span class="job-id-copy" onclick="copyJobId(this, '${job.job_id}')">
+                                    ${job.job_id.substring(0,8)}... <i class="far fa-copy"></i>
+                                </span>
+                            </span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Pipeline:</span>
+                            <span class="meta-value">${label}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Operator:</span>
+                            <span class="meta-value">${job.username || 'unknown'}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Submitted:</span>
+                            <span class="meta-value">${formatLocalTime(job.queued_at)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Started At:</span>
+                            <span class="meta-value">${formatLocalTime(job.started_at)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Finished At:</span>
+                            <span class="meta-value">${formatLocalTime(job.completed_at)}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Active Work Duration:</span>
+                            <span class="meta-value" style="color: #6366f1; font-weight:800;" id="elapsed-${job.job_id}">${duration}</span>
+                        </div>
+                    </div>
+                    ${diagnosticHtml}
+                </div>
+                <div class="detail-card">
+                    <h3><i class="fas fa-folder-open"></i> Batch File Manifest</h3>
+                    <div class="detail-files-list">
+                        ${filesListHtml}
+                    </div>
+                    <div style="margin-top: 18px;">
+                        ${activeProgressCard}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </td>`;
+}
+
+function updateQueueTableDom(jobs) {
+    const tbody = document.getElementById('queueBody');
+    const table = document.getElementById('jobsTable');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (jobs.length === 0) {
+        table.style.display = 'none';
+        emptyState.style.display = 'block';
+        document.getElementById('emptyTitle').textContent = "No pipelines found";
+        document.getElementById('emptyDesc').textContent = "There are no background job logs matching your active filters.";
+        return;
+    }
+    
+    emptyState.style.display = 'none';
+    table.style.display = 'table';
+    
+    // We update/insert individual rows to preserve expanded detail states and avoid screen flicker
+    jobs.forEach(job => {
+        let row = document.getElementById('row-' + job.job_id);
+        let detailRow = document.getElementById('details-' + job.job_id);
+        
+        const label = ROUTE_LABELS[job.route_type] || job.route_type.replace(/_/g,' ');
+        const timeStr = formatLocalTime(job.queued_at);
+        
+        // Progress display in primary table row
+        let progressHtml = '';
+        if (job.status === 'running') {
+            progressHtml = `
+                <div class="linear-progress-track">
+                    <div class="linear-progress-fill" id="linear-fill-${job.job_id}" style="width: 0%"></div>
+                </div>
+                <div class="linear-progress-info">
+                    <span id="linear-text-${job.job_id}">Processing...</span>
+                    <span id="linear-pct-${job.job_id}">0%</span>
+                </div>`;
+        } else if (job.status === 'completed' || job.status === 'downloaded') {
+            progressHtml = `
+                <div class="linear-progress-track" style="background:#d1fae5;">
+                    <div class="linear-progress-fill" style="width: 100%; background:var(--success-gradient); box-shadow:none;"></div>
+                </div>
+                <div class="linear-progress-info">
+                    <span style="color:#059669;"><i class="fas fa-check"></i> Process Completed</span>
+                    <span style="color:#059669;">100%</span>
+                </div>`;
+        } else if (job.status === 'failed') {
+            progressHtml = `
+                <div class="linear-progress-track" style="background:#fee2e2;">
+                    <div class="linear-progress-fill" style="width: 100%; background:var(--danger-gradient); box-shadow:none;"></div>
+                </div>
+                <div class="linear-progress-info">
+                    <span style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> Pipeline Failed</span>
+                    <span style="color:#ef4444;">—</span>
+                </div>`;
+        } else if (job.status === 'cancelled') {
+            progressHtml = `
+                <div class="linear-progress-track" style="background:#fef3c7;">
+                    <div class="linear-progress-fill" style="width: 100%; background:var(--warning-gradient); box-shadow:none;"></div>
+                </div>
+                <div class="linear-progress-info">
+                    <span style="color:#d97706;"><i class="fas fa-ban"></i> Cancelled by Operator</span>
+                    <span style="color:#d97706;">—</span>
+                </div>`;
+        } else {
+            progressHtml = `
+                <div class="linear-progress-track">
+                    <div class="linear-progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="linear-progress-info">
+                    <span>Queued in buffer</span>
+                    <span>0%</span>
+                </div>`;
+        }
+
+        const columnsHtml = `
+            <td class="caret-cell"><i class="fas fa-chevron-down"></i></td>
+            <td><span class="route-label">${label}</span></td>
+            <td id="user-${job.job_id}" class="username-cell" style="display:${isAdmin ? 'table-cell' : 'none'};"><span class="ts" style="color:#1e293b;">${job.username || '—'}</span></td>
+            <td>${filesSummaryHtml(job.files)}</td>
+            <td><span class="ts time-format" data-utc="${job.queued_at || ''}">${timeStr}</span></td>
+            <td><span class="badge ${statusBadgeClass(job.status)}" id="badge-${job.job_id}"><i class="fas ${statusBadgeIcon(job.status)}"></i> ${job.status}</span></td>
+            <td class="progress-cell" id="prog-cell-${job.job_id}">${progressHtml}</td>
+            <td id="actions-${job.job_id}">${actionsHtml(job)}</td>`;
+
+        if (!row) {
+            // Build Row 1 (Standard row)
+            row = document.createElement('tr');
+            row.id = 'row-' + job.job_id;
+            row.className = 'job-row';
+            row.onclick = () => toggleAccordion(job.job_id);
+            
+            // Build Row 2 (Details accordion drawer)
+            detailRow = document.createElement('tr');
+            detailRow.id = 'details-' + job.job_id;
+            detailRow.className = 'details-row';
+            
+            // Appending to DOM
+            tbody.appendChild(row);
+            tbody.appendChild(detailRow);
+        }
+
+        // Only rewrite row HTML if status changes or it is brand new to prevent UI stutter
+        const oldStatus = row.getAttribute('data-status');
+        if (oldStatus !== job.status) {
+            row.setAttribute('data-status', job.status);
+            row.className = 'job-row' + (job.status === 'running' ? ' row-running' : '');
+            row.innerHTML = columnsHtml;
+            
+            detailRow.className = `details-row row-${job.status}-detail`;
+            detailRow.innerHTML = buildAccordionDrawer(job);
+            
+            // Restore expanded state if status changes dynamically
+            if (expandedJobs.has(job.job_id)) {
+                row.classList.add('details-open');
+                detailRow.classList.add('expanded');
+                const content = detailRow.querySelector('.details-content');
+                detailRow.querySelector('.details-drawer').style.maxHeight = (content.scrollHeight + 50) + 'px';
+            }
+        }
+
+        // Active duration incrementer helper
+        if (job.status === 'running') {
+            const liveDuration = getDuration(job.started_at, null);
+            const liveElapsedEl = document.getElementById('elapsed-' + job.job_id);
+            if (liveElapsedEl) liveElapsedEl.textContent = liveDuration;
+        }
+
+        // Setup active polling trigger
+        if (job.status === 'running' && !polling[job.job_id]) {
+            polling[job.job_id] = true;
+            pollProgress(job.job_id);
+        }
+        if (job.status !== 'running') {
+            delete polling[job.job_id];
+        }
+    });
+
+    // Remove rows that no longer exist in response
+    const currentIds = new Set(jobs.map(j => j.job_id));
+    tbody.querySelectorAll('tr.job-row').forEach(row => {
+        const jId = row.id.replace('row-', '');
+        if (!currentIds.has(jId)) {
+            const dRow = document.getElementById('details-' + jId);
+            if (dRow) dRow.remove();
+            row.remove();
+            expandedJobs.delete(jId);
+            delete polling[jId];
+        }
+    });
 }
 
 async function refreshQueue() {
@@ -468,181 +1226,162 @@ async function refreshQueue() {
         if (!resp.ok) return;
         const data = await resp.json();
         const jobs = data.jobs || [];
+        globalJobs = jobs;
 
-        const tbody = document.getElementById('queueBody');
-        const emptyState = document.getElementById('emptyState');
+        // Process global states and stats
+        let activeCount = 0;
+        let completedCount = 0;
+        let failedCount = 0;
+        let cancelledCount = 0;
 
-        if (jobs.length === 0) {
-            if (tbody) { tbody.closest('table').style.display = 'none'; }
-            if (!emptyState) {
-                document.getElementById('queueTableContainer').innerHTML =
-                    '<div class="empty-state"><i class="fas fa-layer-group"></i><p>No jobs yet.</p></div>';
-            }
-            // Update view type badge
-            document.getElementById('viewType').textContent = 'No jobs';
-            return;
-        }
-
-        // Determine if showing all jobs (admin) or my jobs (regular user)
-        const isViewingAll = isAdmin;
-        
-        // Update view type badge
-        document.getElementById('viewType').textContent = isViewingAll ?
-            `All Jobs (${jobs.length})` :
-            `My Jobs (${jobs.length})`;
-        
-        // Show/hide username column
-        const userHeader = document.getElementById('usernameHeader');
-        const userCells = document.querySelectorAll('.username-cell');
-        if (userHeader) {
-            userHeader.style.display = isViewingAll ? 'table-cell' : 'none';
-        }
-        userCells.forEach(cell => {
-            cell.style.display = isViewingAll ? 'table-cell' : 'none';
+        jobs.forEach(j => {
+            if (j.status === 'running' || j.status === 'pending') activeCount++;
+            else if (j.status === 'completed' || j.status === 'downloaded') completedCount++;
+            else if (j.status === 'failed') failedCount++;
+            else if (j.status === 'cancelled') cancelledCount++;
         });
 
-        // Build or update table
-        if (!tbody) {
-            // Build full table from scratch
-            document.getElementById('queueTableContainer').innerHTML = `
-                <table class="queue-table">
-                    <thead><tr>
-                        <th>Tool</th>
-                        <th id="usernameHeader" style="display:${isViewingAll ? 'table-cell' : 'none'};">User</th>
-                        <th>Files</th>
-                        <th>Submitted</th><th>Status</th><th>Progress</th><th>Actions</th>
-                    </tr></thead>
-                    <tbody id="queueBody"></tbody>
-                </table>`;
+        // Set summary cards
+        document.getElementById('statActive').textContent = activeCount;
+        document.getElementById('statCompleted').textContent = completedCount;
+        document.getElementById('statFailed').textContent = failedCount;
+        document.getElementById('statTotal').textContent = jobs.length;
+
+        // Set pill badges
+        document.getElementById('badgeAll').textContent = jobs.length;
+        document.getElementById('badgeRunning').textContent = activeCount;
+        document.getElementById('badgeCompleted').textContent = completedCount;
+        document.getElementById('badgeFailed').textContent = failedCount;
+        document.getElementById('badgeCancelled').textContent = cancelledCount;
+
+        // Trigger filters to update Table layout
+        applyFilters();
+
+        document.getElementById('lastRefresh').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+    } catch(e) {
+        console.error('Queue sync issue:', e);
+        document.getElementById('lastRefresh').textContent = 'Connection sync error';
+    }
+}
+
+function applyFilters() {
+    const searchQuery = document.getElementById('searchJobs').value.toLowerCase().trim();
+    const toolFilter = document.getElementById('filterTool').value;
+    
+    const filtered = globalJobs.filter(job => {
+        // Status filter
+        if (activeStatusFilter !== 'all') {
+            if (activeStatusFilter === 'running') {
+                if (job.status !== 'running' && job.status !== 'pending') return false;
+            } else if (job.status !== activeStatusFilter) {
+                return false;
+            }
+        }
+        
+        // Tool filter
+        if (toolFilter !== 'all') {
+            if (job.route_type !== toolFilter) return false;
         }
 
-        const body = document.getElementById('queueBody');
-        const existingIds = new Set(Array.from(body.querySelectorAll('tr')).map(r => r.id.replace('row-', '')));
-        const newIds = new Set(jobs.map(j => j.job_id));
+        // Search text query
+        if (searchQuery) {
+            const matchesId = job.job_id.toLowerCase().includes(searchQuery);
+            const matchesUser = (job.username || '').toLowerCase().includes(searchQuery);
+            const matchesFiles = (job.files || []).some(f => f.toLowerCase().includes(searchQuery));
+            const matchesToolName = (ROUTE_LABELS[job.route_type] || '').toLowerCase().includes(searchQuery);
+            if (!matchesId && !matchesUser && !matchesFiles && !matchesToolName) return false;
+        }
 
-        // Remove rows no longer in response
-        existingIds.forEach(id => { if (!newIds.has(id)) { const r = document.getElementById('row-'+id); if(r) r.remove(); } });
+        return true;
+    });
 
-        jobs.forEach(job => {
-            let row = document.getElementById('row-' + job.job_id);
-            const isExistingRunning = row && job.status === 'running'
-                                      && row.querySelector('.progress-card');
-
-            if (!row) {
-                row = document.createElement('tr');
-                row.id = 'row-' + job.job_id;
-                body.prepend(row);
-            }
-
-            if (isExistingRunning) {
-                // Preserve the live progress card — only refresh badge and actions
-                const badge = document.getElementById('badge-' + job.job_id);
-                const actions = document.getElementById('actions-' + job.job_id);
-                if (badge) {
-                    badge.className = 'badge ' + statusBadgeClass(job.status);
-                    badge.textContent = job.status;
-                }
-                if (actions) actions.innerHTML = actionsHtml(job);
-            } else {
-                row.innerHTML = rowHtml(job);
-            }
-
-            // Add row class for running jobs (blue background)
-            if (job.status === 'running') {
-                row.classList.add('row-running');
-            } else {
-                row.classList.remove('row-running');
-            }
-
-            // Poll progress for running jobs
-            if (job.status === 'running' && !polling[job.job_id]) {
-                polling[job.job_id] = true;
-                pollProgress(job.job_id);
-            }
-            if (job.status !== 'running') {
-                delete polling[job.job_id];
-            }
-        });
-
-        document.getElementById('lastRefresh').textContent =
-            'Last updated: ' + new Date().toLocaleTimeString();
-    } catch(e) { console.error('Queue refresh error:', e); }
+    updateQueueTableDom(filtered);
 }
 
 async function pollProgress(jobId) {
     if (!polling[jobId]) return;
     try {
         const resp = await fetch('/progress/' + jobId);
-        const pd = await resp.json();
+        const pd   = await resp.json();
 
-        const bar     = document.getElementById('prog-bar-'     + jobId);
-        const txt     = document.getElementById('prog-text-'    + jobId);
+        // 1. Get Circular components inside details accordion drawer
+        const ring    = document.getElementById('prog-ring-'    + jobId);
         const pct     = document.getElementById('prog-pct-'     + jobId);
-        const file    = document.getElementById('prog-file-'    + jobId);
+        const txt     = document.getElementById('prog-text-'    + jobId);
         const counter = document.getElementById('prog-counter-' + jobId);
+        const dots    = document.getElementById('prog-dots-'    + jobId);
+        const file    = document.getElementById('prog-file-'    + jobId);
         const elapsed = document.getElementById('prog-elapsed-' + jobId);
 
-        // Percentage
-        if (bar && pd.total > 0) {
-            const pctVal = Math.min(Math.round(((pd.current || 0) / pd.total) * 100), 100);
-            bar.style.width = pctVal + '%';
-            if (pct) pct.textContent = pctVal + '%';
+        // 2. Get Linear components inside standard table rows
+        const linearFill = document.getElementById('linear-fill-' + jobId);
+        const linearPct  = document.getElementById('linear-pct-'  + jobId);
+        const linearText = document.getElementById('linear-text-' + jobId);
+
+        if (pd.total > 0) {
+            const cur    = pd.current || 0;
+            const pctVal = Math.min(Math.round((cur / pd.total) * 100), 100);
+            const offset = Math.round(144 * (1 - pctVal / 100));
+
+            // Set progress percentages
+            if (ring)    ring.style.strokeDashoffset = offset;
+            if (pct)     pct.textContent = pctVal + '%';
+            if (counter) counter.textContent = 'File ' + cur + ' of ' + pd.total;
+
+            if (linearFill) linearFill.style.width = pctVal + '%';
+            if (linearPct)  linearPct.textContent = pctVal + '%';
+
+            // Redraw dots tracking progress steps
+            if (dots) {
+                let html = '';
+                for (let i = 1; i <= pd.total; i++) {
+                    if (i < cur)       html += '<div class="dot done"></div>';
+                    else if (i === cur) html += '<div class="dot active"></div>';
+                    else               html += '<div class="dot"></div>';
+                }
+                dots.innerHTML = html;
+            }
         }
 
-        // Step label (falls back to status string)
-        if (txt) txt.textContent = pd.step || pd.status || 'Processing';
+        const stepMsg = pd.step || pd.status || 'Processing';
+        if (txt)  txt.textContent  = stepMsg;
+        if (linearText) linearText.textContent = stepMsg;
+        
+        if (file) file.textContent = pd.current_file ? pd.current_file.replace(/^.*[\\\/]/, '') : 'Waiting in buffer...';
 
-        // File counter  (e.g. "3 / 7")
-        if (counter && pd.total) {
-            counter.textContent = (pd.current || 0) + ' / ' + pd.total;
-        }
-
-        // Current file — direct field, no regex needed
-        if (file) file.textContent = pd.current_file || '—';
-
-        // Elapsed time
         if (elapsed && pd.start_time) {
-            const secs = Math.round((Date.now() - new Date(pd.start_time)) / 1000);
-            elapsed.textContent = secs >= 60
-                ? Math.floor(secs / 60) + 'm ' + (secs % 60) + 's'
-                : secs + 's';
+            const elapsedStr = getDuration(pd.start_time, null);
+            elapsed.textContent = elapsedStr;
         }
-    } catch(e) {}
-    if (polling[jobId]) setTimeout(() => pollProgress(jobId), 1200);
+    } catch(e) {
+        console.error("Poller issue for " + jobId, e);
+    }
+    
+    // Repeat polling loop dynamically
+    if (polling[jobId]) {
+        setTimeout(() => pollProgress(jobId), 1200);
+    }
 }
 
 async function cancelJob(jobId) {
-    if (!confirm('Cancel this job?')) return;
+    if (!confirm('Are you sure you want to cancel and delete this job from queue?')) return;
     try {
         const resp = await fetch('/batch-queue/cancel/' + jobId, { method: 'POST' });
         const data = await resp.json();
-        if (!data.ok) alert('Could not cancel: ' + data.message);
-        else refreshQueue();
-    } catch(e) { alert('Cancel request failed'); }
+        if (!data.ok) {
+            alert('Could not cancel pipeline: ' + (data.message || 'Server error'));
+        } else {
+            refreshQueue();
+        }
+    } catch(e) {
+        alert('Cancel requests failed.');
+    }
 }
 
-// Format all timestamps on initial load
-document.querySelectorAll('.time-format').forEach(el => {
-    const utcVal = el.getAttribute('data-utc');
-    if (utcVal) {
-        el.textContent = formatLocalTime(utcVal);
-    }
-});
-
-// Start running jobs' progress polling on initial load
-document.querySelectorAll('[id^="row-"]').forEach(row => {
-    const jobId = row.id.replace('row-', '');
-    const badge = document.getElementById('badge-' + jobId);
-    if (badge && badge.textContent.trim() === 'running') {
-        polling[jobId] = true;
-        pollProgress(jobId);
-    }
-});
-
-// Initialize view type badge and run first refresh
+// Initial Sync trigger
 refreshQueue();
 
-// Auto-refresh the queue list
-setInterval(refreshQueue, 1200);
+// Core continuous socket-like polling loop
+setInterval(refreshQueue, 3000);
 </script>
 {% endblock %}

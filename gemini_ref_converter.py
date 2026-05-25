@@ -1655,7 +1655,26 @@ def _call_gemini(
                 logger.error(f"[Attempt {attempt}] Non-retriable error: {exc}")
                 break
 
-    logger.error(f"All {max_retries} Gemini attempts failed. Last error: {last_exc}")
+    error_type = "Unknown"
+    if last_exc:
+        err_str = str(last_exc).lower()
+        if any(k in err_str for k in ("429", "quota", "resource_exhausted", "rate")):
+            error_type = "Rate Limit / Quota Exceeded"
+        elif any(k in err_str for k in ("timeout", "timed out")):
+            error_type = "Timeout"
+        elif any(k in err_str for k in ("503", "unavailable", "service_unavailable")):
+            error_type = "Service Unavailable"
+        elif any(k in err_str for k in ("401", "unauthenticated", "invalid_api_key")):
+            error_type = "API Key / Authentication Error"
+        elif any(k in err_str for k in ("400", "badrequest", "invalid")):
+            error_type = "Invalid Request"
+        elif "no candidates" in err_str or "finish reason" in err_str:
+            error_type = "Gemini Response Error"
+        elif "empty response" in err_str:
+            error_type = "Empty Response"
+        else:
+            error_type = f"Error: {str(last_exc)[:100]}"
+    logger.error(f"All {max_retries} Gemini attempts failed. Type: {error_type} | Details: {last_exc}")
     return None
 
 
@@ -1866,6 +1885,8 @@ def convert_reference(
     
     # For journal references, try DOI lookup if missing (fallback to early lookup or if early failed)
     ref_type = meta.get("bib_reftype", "unknown")
+    if cr_item and cr_item.get("_source") == "early_doi_lookup" and cr_item.get("DOI"):
+        meta["bib_doi"] = str(cr_item["DOI"]).strip()
     if ref_type == "journal" and not meta.get("bib_doi"):
         # Skip fallback DOI lookup if we already did early enrichment
         if cr_item and cr_item.get("_source") == "early_doi_lookup":

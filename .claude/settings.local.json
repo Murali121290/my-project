@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//c/Users/muraliba/PycharmProjects/Alttext/templates/**)",
-      "PowerShell($json = Get-Content \"c:\\\\Users\\\\muraliba\\\\PycharmProjects\\\\New folder\\\\PPH\\\\S4C-Processed-Documents\\\\manuscript_results\\\\WKH_12121_20260508_144531\\\\results.json\" -Raw | ConvertFrom-Json; $json.job_id)"
-    ]
-  }
-}

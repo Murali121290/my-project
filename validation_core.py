@@ -85,7 +85,7 @@ _RE_AMA        = re.compile(r'\b([A-Z][a-z]+(?:\s+et\s+al\.)?)\s+((?:19|20)\d{2}
 _RE_BAD_ETAL   = re.compile(r'\(([A-Z][a-z]+)\s+et\s+al\s+((?:19|20)\d{2}[a-z]?)\)')
 _RE_MISS_COMMA = re.compile(r'\(([^\s\d][^(),]{0,80}?)\s+((?:19|20)\d{2}[a-z]?)\)')
 _RE_YR_RANGE   = re.compile(r'\b((?:19|20)\d{2})/((?:19|20)\d{2})\b')
-_RE_BAD_ND     = re.compile(r'\(\s*([^\s\d][^()]{0,80}?),?\s*(nd\.?|n\.d(?!\.)|N\.D\.?)\s*\)')
+_RE_BAD_ND     = re.compile(r'\(\s*([^\s\d][^()]{0,80}?),?\s*(n\.d\.?|N\.D\.?|nd\.)\s*\)')
 _RE_BAD_INPRES = re.compile(r'\(\s*([^\s\d][^()]{0,80}?),\s*(In\s+Press|IN\s+PRESS|In\s+press)\s*\)')
 _RE_ETAL_NOPER = re.compile(r'\bet\s+al(?!\.)\b')
 _RE_ETDOT_AL   = re.compile(r'\bet\.\s*al\.?', re.IGNORECASE)
@@ -2196,15 +2196,21 @@ class CitationProcessor:
             colour_str = "green" if pb["all_green"] else "yellow"
 
             if pb.get("already_styled"):
-                if pb["all_green"]:
-                    for child in para._p:
-                        if child.tag == _qn('w:ins'):
-                            for r_el in child.findall(_qn('w:r')):
-                                rpr = r_el.find(_qn('w:rPr'))
-                                if rpr is not None:
-                                    hl_el = rpr.find(_qn('w:highlight'))
-                                    if hl_el is not None:
-                                        hl_el.set(_qn('w:val'), colour_str)
+                for child in para._p:
+                    if child.tag == _qn('w:ins'):
+                        for r_el in child.findall(_qn('w:r')):
+                            rpr = r_el.find(_qn('w:rPr'))
+                            if rpr is not None:
+                                hl_el = rpr.find(_qn('w:highlight'))
+                                if hl_el is None:
+                                    hl_el = OxmlElement('w:highlight')
+                                    rpr.append(hl_el)
+                                hl_el.set(_qn('w:val'), colour_str)
+                                style_el = rpr.find(_qn('w:rStyle'))
+                                if style_el is None:
+                                    style_el = OxmlElement('w:rStyle')
+                                    rpr.insert(0, style_el)
+                                style_el.set(_qn('w:val'), self.cite_style_id)
                 continue
 
             runs_text = "".join(r.text for r in para.runs)

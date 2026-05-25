@@ -104,8 +104,12 @@
                 <i data-lucide="book-open" class="h-4 w-4 text-indigo-600"></i>
             </div>
             <h2 class="text-xl font-bold text-slate-800">Reference Conversion</h2>
-            <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700"
-                x-text="stats?.reference_conversion?.pricing?.model || 'gemini-2.0-flash'"></span>
+            <div class="flex gap-2">
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700"
+                    x-text="stats?.reference_conversion?.pricing?.model || 'gemini-2.0-flash'"></span>
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700"
+                    x-text="'Processed: ' + formatNumber(stats?.reference_conversion?.all_time?.total_calls || 0)"></span>
+            </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">

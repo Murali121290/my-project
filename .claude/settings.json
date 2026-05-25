@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(Stop-Process -Name python -Force -ErrorAction SilentlyContinue)",
-      "PowerShell(\"Restarting Flask...\")",
-      "PowerShell(\"Flask stopped - restart it now\")"
-    ]
-  }
-}

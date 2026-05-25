@@ -336,7 +336,7 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
             "status": "Starting",
             "step": "Starting",
             "current_file": "",
-            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "folder": temp_dir
         })
 
@@ -399,8 +399,11 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
 
             update_progress({
                 "status": "Completed",
+                "step": "Done",
+                "current": len(file_paths),
+                "files_done": len(file_paths),
                 "download_token": token,
-                "zip_path": final_path # Used by download_zip
+                "zip_path": final_path
             })
 
         except Exception as e:
@@ -503,7 +506,7 @@ def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user
             "status": "Starting bias scan",
             "step": "Starting",
             "current_file": "",
-            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "folder": temp_dir
         })
 
@@ -582,6 +585,9 @@ def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user
 
             update_progress({
                 "status": "Completed",
+                "step": "Done",
+                "current": len(file_paths),
+                "files_done": len(file_paths),
                 "download_token": token,
                 "zip_path": zip_path,
                 "terms_found": len(all_report_rows)
@@ -687,7 +693,11 @@ def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, us
         update_progress({
             "total": len(file_paths),
             "current": 0,
+            "files_done": 0,
             "status": "Starting conversion",
+            "step": "Starting",
+            "current_file": "",
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "folder": temp_dir
         })
 
@@ -704,6 +714,8 @@ def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, us
             # Update progress
             update_progress({
                 "current": 0,
+                "files_done": 0,
+                "step": "Converting",
                 "status": f"Converting {len(file_paths)} file(s) to XML"
             })
 
@@ -750,6 +762,8 @@ def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, us
             
             update_progress({
                 "current": len(file_paths),
+                "files_done": len(file_paths),
+                "step": "Packaging",
                 "status": "Creating ZIP file"
             })
 
@@ -791,6 +805,9 @@ def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, us
 
             update_progress({
                 "status": "Completed",
+                "step": "Done",
+                "current": len(file_paths),
+                "files_done": len(file_paths),
                 "download_token": token,
                 "zip_path": zip_path,
                 "xml_files_count": len(xml_files)
@@ -1099,16 +1116,8 @@ db_pool = DatabasePool(DATABASE)
 # -----------------------
 # Batch Queue Manager
 # -----------------------
-_ROUTE_JOB_FUNCTIONS = {
-    'credit_extractor': 'process_credit_extractor_job',
-    'bias_scan':        'process_bias_scan_job',
-    'word_to_xml':      'process_word_to_xml_job',
-    'ppd':              'process_ppd_job',
-    'structuring':      'process_structuring_job',
-    'validation':       'process_validation_job',
-    'technical':        'process_technical_job',
-    'docx_pipeline':    'process_docx_pipeline_job',
-}
+# Direct function references (not strings) for thread-safe lookup
+_ROUTE_JOB_FUNCTIONS = {}
 
 
 class BatchQueueManager:
@@ -3109,7 +3118,7 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
         import book_indexer_core
         import zipfile
         
-        def update_progress(status, pct):
+        def update_progress(status, pct, step=None, current_file=""):
             try:
                 p_path = os.path.join(temp_dir, "progress.json")
                 current = {}
@@ -3118,15 +3127,22 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
                         current = json.load(f)
                 current["status"] = status
                 current["progress"] = pct
+                current["current"] = pct
+                current["total"] = 100
+                if step:
+                    current["step"] = step
+                if current_file:
+                    current["current_file"] = current_file
                 with open(p_path, "w") as f:
                     json.dump(current, f)
                 if job_id in app.config.get("PROGRESS_DATA", {}):
-                    app.config["PROGRESS_DATA"][job_id]["status"] = status
+                    app.config["PROGRESS_DATA"][job_id].update(current)
             except Exception as e:
                 logging.error(f"Error updating progress: {e}")
 
+        update_progress("Starting...", 0, step="Starting", current_file="")
         try:
-            update_progress("Extracting text...", 10)
+            update_progress("Extracting text...", 10, step="Extracting")
             pages_text = []
             global_page = 1
             for path in saved_paths:
@@ -3148,10 +3164,10 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
             merged_index = {}
             api_warnings = []
             
-            update_progress("Querying Gemini AI...", 30)
+            update_progress("Querying Gemini AI...", 30, step="Querying AI")
             for chunk_idx, chunk_text in enumerate(chunks):
                 pct = 30 + int((chunk_idx / max(1, len(chunks))) * 50)
-                update_progress(f"Processing PDF part {chunk_idx + 1}/{len(chunks)}", pct)
+                update_progress(f"Processing PDF part {chunk_idx + 1}/{len(chunks)}", pct, step="Processing")
                 
                 prompt = book_indexer_core.PROMPT_TEMPLATE.format(text=chunk_text)
                 response = client.models.generate_content(
@@ -3200,7 +3216,7 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
             if not merged_index:
                 raise Exception("No index entries generated. " + "; ".join(api_warnings))
 
-            update_progress("Generating DOCX...", 85)
+            update_progress("Generating DOCX...", 85, step="Generating")
             doc = Document()
             doc.add_heading('Index', 0)
             
@@ -3231,22 +3247,21 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
             docx_path = os.path.join(temp_dir, output_filename)
             doc.save(docx_path)
             
-            update_progress("Zipping output...", 95)
+            update_progress("Zipping output...", 95, step="Packaging")
             zip_filename = "Book_Indexer_Result.zip"
             zip_path = os.path.join(temp_dir, zip_filename)
             
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(docx_path, arcname=output_filename)
 
-            update_progress("Completed", 100)
-            
+            update_progress("Completed", 100, step="Done")
             try:
                 p_path = os.path.join(temp_dir, "progress.json")
                 if os.path.exists(p_path):
                     with open(p_path, "r") as f:
                         final_p = json.load(f)
-                    final_p["status"] = "Completed"
                     final_p["zip_path"] = zip_path
+                    final_p["download_token"] = job_id
                     with open(p_path, "w") as f:
                         json.dump(final_p, f)
             except:
@@ -3257,7 +3272,7 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
         except Exception as e:
             error_msg = f"Failed: {str(e)}"
             logging.error(error_msg)
-            update_progress(error_msg, 0)
+            update_progress(error_msg, 0, step="Failed")
             try:
                 p_path = os.path.join(temp_dir, "progress.json")
                 if os.path.exists(p_path):
@@ -3311,7 +3326,7 @@ def process_structuring_job(job_id, unique_folder, saved, combined_dashboard, bo
             "status": "Starting Structuring",
             "step": "Starting",
             "current_file": "",
-            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         })
 
         for idx, doc_path in enumerate(saved):
@@ -3343,7 +3358,7 @@ def process_structuring_job(job_id, unique_folder, saved, combined_dashboard, bo
                 errors_occurred.append(f"Failed on {os.path.basename(doc_path)}: {str(e)}")
         
         if not output_files:
-            update_progress({"status": "Failed to structure any files", "current": total_files})
+            update_progress({"status": "Failed to structure any files", "step": "Failed", "current": total_files})
             return
 
         options = options or {}
@@ -3352,7 +3367,7 @@ def process_structuring_job(job_id, unique_folder, saved, combined_dashboard, bo
         run_gemini = options.get('run_gemini', False)
 
         if run_validation or run_name_year or run_gemini:
-            update_progress({"status": "Structuring complete. Starting Reference Validation Pipeline...", "current": total_files})
+            update_progress({"status": "Structuring complete. Starting Reference Validation Pipeline...", "step": "Validating", "current": total_files, "files_done": total_files})
 
             # Create original_filenames from output_files so we know what they are
             output_filenames = [os.path.basename(p).replace('_Structured.docx', '.docx') for p in output_files]
@@ -3365,12 +3380,12 @@ def process_structuring_job(job_id, unique_folder, saved, combined_dashboard, bo
             process_validation_job(job_id, unique_folder, output_files, output_filenames, options, user_id, username, skip_zip_creation=True)
 
             # After validation, also run analysis on the structured files
-            update_progress({"status": "Reference processing complete. Starting Analysis...", "current": total_files})
+            update_progress({"status": "Reference processing complete. Starting Analysis...", "step": "Analyzing", "current": total_files, "files_done": total_files})
             process_ppd_job(job_id, unique_folder, output_files, combined_dashboard,
                             book_title, safe_title, username, user_id, include_docs_in_zip=False, skip_zip_creation=True)
 
             # Create combined ZIP with validation logs + analysis outputs
-            update_progress({"status": "Finalizing outputs...", "current": total_files})
+            update_progress({"status": "Finalizing outputs...", "step": "Finalizing", "current": total_files, "files_done": total_files})
             zip_name = "Structuring_Analysis_Report.zip"
             zip_path = os.path.join(unique_folder, zip_name)
 
@@ -3402,13 +3417,15 @@ def process_structuring_job(job_id, unique_folder, saved, combined_dashboard, bo
 
             update_progress({
                 "status": "Completed",
-                "download_token": job_id,
+                "step": "Done",
                 "current": total_files,
+                "files_done": total_files,
+                "download_token": job_id,
                 "zip_path": zip_path
             })
         else:
             # Proceed to Analysis process sequentially
-            update_progress({"status": "Structuring complete. Starting Analysis...", "current": total_files})
+            update_progress({"status": "Structuring complete. Starting Analysis...", "step": "Analyzing", "current": total_files, "files_done": total_files})
 
             # Run analysis on the original files; structured docs are included in the zip separately
             process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
@@ -3488,7 +3505,7 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
             "status": "Starting",
             "step": "Starting",
             "current_file": "",
-            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         })
 
         if lo_cmd and saved:
@@ -3786,7 +3803,10 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
 
             update_progress({
                 "status": "Completed",
+                "step": "Done",
                 "current": len(saved),
+                "files_done": len(saved),
+                "download_token": job_id,
                 "zip_path": zip_path
             })
 
@@ -3863,7 +3883,11 @@ def structuring_job():
     initial_progress = {
         "total": len(saved),
         "current": 0,
+        "files_done": 0,
         "status": "Starting Structuring",
+        "step": "Starting",
+        "current_file": "",
+        "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         "folder": unique_folder
     }
     try:
@@ -3958,7 +3982,11 @@ def ppd():
     initial_progress = {
         "total": len(saved),
         "current": 0,
+        "files_done": 0,
         "status": "Starting",
+        "step": "Starting",
+        "current_file": "",
+        "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         "folder": unique_folder
     }
     try:
@@ -4267,7 +4295,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
             "current": 0,
             "files_done": 0,
             "current_file": "",
-            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         })
         
         processed_file_paths = []
@@ -5835,7 +5863,7 @@ def process_technical_job(job_id, unique_folder, saved_paths, original_filenames
             "status": "Starting",
             "step": "Starting",
             "current_file": "",
-            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         })
         try:
             processed_files = []
@@ -5887,10 +5915,16 @@ def process_technical_job(job_id, unique_folder, saved_paths, original_filenames
             except Exception as e:
                 print(f"DB Logging Error (Technical): {e}")
 
-            update_progress({"status": "Completed", "zip_path": zip_path,
-                             "download_token": job_id})
+            update_progress({
+                "status": "Completed",
+                "step": "Done",
+                "current": len(saved_paths),
+                "files_done": len(saved_paths),
+                "zip_path": zip_path,
+                "download_token": job_id
+            })
         except Exception as e:
-            update_progress({"status": f"Failed: {str(e)}"})
+            update_progress({"status": f"Failed: {str(e)}", "step": "Failed"})
             log_errors([f"Job {job_id} failed: {e}"])
 
 def process_docx_pipeline_job(job_id, unique_folder, saved_paths, original_filenames,
@@ -5910,14 +5944,28 @@ def process_docx_pipeline_job(job_id, unique_folder, saved_paths, original_filen
             except Exception as ex:
                 print(f"Progress update failed: {ex}")
 
-        update_progress({"total": len(saved_paths), "current": 0, "status": "Starting"})
+        update_progress({
+            "total": len(saved_paths),
+            "current": 0,
+            "files_done": 0,
+            "status": "Starting",
+            "step": "Starting",
+            "current_file": "",
+            "start_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        })
         try:
             processed_files = []
             for idx, input_path in enumerate(saved_paths, 1):
                 if batch_queue.is_cancelled(job_id):
                     return
                 filename = original_filenames[idx - 1]
-                update_progress({"current": idx, "status": f"Processing {filename}"})
+                update_progress({
+                    "current": idx,
+                    "files_done": idx - 1,
+                    "current_file": os.path.basename(filename),
+                    "step": "Processing",
+                    "status": "Processing..."
+                })
 
                 # Create per-file output directory (separate from upload dir to avoid self-copy)
                 per_file_output_dir = os.path.join(unique_folder, "processed")
@@ -5958,10 +6006,16 @@ def process_docx_pipeline_job(job_id, unique_folder, saved_paths, original_filen
             except Exception as e:
                 print(f"DB Logging Error (DOCX Pipeline): {e}")
 
-            update_progress({"status": "Completed", "zip_path": zip_path,
-                             "download_token": job_id})
+            update_progress({
+                "status": "Completed",
+                "step": "Done",
+                "current": len(saved_paths),
+                "files_done": len(saved_paths),
+                "zip_path": zip_path,
+                "download_token": job_id
+            })
         except Exception as e:
-            update_progress({"status": f"Failed: {str(e)}"})
+            update_progress({"status": f"Failed: {str(e)}", "step": "Failed"})
             log_errors([f"Job {job_id} failed: {e}"])
 
 @app.route('/technical', methods=['GET', 'POST'])

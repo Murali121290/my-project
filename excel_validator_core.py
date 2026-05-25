@@ -96,21 +96,9 @@ def build_merged_comparison_workbook(
     # row_map: list of (ws_row, file_index, normalized_fingerprint_tuple)
     row_map: list[tuple[int, int, tuple]] = []
 
-    for fi, (fname, headers, data) in enumerate(zip(filenames, all_headers, all_data)):
+    for fi, (_, headers, data) in enumerate(zip(filenames, all_headers, all_data)):
         # Build column-name → position map for this file
         col_index = {h.strip(): i for i, h in enumerate(headers)}
-
-        # Dark-navy banner row with filename
-        if max_col > 1:
-            ws.merge_cells(
-                start_row=current_row, start_column=1,
-                end_row=current_row, end_column=max_col
-            )
-        cell = ws.cell(row=current_row, column=1, value=fname)
-        cell.font = FILE_BANNER_FONT
-        cell.fill = FILE_BANNER_FILL
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        current_row += 1
 
         # Data rows
         for row_vals in data:
@@ -125,9 +113,6 @@ def build_merged_comparison_workbook(
             fp = tuple(norm_parts)
             row_map.append((current_row, fi, fp))
             current_row += 1
-
-        # Blank separator
-        current_row += 1
 
     _apply_row_highlights(ws, row_map, max_col)
     summary_data = _build_summary_data(row_map, filenames, master_cols)

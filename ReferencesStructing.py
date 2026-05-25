@@ -3301,27 +3301,7 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
     is_book_input = False
     is_web_input = False
 
-    # 1. DOI Validation (Priority: PubMed -> CrossRef)
-    doi = extract_doi_from_text(raw_ref)
-    if doi:
-        # Try PubMed first
-        pm_doi_item = pubmed_get_by_doi(doi)
-        if pm_doi_item:
-            # Convert to unified/Crossref-like structure
-            unified = pubmed_to_crossref_like(pm_doi_item)
-            with CACHE_LOCK:
-                METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(unified), 'doi_pubmed', 1.0)
-            return unified, 'doi_pubmed', 1.0
-        
-        # Try CrossRef second
-        cr = crossref_get_by_doi(doi)
-        if cr:
-            with CACHE_LOCK:
-                METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(cr), 'doi_crossref', 1.0)
-            return cr, 'doi_crossref', 1.0
-
-    # 2. Search Fallback (Priority: PubMed -> CrossRef)
-    # Accept both Word paragraph style names ('REF-N') and CitationStyle enum values ('AMA')
+    # Parse reference first (needed for title validation in DOI lookup)
     if style_name in ('REF-N', 'AMA'):
         parsed = parse_ama_reference_raw(raw_ref)
     else:
@@ -3332,6 +3312,34 @@ def find_best_metadata_for_reference(raw_ref: str, style_name: str) -> Tuple[Opt
     journal_raw = parsed.get('container-title')
     journal = (journal_raw[0] if isinstance(journal_raw, list) and journal_raw else journal_raw) or None
     year = parsed.get('year') or None
+
+    # 1. DOI Validation with Title Verification (Priority: PubMed -> CrossRef)
+    doi = extract_doi_from_text(raw_ref)
+    if doi and title:
+        tnorm_input = normalize_whitespace(title).lower()
+
+        # Try PubMed first
+        pm_doi_item = pubmed_get_by_doi(doi)
+        if pm_doi_item:
+            pm_title = (pm_doi_item.get('title') or [''])[0] if isinstance(pm_doi_item.get('title'), list) else pm_doi_item.get('title', '')
+            pm_title_norm = normalize_whitespace(pm_title).lower()
+            if pm_title and similarity(tnorm_input, pm_title_norm) >= 0.7:
+                unified = pubmed_to_crossref_like(pm_doi_item)
+                with CACHE_LOCK:
+                    METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(unified), 'doi_pubmed', 1.0)
+                return unified, 'doi_pubmed', 1.0
+
+        # Try CrossRef second
+        cr = crossref_get_by_doi(doi)
+        if cr:
+            cr_title = (cr.get('title') or [''])[0] if isinstance(cr.get('title'), list) else cr.get('title', '')
+            cr_title_norm = normalize_whitespace(cr_title).lower()
+            if cr_title and similarity(tnorm_input, cr_title_norm) >= 0.7:
+                with CACHE_LOCK:
+                    METADATA_MATCH_CACHE[cache_key] = (copy.deepcopy(cr), 'doi_crossref', 1.0)
+                return cr, 'doi_crossref', 1.0
+
+    # 2. Search Fallback (Priority: PubMed -> CrossRef)
     authors_str = parsed.get('authors') or ''
 
     # A. PubMed Search
