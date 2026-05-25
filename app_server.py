@@ -332,12 +332,16 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
         update_progress({
             "total": len(file_paths),
             "current": 0,
+            "files_done": 0,
             "status": "Starting",
+            "step": "Starting",
+            "current_file": "",
+            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
             "folder": temp_dir
         })
 
         all_results = []
-        
+
         try:
             for idx, path in enumerate(file_paths, start=1):
                 if batch_queue.is_cancelled(job_id):
@@ -345,7 +349,10 @@ def process_credit_extractor_job(job_id, temp_dir, file_paths, original_filename
                 filename = original_filenames[idx-1]
                 update_progress({
                     "current": idx,
-                    "status": f"Processing {filename}"
+                    "files_done": idx - 1,
+                    "current_file": os.path.basename(filename),
+                    "step": "Extracting",
+                    "status": "Extracting..."
                 })
 
                 if extraction_method == "ai":
@@ -492,7 +499,11 @@ def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user
         update_progress({
             "total": len(file_paths),
             "current": 0,
+            "files_done": 0,
             "status": "Starting bias scan",
+            "step": "Starting",
+            "current_file": "",
+            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
             "folder": temp_dir
         })
 
@@ -500,7 +511,7 @@ def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user
             # Load bias terms
             bias_terms_path = os.path.join(BASE_DIR, "bias_terms.csv")
             term_category_map, categories = bias_scanner.load_bias_terms(bias_terms_path)
-            
+
             if not term_category_map:
                 update_progress({"status": "Failed: bias_terms.csv not found or empty"})
                 return
@@ -508,9 +519,9 @@ def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user
             # Create output directories
             word_out_dir = os.path.join(temp_dir, "word")
             os.makedirs(word_out_dir, exist_ok=True)
-            
+
             all_report_rows = []
-            
+
             # Process each file
             for idx, path in enumerate(file_paths, start=1):
                 if batch_queue.is_cancelled(job_id):
@@ -518,7 +529,10 @@ def process_bias_scan_job(job_id, temp_dir, file_paths, original_filenames, user
                 filename = original_filenames[idx-1]
                 update_progress({
                     "current": idx,
-                    "status": f"Scanning {filename}"
+                    "files_done": idx - 1,
+                    "current_file": os.path.basename(filename),
+                    "step": "Scanning",
+                    "status": "Scanning..."
                 })
 
                 # Scan document
@@ -3289,11 +3303,24 @@ def process_structuring_job(job_id, unique_folder, saved, combined_dashboard, bo
         errors_occurred = []
 
         total_files = len(saved)
-        
+
+        update_progress({
+            "total": total_files,
+            "current": 0,
+            "files_done": 0,
+            "status": "Starting Structuring",
+            "step": "Starting",
+            "current_file": "",
+            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+        })
+
         for idx, doc_path in enumerate(saved):
             update_progress({
-                "status": f"Structuring {os.path.basename(doc_path)} ({idx + 1}/{total_files})...",
-                "current": idx
+                "current": idx + 1,
+                "files_done": idx,
+                "current_file": os.path.basename(doc_path),
+                "step": "Structuring",
+                "status": "Structuring..."
             })
             
             try:
@@ -3454,8 +3481,18 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
         if not lo_cmd and os.name == "nt" and os.path.exists(r"C:\Program Files\LibreOffice\program\soffice.exe"):
             lo_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe"
         
+        update_progress({
+            "total": len(saved),
+            "current": 0,
+            "files_done": 0,
+            "status": "Starting",
+            "step": "Starting",
+            "current_file": "",
+            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+        })
+
         if lo_cmd and saved:
-            update_progress({"status": "Batch processing..."})
+            update_progress({"status": "Preparing...", "step": "Preparing"})
             try:
                 cmd = [lo_cmd, "--headless", "--convert-to", "pdf", "--outdir", unique_folder] + [os.path.abspath(p) for p in saved]
                 subprocess.run(cmd, timeout=300, capture_output=True)
@@ -3469,7 +3506,10 @@ def process_ppd_job(job_id, unique_folder, saved, combined_dashboard,
             fname = os.path.basename(path)
             update_progress({
                 "current": i,
-                "status": f"Processing {fname}"
+                "files_done": i - 1,
+                "current_file": fname,
+                "step": "Analyzing",
+                "status": "Analyzing..."
             })
 
             try:
@@ -4220,7 +4260,15 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
             except Exception:
                 pass
                 
-        update_progress({"status": "Initializing...", "total": len(file_paths)})
+        update_progress({
+            "status": "Initializing...",
+            "step": "Starting",
+            "total": len(file_paths),
+            "current": 0,
+            "files_done": 0,
+            "current_file": "",
+            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+        })
         
         processed_file_paths = []
         
@@ -4243,8 +4291,14 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 file_output_dir = os.path.join(processing_dir, f"{base_name}_Results")
                 os.makedirs(file_output_dir, exist_ok=True)
                 
-                update_progress({"status": f"Processing {filename}...", "current": idx})
-                
+                update_progress({
+                    "status": "Processing...",
+                    "step": "Processing",
+                    "current": idx + 1,
+                    "files_done": idx,
+                    "current_file": filename,
+                })
+
                 # Consolidated Log Buffer
                 log_buffer = []
                 log_buffer.append(f"PROCESS LOG FOR: {filename}")
@@ -4265,7 +4319,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 # 1. Structuring
                 # -------------------------------------------------
                 if run_structuring:
-                    update_progress({"status": f"Structuring {filename}..."})
+                    update_progress({"status": "Structuring...", "step": "Structuring"})
                     log_buffer.append("\n--- STRUCTURING ---")
                     try:
                         # process_docx_file takes input and output dir
@@ -4299,7 +4353,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 # 1b. Conversion (Separate Step)
                 # -------------------------------------------------
                 if run_gemini:
-                    update_progress({"status": f"Converting {filename}..."})
+                    update_progress({"status": "Converting...", "step": "Converting"})
                     log_buffer.append("\n--- CONVERSION ---")
                     try:
                         from ReferenceConversion import process_conversion
@@ -4329,7 +4383,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                 # 2. Validation (Check References)
                 # -------------------------------------------------
                 if run_validation:
-                    update_progress({"status": f"Validating {filename}..."})
+                    update_progress({"status": "Validating...", "step": "Validating"})
                     log_buffer.append("\n--- NUMERICAL VALIDATION ---")
                     try:
                         citation_format = options.get('citation_format', 'styled')
@@ -5774,14 +5828,28 @@ def process_technical_job(job_id, unique_folder, saved_paths, original_filenames
             except Exception as ex:
                 print(f"Progress update failed: {ex}")
 
-        update_progress({"total": len(saved_paths), "current": 0, "status": "Starting"})
+        update_progress({
+            "total": len(saved_paths),
+            "current": 0,
+            "files_done": 0,
+            "status": "Starting",
+            "step": "Starting",
+            "current_file": "",
+            "start_time": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+        })
         try:
             processed_files = []
             for idx, input_path in enumerate(saved_paths, 1):
                 if batch_queue.is_cancelled(job_id):
                     return
                 filename = original_filenames[idx - 1]
-                update_progress({"current": idx, "status": f"Processing {filename}"})
+                update_progress({
+                    "current": idx,
+                    "files_done": idx - 1,
+                    "current_file": os.path.basename(filename),
+                    "step": "Processing",
+                    "status": "Processing..."
+                })
                 output_path = input_path
                 if run_te:
                     print(f"[TECH] Processing Technical QA: {filename}")

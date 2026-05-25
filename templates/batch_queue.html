@@ -33,6 +33,7 @@
     }
     .queue-table tr:last-child td { border-bottom: none; }
     .queue-table tr:hover td { background: #fafafa; }
+    .queue-table tr.row-running td { background: #f0f5ff; }
 
     /* Status badges */
     .badge {
@@ -109,15 +110,149 @@
     }
     .empty-state i { font-size: 3rem; margin-bottom: 1rem; color: #dee2e6; }
 
-    .queue-header {
+    /* ── NEW QUEUE TOOLBAR ──────────────────────────── */
+    .queue-toolbar {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 16px 20px;
+        padding: 14px 20px;
+        background: #f8f9fc;
         border-bottom: 1px solid #e9ecef;
+        gap: 12px;
+        flex-wrap: wrap;
     }
-    .queue-header h2 { font-size: 1rem; font-weight: 600; margin: 0; }
-    .refresh-info { font-size: 0.75rem; color: #6c757d; }
+    .queue-title-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .queue-title-group h2 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0;
+        color: #343a40;
+    }
+    .queue-title-group i {
+        color: #4361ee;
+        font-size: 1.1rem;
+    }
+    .view-badge {
+        font-size: 0.78rem;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 20px;
+        background: #e8f0ff;
+        color: #4361ee;
+    }
+
+    /* ── Live refresh indicator (minimal) ──────────── */
+    .refresh-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .live-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #28a745;
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.6);
+        animation: ping-live 1.4s ease-out infinite;
+        flex-shrink: 0;
+    }
+    @keyframes ping-live {
+        0%   { box-shadow: 0 0 0 0   rgba(40,167,69,0.6); }
+        70%  { box-shadow: 0 0 0 7px rgba(40,167,69,0);   }
+        100% { box-shadow: 0 0 0 0   rgba(40,167,69,0);   }
+    }
+    .live-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #28a745;
+    }
+
+    /* ── Enhanced progress card ──────────────────────– */
+    .progress-cell { min-width: 240px; }
+    .progress-card {
+        background: linear-gradient(135deg, #f8f9ff 0%, #f3f6ff 100%);
+        border: 1px solid #dde4f0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 0.75rem;
+        box-shadow: 0 1px 3px rgba(67, 97, 238, 0.08);
+    }
+    .progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 7px;
+    }
+    .progress-status {
+        color: #4361ee;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.75rem;
+    }
+    .progress-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .file-counter {
+        font-size: 0.72rem;
+        color: #6c757d;
+        font-weight: 500;
+    }
+    .progress-percentage {
+        color: #343a40;
+        font-weight: 800;
+        font-size: 0.85rem;
+        min-width: 35px;
+        text-align: right;
+    }
+    .progress-bar-container {
+        width: 100%;
+        height: 7px;
+        border-radius: 4px;
+        background: #dde4f0;
+        margin-bottom: 8px;
+        overflow: hidden;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4361ee 0%, #6a7bd6 100%);
+        border-radius: 4px;
+        transition: width 0.4s ease;
+        box-shadow: 0 0 2px rgba(67, 97, 238, 0.3);
+    }
+    .current-file {
+        background: linear-gradient(135deg, #e8f0ff 0%, #eff3ff 100%);
+        border-left: 4px solid #4361ee;
+        padding: 6px 9px;
+        border-radius: 4px;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 6px;
+    }
+    .current-file-name {
+        color: #343a40;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: 'Monaco', 'Courier New', monospace;
+        font-size: 0.78rem;
+        font-weight: 500;
+        flex: 1;
+    }
+    .elapsed {
+        font-size: 0.65rem;
+        color: #6c757d;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
 
     .ts { font-size: 0.72rem; color: #6c757d; }
     .job-id-short { font-family: monospace; font-size: 0.8rem; color: #495057; }
@@ -131,11 +266,16 @@
 </div>
 
 <div class="queue-card">
-    <div class="queue-header">
-        <h2><i class="fas fa-layer-group" style="margin-right:8px; color:#4361ee;"></i> Active & Recent Jobs
-            <span id="viewType" style="font-size: 0.85rem; font-weight: 500; margin-left: 12px; padding: 4px 10px; background: {% if is_admin %}#fff3cd{% else %}#e8f0ff{% endif %}; color: {% if is_admin %}#856404{% else %}#4361ee{% endif %}; border-radius: 12px;">{% if is_admin %}👤 All Users{% else %}👤 My Jobs Only{% endif %}</span>
-        </h2>
-        <span class="refresh-info" id="lastRefresh">Auto-refreshes every 1.2s</span>
+    <div class="queue-toolbar">
+        <div class="queue-title-group">
+            <i class="fas fa-layer-group"></i>
+            <h2>Active & Recent Jobs</h2>
+            <span class="view-badge" id="viewType">{% if is_admin %}All Jobs (—){% else %}My Jobs (—){% endif %}</span>
+        </div>
+        <div class="refresh-bar">
+            <div class="live-dot"></div>
+            <span class="live-label">Live</span>
+        </div>
     </div>
 
     <div id="queueTableContainer">
@@ -173,9 +313,24 @@
                     <td class="progress-cell">
                         <div id="prog-{{ job.job_id }}">
                             {% if job.status == 'running' %}
-                            <div class="progress-text" id="prog-text-{{ job.job_id }}">Starting...</div>
-                            <div class="mini-progress">
-                                <div class="mini-progress-bar" id="prog-bar-{{ job.job_id }}" style="width:0%"></div>
+                            <div class="progress-card">
+                                <div class="progress-header">
+                                    <span class="progress-status">
+                                        <i class="fas fa-cog fa-spin" style="font-size:0.65rem;"></i>
+                                        <span id="prog-text-{{ job.job_id }}">Starting</span>
+                                    </span>
+                                    <span class="progress-meta">
+                                        <span class="file-counter" id="prog-counter-{{ job.job_id }}">— / —</span>
+                                        <span class="progress-percentage" id="prog-pct-{{ job.job_id }}">0%</span>
+                                    </span>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" id="prog-bar-{{ job.job_id }}" style="width:0%"></div>
+                                </div>
+                                <div class="current-file">
+                                    <span class="current-file-name" id="prog-file-{{ job.job_id }}">—</span>
+                                    <span class="elapsed" id="prog-elapsed-{{ job.job_id }}"></span>
+                                </div>
                             </div>
                             {% else %}
                             <span class="ts">—</span>
@@ -277,8 +432,25 @@ function rowHtml(job) {
     const dt = formatLocalTime(job.queued_at);
     const label = ROUTE_LABELS[job.route_type] || job.route_type.replace(/_/g,' ');
     const progHtml = (job.status === 'running')
-        ? `<div class="progress-text" id="prog-text-${job.job_id}">Starting...</div>
-           <div class="mini-progress"><div class="mini-progress-bar" id="prog-bar-${job.job_id}" style="width:0%"></div></div>`
+        ? `<div class="progress-card">
+            <div class="progress-header">
+                <span class="progress-status">
+                    <i class="fas fa-cog fa-spin" style="font-size:0.65rem;"></i>
+                    <span id="prog-text-${job.job_id}">Starting</span>
+                </span>
+                <span class="progress-meta">
+                    <span class="file-counter" id="prog-counter-${job.job_id}">— / —</span>
+                    <span class="progress-percentage" id="prog-pct-${job.job_id}">0%</span>
+                </span>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="prog-bar-${job.job_id}" style="width:0%"></div>
+            </div>
+            <div class="current-file">
+                <span class="current-file-name" id="prog-file-${job.job_id}">—</span>
+                <span class="elapsed" id="prog-elapsed-${job.job_id}"></span>
+            </div>
+        </div>`
         : '<span class="ts">—</span>';
     return `
         <td><span class="route-label">${label}</span></td>
@@ -315,9 +487,9 @@ async function refreshQueue() {
         const isViewingAll = isAdmin;
         
         // Update view type badge
-        document.getElementById('viewType').innerHTML = isViewingAll ? 
-            `<i class="fas fa-users" style="margin-right:4px;"></i>All Jobs (${jobs.length})` :
-            `<i class="fas fa-user" style="margin-right:4px;"></i>My Jobs (${jobs.length})`;
+        document.getElementById('viewType').textContent = isViewingAll ?
+            `All Jobs (${jobs.length})` :
+            `My Jobs (${jobs.length})`;
         
         // Show/hide username column
         const userHeader = document.getElementById('usernameHeader');
@@ -353,12 +525,34 @@ async function refreshQueue() {
 
         jobs.forEach(job => {
             let row = document.getElementById('row-' + job.job_id);
+            const isExistingRunning = row && job.status === 'running'
+                                      && row.querySelector('.progress-card');
+
             if (!row) {
                 row = document.createElement('tr');
                 row.id = 'row-' + job.job_id;
                 body.prepend(row);
             }
-            row.innerHTML = rowHtml(job);
+
+            if (isExistingRunning) {
+                // Preserve the live progress card — only refresh badge and actions
+                const badge = document.getElementById('badge-' + job.job_id);
+                const actions = document.getElementById('actions-' + job.job_id);
+                if (badge) {
+                    badge.className = 'badge ' + statusBadgeClass(job.status);
+                    badge.textContent = job.status;
+                }
+                if (actions) actions.innerHTML = actionsHtml(job);
+            } else {
+                row.innerHTML = rowHtml(job);
+            }
+
+            // Add row class for running jobs (blue background)
+            if (job.status === 'running') {
+                row.classList.add('row-running');
+            } else {
+                row.classList.remove('row-running');
+            }
 
             // Poll progress for running jobs
             if (job.status === 'running' && !polling[job.job_id]) {
@@ -380,12 +574,39 @@ async function pollProgress(jobId) {
     try {
         const resp = await fetch('/progress/' + jobId);
         const pd = await resp.json();
-        const bar = document.getElementById('prog-bar-' + jobId);
-        const txt = document.getElementById('prog-text-' + jobId);
-        if (bar && pd.total) {
-            bar.style.width = Math.round(((pd.current || 0) / pd.total) * 100) + '%';
+
+        const bar     = document.getElementById('prog-bar-'     + jobId);
+        const txt     = document.getElementById('prog-text-'    + jobId);
+        const pct     = document.getElementById('prog-pct-'     + jobId);
+        const file    = document.getElementById('prog-file-'    + jobId);
+        const counter = document.getElementById('prog-counter-' + jobId);
+        const elapsed = document.getElementById('prog-elapsed-' + jobId);
+
+        // Percentage
+        if (bar && pd.total > 0) {
+            const pctVal = Math.min(Math.round(((pd.current || 0) / pd.total) * 100), 100);
+            bar.style.width = pctVal + '%';
+            if (pct) pct.textContent = pctVal + '%';
         }
-        if (txt) txt.textContent = pd.status || 'Processing...';
+
+        // Step label (falls back to status string)
+        if (txt) txt.textContent = pd.step || pd.status || 'Processing';
+
+        // File counter  (e.g. "3 / 7")
+        if (counter && pd.total) {
+            counter.textContent = (pd.current || 0) + ' / ' + pd.total;
+        }
+
+        // Current file — direct field, no regex needed
+        if (file) file.textContent = pd.current_file || '—';
+
+        // Elapsed time
+        if (elapsed && pd.start_time) {
+            const secs = Math.round((Date.now() - new Date(pd.start_time)) / 1000);
+            elapsed.textContent = secs >= 60
+                ? Math.floor(secs / 60) + 'm ' + (secs % 60) + 's'
+                : secs + 's';
+        }
     } catch(e) {}
     if (polling[jobId]) setTimeout(() => pollProgress(jobId), 1200);
 }

@@ -1,0 +1,58 @@
+{
+  "_comment": "User-extensible proper noun dictionary for APA/AMA sentence case conversion. Edit this file to add domain-specific terms.",
+  "_version": "1.0",
+  "acronyms": [
+    "COVID-19", "HIV", "AIDS", "SARS-CoV-2", "MERS", "COPD",
+    "PCR", "DNA", "RNA", "mRNA", "CT", "MRI", "ICU", "ECG", "EKG",
+    "USA", "UK", "UN", "EU", "US", "WHO", "FDA", "CDC", "NIH", "NHS",
+    "BJOG", "MMWR", "JAMA", "NEJM", "BMJ", "Lancet",
+    "ADHD", "PTSD", "OCD", "BIPOC", "LGBT", "LGBTQ", "LGBTQIA"
+  ],
+  "proper_nouns": [
+    "English", "French", "German", "Spanish", "Italian", "Chinese",
+    "Japanese", "Korean", "Arabic", "Russian", "Portuguese", "Dutch",
+    "Swedish", "Danish", "Norwegian", "Finnish", "Polish", "Czech",
+    "American", "European", "Asian", "African", "Australian", "Canadian",
+    "British", "Irish", "Indian", "Brazilian", "Mexican", "Australian",
+    "Cochrane", "PubMed", "CrossRef", "MEDLINE", "Web of Science",
+    "Google Scholar", "ResearchGate", "Nature", "Science", "Cell"
+  ],
+  "institution_names": [
+    "World Health Organization", "Centers for Disease Control and Prevention",
+    "National Institutes of Health", "European Medicines Agency",
+    "Food and Drug Administration", "Cochrane Collaboration",
+    "National Health Service", "Harvard", "Yale", "Stanford",
+    "Oxford", "Cambridge", "MIT", "CalTech", "Berkeley"
+  ],
+  "geographic_terms": [
+    "United States", "United Kingdom", "European Union",
+    "New York", "London", "Tokyo", "Paris", "Berlin", "Moscow",
+    "Los Angeles", "San Francisco", "Washington", "Boston",
+    "Canada", "Mexico", "Australia", "Japan", "South Korea",
+    "France", "Germany", "Italy", "Spain", "Netherlands",
+    "India", "China", "Brazil", "South Africa", "Nigeria"
+  ],
+  "latin_phrases": [
+    "in vitro", "in vivo", "in situ", "ex vivo", "in utero",
+    "post hoc", "a priori", "ad hoc", "per se", "de novo",
+    "et al.", "et cetera", "etc.", "e.g.", "i.e.", "vs."
+  ],
+  "drug_names": [
+    "aspirin", "metformin", "atorvastatin", "ibuprofen", "paracetamol",
+    "amoxicillin", "warfarin", "heparin", "insulin", "lithium",
+    "sertraline", "fluoxetine", "citalopram", "paroxetine",
+    "omeprazole", "ranitidine", "acetaminophen", "naproxen"
+  ],
+  "disease_names": [
+    "Alzheimer's", "Parkinson's", "Crohn's disease", "Graves disease",
+    "Hodgkin lymphoma", "Non-Hodgkin lymphoma", "Type 1 diabetes",
+    "Type 2 diabetes", "Down syndrome", "Turner syndrome",
+    "Marfan syndrome", "Ehlers-Danlos syndrome", "Noonan syndrome"
+  ],
+  "organism_scientific_names": [
+    "Homo sapiens", "Escherichia coli", "Staphylococcus aureus",
+    "Streptococcus pneumoniae", "Mycobacterium tuberculosis",
+    "Plasmodium falciparum", "Trypanosoma brucei", "Drosophila melanogaster",
+    "Caenorhabditis elegans", "Arabidopsis thaliana", "Danio rerio"
+  ]
+}
