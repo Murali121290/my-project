@@ -1113,15 +1113,18 @@ def _append_hyperlink(para, text: str, url: str, doc=None, style_name: Optional[
     if italic:
         ital = OxmlElement("w:i")
         rpr.append(ital)
-    if style_name:
-        style_val = _ensure_style(doc, doc.styles if doc is not None else None, style_name)
-        style_id = style_val.name if hasattr(style_val, "name") else style_name
-        rstyle = OxmlElement("w:rStyle")
-        rstyle.set(qn("w:val"), style_id)
-        rpr.append(rstyle)
+    # Apply blue + underline as direct run properties — does not displace any existing character style
+    color_elem = OxmlElement("w:color")
+    color_elem.set(qn("w:val"), "0563C1")
+    color_elem.set(qn("w:themeColor"), "hyperlink")
+    rpr.append(color_elem)
+    u_elem = OxmlElement("w:u")
+    u_elem.set(qn("w:val"), "single")
+    rpr.append(u_elem)
     new_run.append(rpr)
     text_elem = OxmlElement("w:t")
     text_elem.text = text
+    text_elem.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
     new_run.append(text_elem)
     hyperlink.append(new_run)
     para._p.append(hyperlink)
@@ -1140,7 +1143,7 @@ def _append_segment(para, text: str, style_name: Optional[str], doc=None, styles
         except Exception:
             logger.warning(f"Hyperlink insertion failed for '{text[:40]}'")
     run = para.add_run(text)
-    if style_name:
+    if style_name and style_name != "bib_inline_italic":
         style_val = _ensure_style(doc, styles, style_name)
         try:
             run.style = style_val
