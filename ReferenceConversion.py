@@ -406,8 +406,18 @@ def _to_sentence_case(text: str) -> str:
     if not text:
         return text
 
+    # Protect square-bracket spans (e.g. [Internet]) from case transformation
+    _bk: dict = {}
+    def _stash_bracket(m):
+        k = f"\x00BKST{len(_bk)}\x00"
+        _bk[k] = m.group(0)
+        return k
+    text = re.sub(r'\[[^\]]*\]', _stash_bracket, text)
+
     alpha_chars = [c for c in text if c.isalpha()]
     if not alpha_chars:
+        for k, v in _bk.items():
+            text = text.replace(k, v)
         return text
 
     _load_proper_noun_dict()  # idempotent — only loads once
@@ -535,6 +545,8 @@ def _to_sentence_case(text: str) -> str:
         return m.group(1) + m.group(2) + m.group(3).upper()
 
     result = re.sub(r'([:;—.?!])(\s+)([a-z])', _cap_replacer, result)
+    for k, v in _bk.items():
+        result = result.replace(k, v)
     return result
 
 
@@ -693,6 +705,17 @@ def _fix_ref_type(meta: Dict, raw_text: str) -> Dict:
             not fixed.get("bib_surname")):
         fixed["bib_reftype"] = "edited_book"
         logger.info("  [TypeFix] → 'edited_book'  (ed./eds. in raw text)")
+    # Handle case where Gemini stored editor info in bib_surname with (Eds.) suffix
+    bib_surname_val = fixed.get("bib_surname") or ""
+    if (bib_surname_val and re.search(r'\(\s*eds?\.\s*\)', bib_surname_val, re.IGNORECASE) and
+            fixed.get("bib_reftype", "book") in ("book", "edited_book")):
+        if not fixed.get("bib_ed_surname"):
+            fixed["bib_ed_surname"] = re.sub(r'\s*\(\s*eds?\.\s*\)', '', bib_surname_val, flags=re.IGNORECASE).strip()
+            fixed["bib_ed_fname"]   = fixed.get("bib_fname") or ""
+        fixed["bib_surname"]  = ""
+        fixed["bib_fname"]    = ""
+        fixed["bib_reftype"]  = "edited_book"
+        logger.info("  [TypeFix] → 'edited_book'  (Eds. found in bib_surname, moved to editor fields)")
     rt4 = (fixed.get("bib_reftype") or "").lower()
     if (rt4 == "book" and (fixed.get("bib_conference") or
             re.search(r'\b(?:presented\s+at|proceedings\s+of|annual\s+(?:meeting|conference))\b',
@@ -1643,13 +1666,22 @@ def _format_initials_ama(initial: str) -> str:
     if re.fullmatch(r"[A-Z](?:\.?[A-Z]){0,5}\.?", clean):
         return "".join(c.upper() for c in clean if c.isalpha())
 
-    tokens = [
-        tok for tok in re.split(r"[\s,.\-]+", clean)
-        if tok and tok.lower() not in _NAME_SUFFIXES
-    ]
+    suffix_tokens = []
+    tokens = []
+    for tok in re.split(r"[\s,.\-]+", clean):
+        if not tok:
+            continue
+        if tok.lower() in _NAME_SUFFIXES:
+            suffix_tokens.append(tok)
+        else:
+            tokens.append(tok)
     if tokens:
-        return "".join(tok[0].upper() for tok in tokens if tok[0].isalpha())
-    return "".join(c.upper() for c in clean if c.isalpha())
+        initials = "".join(tok[0].upper() for tok in tokens if tok[0].isalpha())
+    else:
+        initials = "".join(c.upper() for c in clean if c.isalpha())
+    if suffix_tokens:
+        return initials + " " + " ".join(suffix_tokens)
+    return initials
 
 
 _NAME_SUFFIXES = frozenset({"jr","sr","ii","iii","iv","2nd","3rd","4th"})
@@ -1724,11 +1756,7 @@ def _normalize_url_value(value: str) -> str:
 
 
 def _style_link_target(style_name: Optional[str], text: str) -> str:
-    if style_name == "bib_doi":
-        doi = _normalize_doi_value(text)
-        return f"https://doi.org/{doi}" if doi else ""
-    if style_name == "bib_url":
-        return _normalize_url_value(text)
+    # Hyperlinks disabled: bib_doi/bib_url character styles are applied directly to runs
     return ""
 
 
@@ -2322,9 +2350,9 @@ def build_segments_apa(meta: Dict, gemini_text: str = "", italic_words: frozense
 
     segs.append((" (", None))
     raw_year = meta.get("bib_year") or "n.d."
-    if ref_type in ("website", "ereference") and re.match(r'^\d{4}[a-z]?$', raw_year) and gemini_text:
+    if re.match(r'^\d{4}[a-z]?$', raw_year) and gemini_text:
         # Try APA-formatted date first: (YYYY, Month Day)
-        _dm = re.search(r'\(' + re.escape(raw_year[:4]) + r',\s*([A-Za-z]+\s+\d{1,2})\)', gemini_text)
+        _dm = re.search(r'\(' + re.escape(raw_year[:4]) + r',\s*([A-Za-z]+(?:\s+\d{1,2})?)\)', gemini_text)
         if _dm:
             raw_year = raw_year[:4] + ", " + _dm.group(1)
         else:
@@ -2399,7 +2427,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "", italic_words: frozense
                     segs.append((es, "bib_ed-surname"))
             ed_label = "(Ed.)," if len(ed_surnames) == 1 else "(Eds.),"
             segs.append((" " + ed_label + " ", None))
-        display_book = book_title or main_title or ""
+        display_book = book_title or ""
         if display_book:
             segs.append((_to_sentence_case(display_book.rstrip(".")), "bib_book"))
         edition   = meta.get("bib_editionno") or ""
@@ -2557,7 +2585,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "", italic_words: frozense
 
     doi = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
     url = meta.get("bib_url") or ""
-    if doi:
+    if doi and ref_type not in ("book", "edited_book"):
         segs.append((" https://doi.org/", "bib_doi"))
         segs.append((doi, "bib_doi"))
     elif url and ref_type not in ("website", "ereference", "thesis"):
@@ -2709,6 +2737,10 @@ def process_conversion(
         if ref_section_depth == 0 and not is_cgrn_para:
             continue
         if len(raw_text) < 15:
+            continue
+        if ("heading" in para_style_name_check.lower() or
+                raw_text.strip().lower() in ("references", "reference list", "bibliography",
+                                             "references and bibliography")):
             continue
         if _looks_like_inline_citation(raw_text):
             logger.debug(f"Skipping inline citation para: {raw_text[:60]}")
@@ -2907,10 +2939,13 @@ def process_conversion(
             if not db_year and cr_it.get("year"):
                 db_year = str(cr_it["year"])
             if db_year:
-                if not metadata.get("bib_year"):
+                existing_year = (metadata.get("bib_year") or "").strip()
+                if existing_year.lower() == "n.d.":
+                    pass  # preserve explicit n.d. — do not overwrite with DB year
+                elif not existing_year:
                     metadata["bib_year"] = db_year
                 else:
-                    src_year_match = re.search(r'(\d{4})', metadata.get("bib_year", ""))
+                    src_year_match = re.search(r'(\d{4})', existing_year)
                     db_year_match = re.search(r'(\d{4})', db_year)
                     src_yr = src_year_match.group(1) if src_year_match else ""
                     db_yr = db_year_match.group(1) if db_year_match else ""
@@ -2920,7 +2955,7 @@ def process_conversion(
                         else:
                             metadata["bib_year"] = db_year
                             logger.info(f"  [{count}] [DB Correction] Year → {db_year}")
-                    elif resolved_target == "AMA" and len(db_year) > len(metadata.get("bib_year", "")):
+                    elif resolved_target == "AMA" and len(db_year) > len(existing_year):
                         metadata["bib_year"] = db_year
                         logger.info(f"  [{count}] [DB Correction] AMA date expanded → {db_year}")
 

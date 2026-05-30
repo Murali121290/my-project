@@ -173,8 +173,12 @@ def _is_organization(full: str) -> bool:
         'office','bureau','world','network','consortium','collaborators','alliance',
         'task force','working group','services','congress','assembly','trust',
         'disease control','food and','u.s.','uk','united states','health',
+        'study','collaborative','program','programme','initiative','project',
+        'collaboration','registry','survey','cohort','trial group',
     }
-    return any(re.search(rf"\b{kw}\b", full, re.IGNORECASE) for kw in org_keywords)
+    if '/' in full:
+        return True
+    return any(re.search(rf"\b{re.escape(kw)}\b", full, re.IGNORECASE) for kw in org_keywords)
 
 def _para_label(idx: int, para_offset: int = 0) -> str:
     if idx < 0:
@@ -385,7 +389,7 @@ class ApaFixer:
 
         if n < ET_AL_MIN:
             if n == 2 and has_etal:
-                return bib.get("display", "")
+                return None  # retain et al. as written — do not expand to two-author form
             return None
 
         if has_etal:
@@ -1872,6 +1876,23 @@ class CitationProcessor:
             if first_tcs and first_tcs.issubset(all_seen_tc):
                 continue
             _scan_table(table, tbl_idx, [0])
+
+        # Scan text boxes (w:txbxContent) — citations inside floating frames
+        from docx.oxml.ns import qn as _qn
+        from docx.text.paragraph import Paragraph as _Para
+        txbx_counter = [0]
+        for txbx in self.doc.element.body.iter(_qn('w:txbxContent')):
+            for p_elem in txbx.iter(_qn('w:p')):
+                try:
+                    cell_para = _Para(p_elem, self.doc)
+                    txt = _full_text(cell_para)
+                    if not txt.strip():
+                        continue
+                    virtual_idx = self._para_offset + 9000 + txbx_counter[0]
+                    txbx_counter[0] += 1
+                    self._process_para(cell_para, virtual_idx, txt, context_label="text box")
+                except Exception:
+                    pass
 
     def _process_para(self, para, idx: int, txt: str,
                       context_label: str = "") -> None:
