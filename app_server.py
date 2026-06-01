@@ -4050,6 +4050,7 @@ def ppd():
     return jsonify({"job_id": job_id})
 
 @app.route("/progress/<job_id>")
+@csrf.exempt
 def progress(job_id):
     # Try reading from file system first (multi-worker support)
     try:
@@ -4072,6 +4073,7 @@ def progress(job_id):
 
 
 @app.route("/download_zip/<job_id>")
+@csrf.exempt
 def download_zip(job_id):
     zip_path = None
     folder_path = None
@@ -4639,6 +4641,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
             log_errors([f"Job {job_id} failed: {e}"])
 
 @app.route("/validate", methods=["GET", "POST"], strict_slashes=False)
+@csrf.exempt
 def validate_file():
     if 'user_id' not in session:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
