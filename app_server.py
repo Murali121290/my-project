@@ -239,6 +239,14 @@ else:
 
 csrf = CSRFProtect(app)
 
+# Configure CSRF to trust both domain and local IP access
+app.config['WTF_CSRF_TRUSTED_HOSTS'] = [
+    'pph.s4carlisle.com',
+    '10.1.1.69',
+    'localhost',
+    '127.0.0.1'
+]
+
 # Ensure UTF-8 encoding for all responses
 app.config['JSON_AS_ASCII'] = False
 app.json.ensure_ascii = False
