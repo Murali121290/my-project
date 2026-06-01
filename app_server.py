@@ -2947,13 +2947,24 @@ def index():
 
 
 @app.route('/login', methods=['GET', 'POST'], strict_slashes=False)
+@csrf.exempt
 def login():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
 
     if request.method == "POST":
-        username = request.form['username']
-        password = request.form['password']
+        # Support both form-encoded and JSON requests
+        if request.is_json:
+            data = request.get_json()
+            username = data.get('username')
+            password = data.get('password')
+        else:
+            username = request.form.get('username')
+            password = request.form.get('password')
+
+        if not username or not password:
+            flash("Username and password required", "error")
+            return render_template('login.html'), 400
 
         try:
             with db_pool.get_connection() as db:
@@ -3030,11 +3041,23 @@ def get_metrics():
 
 
 @app.route("/register", methods=["GET", "POST"], strict_slashes=False)
+@csrf.exempt
 def register():
     if request.method == "POST":
-        username = request.form['username']
-        password = request.form['password']
-        email = request.form.get('email', '')
+        # Support both form-encoded and JSON requests
+        if request.is_json:
+            data = request.get_json()
+            username = data.get('username')
+            password = data.get('password')
+            email = data.get('email', '')
+        else:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            email = request.form.get('email', '')
+
+        if not username or not password:
+            flash("Username and password required", "error")
+            return render_template('register.html'), 400
 
         with db_pool.get_connection() as db:
             try:
@@ -3064,6 +3087,7 @@ def register():
 
 
 @app.route('/logout', strict_slashes=False)
+@csrf.exempt
 def logout():
     user = session.get('username')
     if user:
