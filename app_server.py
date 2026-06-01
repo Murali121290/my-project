@@ -4334,7 +4334,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
         
         processed_file_paths = []
         
-        run_structuring = options.get('run_structuring', False)
+        run_structuring = options.get('run_structuring', False) or options.get('run_gemini', False)
         run_validation = options.get('run_validation', False)
         run_name_year = options.get('run_name_year', False)
         run_gemini = options.get('run_gemini', False)
@@ -4386,7 +4386,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
                     try:
                         # process_docx_file takes input and output dir
                         # It generates _fixed.docx and _fix_log.txt in output_dir
-                        struct_res = process_docx_file(Path(current_filepath), Path(file_output_dir), target_style=target_style)
+                        struct_res = ReferencesStructing.process_docx_file(Path(current_filepath), Path(file_output_dir), target_style=target_style)
                         
                         if struct_res.get('log_file') and struct_res.get('log_file').exists():
                             with open(struct_res.get('log_file'), 'r', encoding='utf-8') as lf:
