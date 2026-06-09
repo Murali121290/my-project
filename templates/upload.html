@@ -278,9 +278,9 @@
                 style="margin-top:3px;transform:scale(1.25);accent-color:#4361ee;flex-shrink:0;"
                 onchange="updatePipelineSummary()">
             <div>
-                <div style="font-size:14px;font-weight:600;color:#222;">Step 3 — Structuring &amp; Conversion </div>
-                <div style="font-size:12px;color:#666;margin-top:2px;">Restructures and converts references between APA
-                    &harr; AMA formats.</div>
+                <div style="font-size:14px;font-weight:600;color:#222;">Step 3 — Reference Conversion</div>
+                <div style="font-size:12px;color:#666;margin-top:2px;">Converts references between APA
+                    &harr; AMA formats using Gemini AI (runs directly on input file).</div>
             </div>
         </label>
 
@@ -291,7 +291,7 @@
                 (for Step 3):</label>
             <select id="targetStyleSelect" class="form-select"
                 style="padding:8px;border-radius:8px;border:1px solid #b0bbff;width:100%;max-width:300px;font-size:13px;">
-                <option value="Auto" selected>Auto-detect (Structuring only)</option>
+                <option value="Auto" selected>Auto-detect source style (normalise format)</option>
                 <option value="AMA">Convert APA &rarr; AMA</option>
                 <option value="APA">Convert AMA &rarr; APA</option>
             </select>
@@ -357,7 +357,7 @@
 
         if (numVal && numVal.checked) steps.push('① Number Validation');
         if (nyVal && nyVal.checked) steps.push('② Name & Year Validation (APA)');
-        if (gemini && gemini.checked) steps.push('③ Structuring & Conversion (with URL validation & Track Changes)');
+        if (gemini && gemini.checked) steps.push('③ Reference Conversion (Gemini AI)');
 
         // Show Target Style only when Step 3 is selected
         if (tsRow) tsRow.style.display = (gemini && gemini.checked) ? 'block' : 'none';

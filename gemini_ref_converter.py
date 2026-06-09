@@ -422,6 +422,7 @@ BIB_FIELDS: List[str] = [
     "bib_pmid",
     "bib_assignee",
     "bib_comment",
+    "bib_erratum",
 ]
 
 
@@ -512,7 +513,8 @@ RULES:
   NAME PREFIXES: Retain lowercase particles (van, von, de, la, du, etc.) exactly as in source.
   Do NOT capitalise them. Store as part of bib_surname. Example: "van der Berg JA" (NOT "Van Der Berg JA").
 - ARTICLE TITLE: sentence case — only the first word, first word after a colon or em-dash,
-  and proper nouns capitalised. All other words lowercase. No italics. No quotation marks.
+  proper nouns, and "Part" followed by a number or roman numeral (e.g. "Part I", "Part 2") capitalised.
+  All other words lowercase. No italics. No quotation marks.
   Do NOT overwrite with PubMed/CrossRef title unless the source title is completely absent.
 - JOURNAL NAME: Use NLM/MEDLINE standard abbreviation. Italicise. No period after abbreviation.
 - YEAR;VOLUME(ISSUE):PAGES — strict punctuation:
@@ -533,6 +535,17 @@ RULES:
   NEVER output both. If neither exists, end reference with a period.
 - RETRACTED PAPERS: If the source indicates the paper is retracted, append "[Retracted]" after the
   article title (before the period). Example: "Smith JA. Title [Retracted]. Journal. 2020;12(3):45."
+- ERRATUM / CORRECTION: If the source reference includes an erratum or correction notice
+  (e.g. "Erratum in:", "Correction:", "Errata:", "Corrected and republished in:", followed
+  by a citation), you MUST extract and preserve it.
+  Store the FULL erratum notice verbatim in bib_erratum.
+  Append it to formatted_output after the DOI/URL:
+    "Erratum in: <journal abbrev>. <year>;<vol>(<issue>):<pages>. doi:XXXXX"
+  CRITICAL: Do NOT remove erratum notices. This publisher REQUIRES all erratum information retained.
+- SOURCE ANNOTATIONS: Any square-bracket annotation already present in the source title or
+  appended after the title (e.g. [Internet], [serial online], [epub ahead of print], [abstract],
+  [dissertation]) MUST be preserved EXACTLY as written in the source.
+  NEVER remove, lowercase, or drop bracket annotations from titles.
 - SUPPLEMENT ISSUE: Replace the normal issue parenthetical with "(Suppl N)" — e.g. Year;110(Suppl 1):S45-S50.
   Store the supplement designator (e.g. "Suppl 1") verbatim in bib_issue.
 - LETTER/EDITORIAL/COMMENTARY: Article-type label in square brackets immediately after the title
@@ -559,6 +572,8 @@ RULES:
 - PUBLISHER: Retain publisher name. City NOT required in AMA 11th ed.
   Strip corporate suffixes: "Co.", "Ltd.", "Limited", "Inc.", "LLC", "Corp.", "GmbH", "S.A."
   e.g. "Springer Co., Ltd." → "Springer"
+  Do NOT include the word "Publisher:" as a label — store only the name itself
+  (e.g. "Springer", not "Publisher: Springer").
 - End with period after year, UNLESS a DOI/URL follows (no period before doi: or URL).
 - DOI: include if available. Prefix "doi:". No period after.
   URL: include if no DOI. No period after URL.
@@ -627,6 +642,9 @@ FORMAT (no pub date):      Title of page. Website Name. Accessed Month Day, Year
 RULES:
 - PAGE/DOCUMENT TITLE: sentence case (first word and proper nouns only). No italics. No quotation marks.
   Store ONLY in bib_title — NEVER duplicate in bib_journal.
+  CRITICAL: Any square-bracket annotation at the end of the page title (e.g. [Internet],
+  [serial online]) is PART OF the title — retain it verbatim in bib_title and in formatted_output.
+  Example: source "Personal health literacy [Internet]" → title = "Personal health literacy [Internet]"
 - WEBSITE NAME: title case. The domain or website name (e.g. "CDC", "Merriam-Webster", "NIH").
   MUST be stored in bib_journal field. NOT the page title. Placed after the page title.
   Example: If source is "Merriam-Webster.com - Professional" then:
@@ -647,6 +665,9 @@ RULES:
 - bib_url MUST contain the full URL extracted from "Available from:", "URL:", or any URL in the source.
   Strip "Available from:" and "Retrieved from:" prefixes — store only the bare URL.
 - No DOI for websites.
+- SOURCE ANNOTATIONS: Any square-bracket annotation in the source title (e.g. [Internet],
+  [serial online], [epub ahead of print]) MUST be preserved EXACTLY as written.
+  NEVER remove bracket annotations from page titles.
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference including the URL. Never truncate or omit any element.
 """,
@@ -654,10 +675,14 @@ RULES:
 FORMAT (author, single editor):    Author FM. Entry title. In: Editor FM, ed. Reference Title. Publisher; Year. Accessed Month Day, Year. URL
 FORMAT (author, multiple editors): Author FM. Entry title. In: Editor FM, Editor FM, eds. Reference Title. Publisher; Year. Accessed Month Day, Year. URL
 FORMAT (author, no editor):        Author FM. Entry title. In: Reference Title. Publisher; Year. Accessed Month Day, Year. URL
+FORMAT (internet annotation):      Author FM. Entry title [Internet]. In: Reference Title. Publisher; Year. Accessed Month Day, Year. URL
 FORMAT (org author):               Organisation Name. Entry title. In: Reference Title. Publisher; Year. Accessed Month Day, Year. URL
 FORMAT (no year):                  Author FM. Entry title. In: Editor FM, ed. Reference Title. Publisher. Accessed Month Day, Year. URL
 RULES:
 - ENTRY TITLE: sentence case. No italics. No quotation marks. Store ONLY in bib_title — NEVER duplicate.
+  CRITICAL: Any square-bracket annotation at the end of the entry title (e.g. [Internet],
+  [serial online], [epub ahead of print]) is PART OF the title — retain it verbatim.
+  Example: source "...evaluation [Internet]." → output title = "...evaluation [Internet]"
 - REFERENCE BOOK/DATABASE TITLE: title case. Store in bib_book. NOT in bib_journal.
 - AUTHOR: Always include the author in the author position before the entry title.
   Personal author: Surname FM format (same as journal). NO COMMA between surname and initials.
@@ -671,6 +696,9 @@ RULES:
 - ACCESS DATE: Always include "Accessed Month Day, Year." before URL.
 - URL: Full URL. No period after URL. NEVER omit the URL.
   bib_url MUST contain the full URL. Strip "Available from:" and "Retrieved from:" prefixes.
+- SOURCE ANNOTATIONS: Any square-bracket annotation in the source title (e.g. [Internet],
+  [serial online], [epub ahead of print]) MUST be preserved EXACTLY as written.
+  NEVER remove bracket annotations from entry titles.
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference including the URL. Never truncate or omit any element.
 """,
@@ -814,7 +842,8 @@ RULES:
 - YEAR: (Year). followed by period. CRITICAL: Retain any lowercase suffix (2022a, 2024b) — NEVER remove.
   If full date available, format as (Year, Month Day), e.g. (2025, May 28).
 - ARTICLE TITLE: Sentence case ONLY — capitalise only: first word, first word after colon/em-dash,
-  proper nouns. All other words lowercase. No italics. No quotation marks.
+  proper nouns, and "Part" followed by a number or roman numeral (e.g. "Part I", "Part 2").
+  All other words lowercase. No italics. No quotation marks.
   CRITICAL: When converting to sentence case, preserve the exact capitalization of country acronyms and abbreviations (e.g., U.S., U.K., USA, UK). Do not convert them to lowercase.
   CRITICAL: Do NOT overwrite with database title. Source title is authoritative.
 - JOURNAL NAME: Title case AND italicised (*Journal Name*). Use EXACTLY the journal name from the source.
@@ -834,6 +863,15 @@ RULES:
   If no DOI but URL exists, output URL only — no period after. NEVER output both.
 - RETRACTED PAPERS: If the source indicates the paper is retracted, append "[Retracted]" after
   the article title (before the period). Example: "Smith, J. A. (2020). Title [Retracted]. *Journal*, *12*(3), 45."
+- ERRATUM / CORRECTION: If the source includes an erratum or correction notice
+  (e.g. "Erratum in:", "Correction:", "Erratum published:"), extract and preserve it.
+  Store the FULL erratum notice verbatim in bib_erratum.
+  Append to formatted_output after the DOI/URL:
+    "Erratum in: Author, F. M. (Year). Title. *Journal*, *Vol*(Issue), pages. https://doi.org/XXXXX"
+  CRITICAL: Do NOT remove erratum/correction notices. Retain in full.
+- SOURCE ANNOTATIONS: Any square-bracket descriptor appended to the title in the source
+  (e.g. [Special section], [Supplemental material], [Data set], [Abstract], [Letter])
+  MUST be preserved EXACTLY as written. NEVER remove bracket annotations from titles.
 - Strip non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate, omit, or remove any element.
 """,
@@ -860,6 +898,7 @@ RULES:
 - PUBLISHER (APA 7th): CRITICAL — ALWAYS retain the publisher name. NEVER delete it.
   Omit only the city/location prefix (e.g. "New York:", "London:", "Thousand Oaks, CA:").
   Strip ONLY these corporate suffixes: "Co.", "Ltd.", "Limited", "Inc.", "LLC", "Corp.", "GmbH", "S.A.", "Lda.", "Pty."
+  Do NOT include the word "Publisher:" as a label — store only the name itself.
   EXCEPTION: If publisher name EXACTLY equals the author/org name, omit publisher per APA 7th.
   CRITICAL: If the source shows the publisher as the word "Author" (meaning the authoring org is
   also the publisher), store bib_publisher = "Author" exactly — do NOT expand to the org name.
@@ -961,6 +1000,9 @@ RULES:
   Strip any leading text like "from ", "Retrieved from ", "From ", etc.
   Strip any trailing text such as ", on DATE", ", accessed DATE". No period after URL.
   NEVER store a URL in bib_journal or bib_accessed.
+- SOURCE ANNOTATIONS: Any square-bracket annotation in the source title (e.g. [Special section],
+  [Supplemental material], [Data set], [Abstract], [Internet]) MUST be preserved EXACTLY.
+  NEVER remove bracket annotations from page titles.
 - Strip non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -990,6 +1032,8 @@ RULES:
 - URL: bib_url must contain ONLY the bare URL (starting with https:// or http://).
   Strip any leading text like "from ", "Retrieved from ", "From ", etc. No period after URL.
   NEVER store a URL in bib_book or bib_accessed.
+- SOURCE ANNOTATIONS: Any square-bracket annotation in the source entry title (e.g. [Internet],
+  [Special section], [Abstract]) MUST be preserved EXACTLY. NEVER remove bracket annotations.
 - Strip non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -1130,6 +1174,12 @@ RULES:
   Ends with period.
 - DOI as full URL: https://doi.org/XXXXX. Ends with period.
   If no DOI but URL exists, use URL. If neither, end after page range.
+- ERRATUM / CORRECTION: If the source includes an erratum or correction notice
+  (e.g. "Erratum in:", "Correction published:"), store the FULL notice in bib_erratum
+  and append it to formatted_output after the DOI/URL: "Erratum in: <citation>."
+  CRITICAL: Do NOT remove erratum notices.
+- SOURCE ANNOTATIONS: Preserve any square-bracket annotation in the source title verbatim
+  (e.g. [Retracted], [Abstract], [Internet]). NEVER remove or alter bracket annotations.
 - Strip any non-breaking spaces (U+00A0) silently.
 - COMPLETENESS: Output the FULL reference. Never truncate or omit any element.
 """,
@@ -1150,6 +1200,7 @@ RULES:
   If both translated and edited: "Translated and edited by Firstname Surname."
 - PUBLISHER: Retain publisher name. Strip corporate suffixes: "Inc.", "Ltd.", "Co.", "Corp.",
   "GmbH", "LLC". City NOT required.
+  Do NOT include the word "Publisher:" as a label — store only the name itself.
   CRITICAL: No DOI and no web link for pure book references (no online URL unless the source
   is explicitly an online-only publication). Exception: online reports/institutional documents
   may include a URL.
@@ -1407,6 +1458,10 @@ with the database title unless the input title is completely absent.
 - bib_title: For website and ereference types — this is the PAGE or ENTRY title ONLY.
   NOT the website name, database name, platform name, or URL. The website/database name goes
   in bib_journal or bib_book.
+  CRITICAL: If the source title contains a square-bracket annotation (e.g. [Internet],
+  [serial online], [epub ahead of print], [abstract]), you MUST include it verbatim in
+  bib_title as part of the title string. NEVER strip bracket annotations from bib_title.
+  Example: source "Personal health literacy [Internet]" → bib_title = "Personal health literacy [Internet]"
 - bib_conference: For conference refs — the FULL conference/symposium name ONLY.
   NEVER put the paper/poster title in bib_conference.
 - bib_confdate: For conference refs — the DATE RANGE of the conference ONLY (e.g. "May 28–31, 2024").
@@ -1421,6 +1476,9 @@ with the database title unless the input title is completely absent.
 - bib_deg: full degree name (e.g., "Doctoral dissertation", "Master's thesis")
 - bib_assignee: for patent refs only — the company/organisation holding the patent. Null for all other types.
 - bib_comment: always return null — this field is populated externally by the validation layer.
+- bib_erratum: If the source contains an erratum, correction, or errata notice (e.g. "Erratum in:",
+  "Correction in:", "Errata:", "Corrected and republished in:"), extract the FULL notice text verbatim.
+  NEVER omit or summarise erratum information. Null only when no such notice exists in the source.
 - All other string fields: extract verbatim from source
 - Return null for any field not present in the source — NEVER fabricate data
 - COMPLETENESS: The formatted_output must be the FULL reference — never truncate, omit, abbreviate,

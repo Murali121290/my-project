@@ -2493,9 +2493,47 @@ def require_login():
         'macro_download'
     ):
         return None
+    # Allow requests authenticated via API key
+    if getattr(g, 'api_project_name', None):
+        return None
     if not session.get('user_id'):
         flash("Please log in to continue.")
         return redirect(url_for('login'))
+
+
+@app.before_request
+def track_external_api_call():
+    """Log any request carrying a valid X-API-Key into the batch queue."""
+    raw_key = request.headers.get("X-API-Key")
+    if not raw_key:
+        g.api_queue_id = -1
+        g.api_project_name = None
+        return
+    from utils.api_key_manager import validate_api_key
+    from utils.batch_queue_manager import enqueue, STATUS_PROCESSING
+    key_info = validate_api_key(raw_key)
+    if key_info is None:
+        from flask import abort
+        abort(401)
+    g.api_project_name = key_info["project_name"]
+    payload_size = request.content_length or 0
+    g.api_queue_id = enqueue(
+        key_info["project_name"],
+        request.path,
+        request.method,
+        payload_size,
+    )
+
+
+@app.after_request
+def finish_external_api_call(response):
+    """Update batch queue status after the request completes."""
+    queue_id = getattr(g, 'api_queue_id', -1)
+    if queue_id and queue_id > 0:
+        from utils.batch_queue_manager import update_status, STATUS_COMPLETED, STATUS_FAILED
+        status = STATUS_COMPLETED if response.status_code < 400 else STATUS_FAILED
+        update_status(queue_id, status, str(response.status_code))
+    return response
 
 
 def admin_required(f):
@@ -4334,7 +4372,7 @@ def process_validation_job(job_id, processing_dir, file_paths, original_filename
         
         processed_file_paths = []
         
-        run_structuring = options.get('run_structuring', False) or options.get('run_gemini', False)
+        run_structuring = options.get('run_structuring', False)
         run_validation = options.get('run_validation', False)
         run_name_year = options.get('run_name_year', False)
         run_gemini = options.get('run_gemini', False)
@@ -6460,6 +6498,89 @@ def gemini_cost_history_api():
     limit = request.args.get('limit', 20, type=int)
     from utils.gemini_cost_tracker import get_recent_usage
     return jsonify({'usage': get_recent_usage(limit)})
+
+
+@app.route("/gemini-cost/api/exchange-rate", methods=["GET"])
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def gemini_exchange_rate_get():
+    from utils.gemini_cost_tracker import get_exchange_rate
+    return jsonify({'rate': get_exchange_rate()})
+
+
+@app.route("/gemini-cost/api/exchange-rate", methods=["POST"])
+@csrf.exempt
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def gemini_exchange_rate_set():
+    from utils.gemini_cost_tracker import set_exchange_rate
+    data = request.get_json(silent=True) or {}
+    rate = data.get('rate')
+    if not rate or not isinstance(rate, (int, float)) or rate <= 0:
+        return jsonify({'error': 'Invalid rate'}), 400
+    set_exchange_rate(float(rate))
+    return jsonify({'rate': float(rate)})
+
+
+# -----------------------
+# External API Key Management
+# -----------------------
+
+@app.route("/admin/api-keys", methods=["GET"])
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def admin_api_keys():
+    from utils.api_key_manager import list_api_keys
+    keys = list_api_keys()
+    if request.accept_mimetypes.best == 'application/json':
+        return jsonify({'keys': keys})
+    return jsonify({'keys': keys})
+
+
+@app.route("/admin/api-keys/generate", methods=["POST"])
+@csrf.exempt
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def admin_api_keys_generate():
+    from utils.api_key_manager import generate_api_key
+    data = request.get_json(silent=True) or {}
+    project_name = (data.get('project_name') or '').strip()
+    if not project_name:
+        return jsonify({'error': 'project_name required'}), 400
+    raw_key = generate_api_key(project_name)
+    return jsonify({'project_name': project_name, 'api_key': raw_key})
+
+
+@app.route("/admin/api-keys/<int:key_id>/revoke", methods=["POST"])
+@csrf.exempt
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def admin_api_keys_revoke(key_id):
+    from utils.api_key_manager import revoke_api_key
+    revoke_api_key(key_id)
+    return jsonify({'revoked': key_id})
+
+
+# -----------------------
+# Batch Queue Dashboard
+# -----------------------
+
+@app.route("/admin/batch-queue")
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def admin_batch_queue():
+    return render_template("batch_queue_dashboard.html", title="Batch Queue")
+
+
+@app.route("/admin/batch-queue/api/stats")
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def admin_batch_queue_stats():
+    from utils.batch_queue_manager import get_stats
+    return jsonify(get_stats())
+
+
+@app.route("/admin/batch-queue/api/list")
+@role_required(ROUTE_PERMISSIONS.get('admin', ['ADMIN']))
+def admin_batch_queue_list():
+    status  = request.args.get('status')
+    project = request.args.get('project')
+    limit   = request.args.get('limit', 50, type=int)
+    from utils.batch_queue_manager import get_queue
+    return jsonify({'queue': get_queue(status=status, project=project, limit=limit)})
 
 
 # -----------------------

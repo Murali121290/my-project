@@ -3554,9 +3554,9 @@ def process_docx_file(input_docx: Path, output_dir: Optional[Path] = None, targe
                 style = 'REF-U'
         
         # Debugging: Trace "suspicious" large captures
-        if in_ref_section:
+        if ref_section_depth > 0:
             if len(raw) < 40 and raw_lower in ('appendix', 'tables', 'figures', 'index'):
-                in_ref_section = False
+                ref_section_depth = 0
                 continue
 
         # cleanup leading DOI urls (DOIs that appear at the BEGINNING of a reference, e.g. from copy-paste errors)

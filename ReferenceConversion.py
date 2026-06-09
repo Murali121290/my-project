@@ -413,6 +413,8 @@ def _to_sentence_case(text: str) -> str:
         _bk[k] = m.group(0)
         return k
     text = re.sub(r'\[[^\]]*\]', _stash_bracket, text)
+    # Protect "Part I", "Part II", "Part A" etc. from being lowercased
+    text = re.sub(r'\bPart\s+[A-Z0-9IVX]+\b', _stash_bracket, text)
 
     alpha_chars = [c for c in text if c.isalpha()]
     if not alpha_chars:
@@ -601,6 +603,20 @@ def _split_italic_spans(
     return segs if segs else [(text, style)]
 
 
+def _split_bracket_segments(text: str, default_style: Optional[str]) -> List[Tuple[str, Optional[str]]]:
+    """Split text into (chunk, style) pairs, tagging [...] spans as bib_misc."""
+    segs: List[Tuple[str, Optional[str]]] = []
+    last = 0
+    for m in re.finditer(r'\[[^\]]*\]', text):
+        if m.start() > last:
+            segs.append((text[last:m.start()], default_style))
+        segs.append((m.group(), "bib_misc"))
+        last = m.end()
+    if last < len(text):
+        segs.append((text[last:], default_style))
+    return segs if segs else [(text, default_style)]
+
+
 _TITLE_CASE_SMALL = frozenset({
     "a","an","the","and","but","or","for","nor","on","at",
     "to","by","in","of","up","as","is","it","its","via","per","vs","et",
@@ -640,6 +656,7 @@ _PUB_SUFFIX_RE = re.compile(
 def _strip_publisher_suffixes(pub: str) -> str:
     if not pub:
         return pub
+    pub = re.sub(r'(?i)^publisher:?\s*', '', pub).strip()
     cleaned = _PUB_SUFFIX_RE.sub("", pub).strip().rstrip(",").strip()
     return cleaned or pub
 
@@ -899,17 +916,17 @@ def format_ama_from_metadata_old(meta: Dict) -> str:
     surnames = [s.strip() for s in (meta.get("bib_surname") or "").split("|") if s.strip()]
     fnames   = [f.strip() for f in (meta.get("bib_fname")   or "").split("|") if f.strip()]
     has_etal = False
-    if surnames and surnames[-1].lower().replace(".", "").strip() == "et al":
+    _etal_re = re.compile(r'^et\.?\s*al\.?$', re.IGNORECASE)
+    etal_indices = [i for i, s in enumerate(surnames) if _etal_re.match(s)]
+    if etal_indices:
         has_etal = True
-        surnames.pop()
-        if len(fnames) > len(surnames): fnames.pop()
+        for idx in sorted(etal_indices, reverse=True):
+            surnames.pop(idx)
+            if idx < len(fnames): fnames.pop(idx)
     authors  = []
     for i, surname in enumerate(surnames):
         initial = fnames[i] if i < len(fnames) else ""
-        if initial and len(initial) <= 3 and " " not in initial and not any(c.islower() for c in initial):
-            initials_fmt = initial.replace(".", "")
-        else:
-            initials_fmt = "".join(p[0] for p in initial.split() if p) if initial else ""
+        initials_fmt = _format_initials_ama(initial)
         authors.append(f"{surname} {initials_fmt}".strip())
     if authors:
         if len(authors) <= 6 and not has_etal:
@@ -926,12 +943,16 @@ def format_ama_from_metadata_old(meta: Dict) -> str:
         fpage   = meta.get("bib_fpage", "")
         lpage   = meta.get("bib_lpage", "")
         doi     = meta.get("bib_doi", "")
-        if title:   parts.append(f"{_to_sentence_case(title)}.")
+        if title:   parts.append(f"{_to_ama_sentence_case(title)}.")
         vol_str = journal or ""
         if year:    vol_str += f". {year}"
         if volume:  vol_str += f";{volume}"
+        issue = re.sub(r'(?i)(Suppl\s*)+', 'Suppl ', issue).strip() if issue else issue
         if issue:   vol_str += f"({issue})"
-        pages = f"{fpage}-{lpage}" if fpage and lpage else fpage or lpage
+        if re.search(r'[,;]', fpage):
+            pages = fpage
+        else:
+            pages = f"{fpage}-{lpage}" if fpage and lpage else fpage or lpage
         if pages:   vol_str += f":{pages}"
         if vol_str: parts.append(vol_str + ".")
         if doi:     parts.append(f"doi:{doi}")
@@ -942,7 +963,7 @@ def format_ama_from_metadata_old(meta: Dict) -> str:
         year       = meta.get("bib_year", "")
         doi        = meta.get("bib_doi", "")
         url        = meta.get("bib_url", "")
-        title_str  = _to_sentence_case(book_title) if book_title else ""
+        title_str  = _to_ama_sentence_case(book_title) if book_title else ""
         if edition and _ordinal(edition) not in ("1st", "1", "first"):
             title_str += f". {_ordinal(edition)} ed."
         if title_str: parts.append(title_str + ".")
@@ -955,7 +976,9 @@ def format_ama_from_metadata_old(meta: Dict) -> str:
         elif url:     parts.append(url)
     elif ref_type == "book_chapter":
         chapter   = meta.get("bib_chaptertitle") or ""
-        book      = meta.get("bib_book", "")
+        book      = meta.get("bib_book") or meta.get("bib_title", "")
+        if chapter and book and chapter.strip().rstrip(".") == book.strip().rstrip("."):
+            chapter = ""
         edition   = meta.get("bib_editionno", "")
         fpage     = meta.get("bib_fpage", "")
         lpage     = meta.get("bib_lpage", "")
@@ -964,15 +987,15 @@ def format_ama_from_metadata_old(meta: Dict) -> str:
         doi       = meta.get("bib_doi", "")
         ed_surnames = [s.strip() for s in (meta.get("bib_ed_surname") or "").split("|") if s.strip()]
         ed_fnames   = [f.strip() for f in (meta.get("bib_ed_fname")   or "").split("|") if f.strip()]
-        if chapter: parts.append(f"{_to_sentence_case(chapter)}.")
+        if chapter: parts.append(f"{_to_ama_sentence_case(chapter)}.")
         editors = []
         for i, s in enumerate(ed_surnames):
             ini = ed_fnames[i] if i < len(ed_fnames) else ""
-            initials_fmt = "".join(p[0] for p in ini.split() if p) if ini else ""
+            initials_fmt = _format_initials_ama(ini)
             editors.append(f"{s} {initials_fmt}".strip())
         ed_label = "ed." if len(editors) == 1 else "eds."
         in_str = "In: " + ", ".join(editors) + f", {ed_label}. " if editors else "In: "
-        book_str = _to_sentence_case(book) if book else ""
+        book_str = _to_ama_sentence_case(book) if book else ""
         if edition and _ordinal(edition) not in ("1st", "1", "first"):
             book_str += f". {_ordinal(edition)} ed"
         parts.append(in_str + book_str + ".")
@@ -1210,6 +1233,13 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
         para.add_run(prefix_sep)
 
     original_text = remaining_text
+
+    # Fix 100: strip duplicate leading label from converted segments
+    if prefix_num and segments:
+        first_text, first_style = segments[0]
+        stripped = re.sub(r'^\s*[\[\(]?\d+[\]\).]?\s*', '', first_text)
+        if stripped != first_text:
+            segments = [(stripped, first_style)] + list(segments[1:])
 
     try:
         from utils.track_changes import add_tracked_deletion, add_tracked_text
@@ -1857,7 +1887,7 @@ def _auto_correct_reference(
             final_text = rebuilt_text
             segs = rebuilt_segs
 
-    final_text = _normalise_quotes(_normalise_double_periods(final_text))
+    final_text = _normalise_double_periods(final_text)
     findings = _validate_converted_reference(meta, final_text, target_style, ref_type)
     return meta, final_text, findings, segs
 
@@ -1896,10 +1926,13 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
     surnames    = _split_pipe(meta.get("bib_surname"))
     fnames      = _split_pipe(meta.get("bib_fname"))
     has_etal = False
-    if surnames and surnames[-1].lower().replace(".", "").strip() == "et al":
+    _etal_pat = re.compile(r'^et\.?\s*al\.?$', re.IGNORECASE)
+    _etal_idx = [i for i, s in enumerate(surnames) if _etal_pat.match(s)]
+    if _etal_idx:
         has_etal = True
-        surnames.pop()
-        if len(fnames) > len(surnames): fnames.pop()
+        for _idx in sorted(_etal_idx, reverse=True):
+            surnames.pop(_idx)
+            if _idx < len(fnames): fnames.pop(_idx)
     n_auth      = len(surnames)
     ed_surnames = _split_pipe(meta.get("bib_ed_surname") or meta.get("bib-ed-surname"))
     ed_fnames   = _split_pipe(meta.get("bib_ed_fname")   or meta.get("bib-ed-fname"))
@@ -1955,13 +1988,16 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
     chapter_title = meta.get("bib_chaptertitle") or ""
     main_title    = meta.get("bib_title") or ""
     book_title    = meta.get("bib_book") or ""
+    # Fix 90: prevent chapter title duplicating book title
+    if chapter_title and book_title and chapter_title.strip().rstrip(".") == book_title.strip().rstrip("."):
+        chapter_title = ""
 
     def _ama_title(text: str) -> str:
         return _to_ama_sentence_case(text.rstrip("."))
 
     if ref_type == "book_chapter" and chapter_title:
         clean_title = _ama_title(chapter_title)
-        segs.append((clean_title, "bib_chaptertitle"))
+        segs.extend(_split_bracket_segments(clean_title, "bib_chaptertitle"))
         segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
     elif main_title:
         # AMA book/edited_book titles use Title Case; other types use Sentence Case
@@ -1969,7 +2005,8 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             clean_title = _to_title_case(main_title.rstrip("."))
         else:
             clean_title = _ama_title(main_title)
-        segs.append((clean_title, "bib_article" if ref_type == "journal" else "bib_title"))
+        base_style = "bib_article" if ref_type == "journal" else "bib_title"
+        segs.extend(_split_bracket_segments(clean_title, base_style))
         segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
 
     if ref_type == "book_chapter":
@@ -2001,6 +2038,9 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         issue   = meta.get("bib_issue") or ""
         fpage   = meta.get("bib_fpage") or ""
         lpage   = meta.get("bib_lpage") or ""
+        # Fix 98: deduplicate "Suppl" in issue field
+        if issue:
+            issue = re.sub(r'(?i)(Suppl\s*)+', 'Suppl ', issue).strip()
         if journal:
             segs.append((journal, "bib_journal"))
             segs.append((".", None))
@@ -2015,7 +2055,11 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append(("(", None))
             segs.append((issue, "bib_issue"))
             segs.append((")", None))
-        if fpage:
+        # Fix 94: preserve compound page ranges (e.g. "123-145, 200-210")
+        if re.search(r'[,;]', fpage):
+            segs.append((":", None))
+            segs.append((fpage, "bib_fpage"))
+        elif fpage:
             segs.append((":", None))
             segs.append((fpage, "bib_fpage"))
             if lpage:
@@ -2196,6 +2240,12 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
     if doi and ref_type not in ("website", "ereference", "thesis"):
         segs.append((" doi:", "bib_doi"))
         segs.append((doi, "bib_doi"))
+
+    # Fix 96: append erratum details if present
+    erratum = (meta.get("bib_erratum") or "").strip()
+    if erratum:
+        segs.append((" Erratum in: ", None))
+        segs.append((erratum, "bib_misc"))
 
     return segs
 

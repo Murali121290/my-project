@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}{{ title or "Batch Queue" }}{% endblock %}
+
+{% block extra_css %}
+<style>[x-cloak] { display: none !important; }</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-8" x-data="batchQueue" x-cloak>
+
+    <!-- Header -->
+    <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 p-8">
+        <div class="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-3xl"></div>
+        <div class="relative z-10">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-xl bg-white/20">
+                    <i data-lucide="layers" class="h-6 w-6 text-white"></i>
+                </div>
+                <span class="px-3 py-1 text-xs font-semibold rounded-full bg-white/20 text-white uppercase tracking-wider">External API</span>
+            </div>
+            <h1 class="text-3xl font-bold text-white mb-2">Batch Queue</h1>
+            <p class="text-slate-300 max-w-xl mb-6">Track all incoming API calls from external projects authenticated via API keys.</p>
+            <div class="flex items-center gap-3 flex-wrap">
+                <button @click="refresh()"
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-slate-800 bg-white hover:bg-slate-50 shadow-lg transition-all">
+                    <i data-lucide="refresh-cw" class="h-4 w-4" :class="loading ? 'animate-spin' : ''"></i>
+                    Refresh
+                </button>
+                <button @click="showGenerate = !showGenerate"
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-white bg-white/20 hover:bg-white/30 shadow-lg transition-all">
+                    <i data-lucide="key" class="h-4 w-4"></i>
+                    Manage API Keys
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate API Key Panel -->
+    <div x-show="showGenerate" class="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6 space-y-4">
+        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <i data-lucide="key" class="h-5 w-5 text-indigo-500"></i>
+            Generate New API Key
+        </h2>
+        <div class="flex gap-3">
+            <input type="text" x-model="newProjectName" placeholder="Project name (e.g. my-other-app)"
+                class="flex-1 px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm" />
+            <button @click="generateKey()"
+                :disabled="!newProjectName.trim() || generating"
+                class="px-5 py-2 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 disabled:opacity-50 transition-all">
+                <span x-show="!generating">Generate</span>
+                <span x-show="generating">...</span>
+            </button>
+        </div>
+        <!-- Show generated key -->
+        <div x-show="generatedKey" class="p-4 rounded-xl bg-amber-50 border border-amber-200">
+            <p class="text-sm font-semibold text-amber-800 mb-1">
+                <i data-lucide="alert-triangle" class="h-4 w-4 inline mr-1"></i>
+                Copy this key now — it will not be shown again!
+            </p>
+            <code class="block mt-2 p-3 rounded-lg bg-white border border-amber-300 text-sm font-mono break-all text-slate-800"
+                x-text="generatedKey"></code>
+            <p class="text-xs text-amber-600 mt-2">
+                Add <strong>X-API-Key: &lt;key&gt;</strong> header to all requests from your external project.
+            </p>
+        </div>
+        <!-- API Keys table -->
+        <div x-show="apiKeys.length > 0" class="overflow-x-auto mt-4">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-slate-50 border-b border-slate-100">
+                        <th class="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Project</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Created</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Last Used</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Status</th>
+                        <th class="text-right px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <template x-for="k in apiKeys" :key="k.id">
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-4 py-2 font-medium text-slate-800" x-text="k.project_name"></td>
+                            <td class="px-4 py-2 text-slate-500 text-xs" x-text="formatTs(k.created_at)"></td>
+                            <td class="px-4 py-2 text-slate-500 text-xs" x-text="k.last_used ? formatTs(k.last_used) : '—'"></td>
+                            <td class="px-4 py-2">
+                                <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                                    :class="k.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                                    x-text="k.active ? 'Active' : 'Revoked'"></span>
+                            </td>
+                            <td class="px-4 py-2 text-right">
+                                <button x-show="k.active" @click="revokeKey(k.id)"
+                                    class="px-3 py-1 rounded-lg bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200 transition-all">
+                                    Revoke
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <template x-for="s in statCards" :key="s.label">
+            <div class="rounded-2xl bg-white border border-slate-200/60 shadow-sm p-5">
+                <p class="text-xs font-medium text-slate-500 uppercase tracking-wider" x-text="s.label"></p>
+                <p class="text-3xl font-bold mt-1" :class="s.color" x-text="stats[s.key] ?? 0"></p>
+            </div>
+        </template>
+    </div>
+
+    <!-- Per-Project Breakdown -->
+    <div x-show="stats.by_project && stats.by_project.length > 0"
+        class="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+            <i data-lucide="building" class="h-5 w-5 text-slate-500"></i>
+            <h3 class="font-semibold text-slate-800">Per-Project Summary</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-slate-50 border-b border-slate-100">
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Project</th>
+                        <th class="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Total</th>
+                        <th class="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Completed</th>
+                        <th class="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Failed</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <template x-for="p in stats.by_project" :key="p.project_name">
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-6 py-3 font-medium text-slate-800" x-text="p.project_name"></td>
+                            <td class="px-6 py-3 text-right text-slate-800 font-semibold" x-text="p.total"></td>
+                            <td class="px-6 py-3 text-right text-green-600 font-semibold" x-text="p.completed"></td>
+                            <td class="px-6 py-3 text-right text-red-600 font-semibold" x-text="p.failed"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Queue Filters -->
+    <div class="flex items-center gap-3 flex-wrap">
+        <span class="text-sm font-medium text-slate-600">Filter:</span>
+        <template x-for="f in filters" :key="f.value">
+            <button @click="activeFilter = f.value; loadQueue()"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
+                :class="activeFilter === f.value
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'"
+                x-text="f.label">
+            </button>
+        </template>
+    </div>
+
+    <!-- Queue Table -->
+    <div class="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+            <i data-lucide="list" class="h-5 w-5 text-slate-500"></i>
+            <h3 class="font-semibold text-slate-800">Queue Entries</h3>
+            <span class="ml-auto text-xs text-slate-400" x-text="queue.length + ' entries'"></span>
+        </div>
+
+        <div x-show="queue.length > 0" class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-slate-50 border-b border-slate-100">
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Time</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Project</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Endpoint</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Method</th>
+                        <th class="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Size</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
+                        <th class="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Processed</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <template x-for="row in queue" :key="row.id">
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap" x-text="formatTs(row.ts)"></td>
+                            <td class="px-6 py-3 font-medium text-slate-800" x-text="row.project_name"></td>
+                            <td class="px-6 py-3 font-mono text-xs text-slate-600" x-text="row.endpoint"></td>
+                            <td class="px-6 py-3">
+                                <span class="px-2 py-0.5 rounded text-xs font-semibold"
+                                    :class="row.method === 'POST' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'"
+                                    x-text="row.method"></span>
+                            </td>
+                            <td class="px-6 py-3 text-right text-slate-600 text-xs" x-text="formatBytes(row.payload_size)"></td>
+                            <td class="px-6 py-3">
+                                <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                                    :class="{
+                                        'bg-yellow-100 text-yellow-700': row.status === 'pending',
+                                        'bg-blue-100 text-blue-700':   row.status === 'processing',
+                                        'bg-green-100 text-green-700': row.status === 'completed',
+                                        'bg-red-100 text-red-700':     row.status === 'failed',
+                                    }"
+                                    x-text="row.status"></span>
+                            </td>
+                            <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap"
+                                x-text="row.processed_at ? formatTs(row.processed_at) : '—'"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <div x-show="queue.length === 0" class="py-16 text-center">
+            <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
+                <i data-lucide="inbox" class="h-8 w-8 text-slate-400"></i>
+            </div>
+            <p class="font-medium text-slate-600 mb-1">No queue entries</p>
+            <p class="text-sm text-slate-500">External projects need to send requests with a valid X-API-Key header.</p>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script defer src="{{ url_for('static', filename='alttext/js/alpine.min.js') }}"></script>
+<script defer src="{{ url_for('static', filename='alttext/js/lucide.min.js') }}"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", () => { if (window.lucide) lucide.createIcons(); });
+    window.addEventListener('load', () => { if (window.lucide) lucide.createIcons(); });
+    let _lt = null;
+    new MutationObserver(m => {
+        if (!window.lucide) return;
+        if (m.some(x => [...x.addedNodes].some(n => n.nodeType === 1 && (n.hasAttribute?.('data-lucide') || n.querySelector?.('[data-lucide]'))))) {
+            clearTimeout(_lt); _lt = setTimeout(() => lucide.createIcons(), 50);
+        }
+    }).observe(document.body, { subtree: true, childList: true });
+
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('batchQueue', () => ({
+            stats: {},
+            queue: [],
+            apiKeys: [],
+            loading: false,
+            showGenerate: false,
+            newProjectName: '',
+            generating: false,
+            generatedKey: '',
+            activeFilter: '',
+            filters: [
+                { label: 'All',        value: '' },
+                { label: 'Pending',    value: 'pending' },
+                { label: 'Processing', value: 'processing' },
+                { label: 'Completed',  value: 'completed' },
+                { label: 'Failed',     value: 'failed' },
+            ],
+            statCards: [
+                { label: 'Total',      key: 'total',      color: 'text-slate-800' },
+                { label: 'Pending',    key: 'pending',    color: 'text-yellow-600' },
+                { label: 'Processing', key: 'processing', color: 'text-blue-600' },
+                { label: 'Completed',  key: 'completed',  color: 'text-green-600' },
+                { label: 'Failed',     key: 'failed',     color: 'text-red-600' },
+            ],
+
+            async init() {
+                await this.refresh();
+                await this.loadApiKeys();
+            },
+
+            async refresh() {
+                this.loading = true;
+                try {
+                    const res = await fetch('/admin/batch-queue/api/stats', { credentials: 'same-origin' });
+                    this.stats = await res.json();
+                    await this.loadQueue();
+                } catch (e) { console.error(e); }
+                finally { this.loading = false; }
+            },
+
+            async loadQueue() {
+                const url = '/admin/batch-queue/api/list?limit=50' + (this.activeFilter ? '&status=' + this.activeFilter : '');
+                const res = await fetch(url, { credentials: 'same-origin' });
+                const d = await res.json();
+                this.queue = d.queue || [];
+            },
+
+            async loadApiKeys() {
+                const res = await fetch('/admin/api-keys', {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' }
+                });
+                if (res.ok) {
+                    try { const d = await res.json(); this.apiKeys = d.keys || []; } catch {}
+                }
+            },
+
+            async generateKey() {
+                if (!this.newProjectName.trim()) return;
+                this.generating = true;
+                this.generatedKey = '';
+                try {
+                    const res = await fetch('/admin/api-keys/generate', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ project_name: this.newProjectName.trim() }),
+                    });
+                    const d = await res.json();
+                    this.generatedKey = d.api_key || '';
+                    this.newProjectName = '';
+                    await this.loadApiKeys();
+                } catch (e) { console.error(e); }
+                finally { this.generating = false; }
+            },
+
+            async revokeKey(id) {
+                if (!confirm('Revoke this API key? External project will lose access immediately.')) return;
+                await fetch('/admin/api-keys/' + id + '/revoke', {
+                    method: 'POST', credentials: 'same-origin'
+                });
+                await this.loadApiKeys();
+            },
+
+            formatTs(ts) {
+                if (!ts) return '—';
+                try {
+                    const d = new Date(ts);
+                    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                } catch { return ts; }
+            },
+
+            formatBytes(b) {
+                if (!b) return '0 B';
+                if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+                if (b >= 1024)    return (b / 1024).toFixed(1) + ' KB';
+                return b + ' B';
+            },
+        }));
+    });
+</script>
+{% endblock %}
