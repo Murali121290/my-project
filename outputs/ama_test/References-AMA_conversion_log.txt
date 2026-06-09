@@ -1,0 +1,50 @@
+Reference Conversion Log
+Input:         References-AMA.docx
+Source Style:  AMA
+Target Style:  AMA
+Model:         gemini-2.5-flash
+============================================================
+
+[1]
+  TYPE:    unknown
+  FROM:    [AMA] 1.	O'Neill TR, et al. Performance on the American Board of Family Medicine (ABFM) certification examination: are superior test-taking skills alone sufficient to pass? J Am Board Fam Med 2011;24:175–80.
+  TO:      [AMA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[2]
+  TYPE:    unknown
+  FROM:    [AMA] 2.	Rogers HJ. Guessing in multiple-choice tests. In: Masters GN, Keeves JP, eds. Advances in Measurement in Educational Research and Assessment. Oxford, UK: Pergamon, 1999:235–43.
+  TO:      [AMA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[3]
+  TYPE:    unknown
+  FROM:    [AMA] 3.	Downing SM. Guessing on selected-response examinations. Med Educ 2003;37:670–1.
+  TO:      [AMA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[4]
+  TYPE:    unknown
+  FROM:    [AMA] 4.	Croskerry P. The importance of cognitive errors in diagnosis and strategies to minimize them. Acad Med 2003;78:775–80.
+  TO:      [AMA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[5]
+  TYPE:    unknown
+  FROM:    [AMA] 5.	Krope P, et al. Evaluating mepindolol in a test model of examination anxiety in students. Pharmacopsychiatria 1982;15(2):41–7.
+  TO:      [AMA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[6]
+  TYPE:    unknown
+  FROM:    [AMA] 6.	James IM, et al. Effect of oxprenolol on stage-fright in musicians. Lancet 1977;2:952–4.
+  TO:      [AMA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+
+============================================================
+SUMMARY
+  Total references found:  6
+  Successfully converted:  0
+  Errors:                  6
+  Skipped (same style):    0

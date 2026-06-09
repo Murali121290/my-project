@@ -65,17 +65,15 @@ def _acquire_api_slot() -> None:
 # ─────────────────────────────────────────────
 
 def _extract_authors_from_pubmed_article(article: "Dict[str, Any]") -> Optional[List[str]]:
-    """Extract pipe-separated author list from PubMed article data."""
+    """Extract author list from PubMed esummary article data."""
     try:
         authors = []
-        # PubMed article structure typically has authlist
-        if "authorlist" in article:
-            for author in article["authorlist"]:
-                if isinstance(author, dict):
-                    lastname = author.get("lastname", "")
-                    initials = author.get("initials", "")
-                    if lastname:
-                        authors.append(f"{lastname} {initials}".strip())
+        # esummary JSON: authors = [{"name": "Flaherty KR", "authtype": "Author"}, ...]
+        for author in article.get("authors", []):
+            if isinstance(author, dict) and author.get("authtype") == "Author":
+                name = author.get("name", "").strip()
+                if name:
+                    authors.append(name)
         return authors if authors else None
     except Exception as e:
         logger.debug(f"  [PubMed] Author extraction error: {e}")
@@ -107,6 +105,8 @@ def _lookup_doi_from_pubmed(
     authors: List[str] = None,
     year: str = None,
     journal: str = None,
+    volume: str = None,
+    fpage: str = None,
 ) -> Optional[Dict[str, Optional[List[str]]]]:
     """
     Look up a DOI and full author list from PubMed API using article metadata.
@@ -128,6 +128,10 @@ def _lookup_doi_from_pubmed(
 
         if year:
             query_parts.append(f'{year.split()[0]}[PDAT]')
+        if volume:
+            query_parts.append(f'{volume.strip()}[VI]')
+        if fpage:
+            query_parts.append(f'{fpage.strip()}[PG]')
 
         query = " AND ".join(query_parts)
 
@@ -162,47 +166,30 @@ def _lookup_doi_from_pubmed(
 
         pmid = pmids[0]
 
-        # Fetch full article info
-        fetch_params = {
-            "db": "pubmed",
-            "id": pmid,
-            "rettype": "json",
-        }
-
+        # Fetch article summary — esummary supports retmode=json; efetch does not
         fetch_response = requests.get(
-            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-            params=fetch_params,
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+            params={"db": "pubmed", "id": pmid, "retmode": "json"},
             headers=headers,
             timeout=5
         )
 
         if fetch_response.status_code != 200:
-            logger.debug(f"  [PubMed] Fetch returned {fetch_response.status_code}")
+            logger.debug(f"  [PubMed] Summary fetch returned {fetch_response.status_code}")
             return None
 
         fetch_data = fetch_response.json()
-        articles = fetch_data.get("result", {}).get("uids", [])
-
-        if not articles or articles[0] not in fetch_data.get("result", {}):
+        result = fetch_data.get("result", {})
+        article = result.get(pmid) or result.get(str(pmid))
+        if not article:
             return None
 
-        article = fetch_data["result"][articles[0]]
-
-        # Try to find DOI in article
+        # DOI is in articleids list (esummary JSON structure)
         doi = None
-
-        # Check uid_list
-        for uid_entry in article.get("uid_list", []):
-            if uid_entry.get("name") == "DOI":
-                doi = uid_entry.get("value")
+        for attr in article.get("articleids", []):
+            if attr.get("idtype") == "doi":
+                doi = attr.get("value")
                 break
-
-        # Check article attributes
-        if not doi:
-            for attr in article.get("article_ids", []):
-                if attr.get("idtype") == "doi":
-                    doi = attr.get("value")
-                    break
 
         if doi:
             logger.info(f"  [PubMed] Found DOI: {doi}")
@@ -253,6 +240,10 @@ def _lookup_doi_from_crossref(
             query_parts.append(journal.strip())
         if year:
             query_parts.append(year.strip())
+        if volume:
+            query_parts.append(volume.strip())
+        if fpage:
+            query_parts.append(fpage.strip())
 
         query = " ".join(query_parts)
 
@@ -261,8 +252,12 @@ def _lookup_doi_from_crossref(
         params = {
             "query": query,
             "rows": 1,
-            "select": "DOI,title,author,published-print,published-online"
+            "select": "DOI,title,author,published-print,published-online,type"
         }
+        # Pin to the source year so same-title correspondence/erratum records from other years are excluded
+        if year:
+            yr = year.strip().split()[0]
+            params["filter"] = f"from-pub-date:{yr},until-pub-date:{yr}"
 
         response = requests.get(
             "https://api.crossref.org/works",
@@ -288,6 +283,18 @@ def _lookup_doi_from_crossref(
             logger.debug(f"  [CrossRef] Match found but no DOI: {item.get('title')}")
             return None
 
+        # Reject secondary publication types (letters, editorials, errata, etc.)
+        _cr_secondary_types = {"letter", "editorial", "erratum", "correction", "retraction", "comment", "reply"}
+        item_type = (item.get("type") or "").lower().replace("-", "")
+        if item_type in _cr_secondary_types or any(t in item_type for t in ("letter", "editorial", "erratum", "correction")):
+            logger.debug(f"  [CrossRef] Rejected — type is '{item.get('type')}' (secondary publication)")
+            return None
+
+        # Reject publisher-specific correspondence DOI patterns (e.g. NEJM nejmc prefix)
+        if re.search(r'/[a-z]+c\d{7}', doi, re.I):
+            logger.debug(f"  [CrossRef] Rejected — DOI matches correspondence pattern: {doi}")
+            return None
+
         # Verify title similarity (basic check)
         matched_title = item.get("title", [""])[0] if isinstance(item.get("title"), list) else item.get("title", "")
         if not matched_title:
@@ -297,10 +304,10 @@ def _lookup_doi_from_crossref(
         source_words = set(re.findall(r'\w+', title.lower()))
         matched_words = set(re.findall(r'\w+', matched_title.lower()))
 
-        # If less than 50% of source words match, consider it a mismatch
+        # If less than 70% of source words match, consider it a mismatch
         if source_words and matched_words:
             overlap = len(source_words & matched_words) / len(source_words)
-            if overlap < 0.5:
+            if overlap < 0.7:
                 logger.debug(f"  [CrossRef] Title match too weak ({overlap:.1%})")
                 return None
 
@@ -351,10 +358,11 @@ def _validate_metadata_not_fabricated(metadata: Dict, raw_text: str) -> bool:
     # Check 4: If source has multiple authors (et al.), metadata should reflect it
     if " et al" in raw_text.lower() or "et al." in raw_text.lower():
         surnames = [s.strip() for s in (surname or "").split("|") if s.strip()]
-        # Should have at least 2 authors before et al (fewer than 2 indicates extraction failure)
+        # Should have at least 2 authors before et al (fewer indicates extraction failure)
         if len(surnames) < 2:
-            logger.warning(f"  [Validation] Source has 'et al' but only {len(surnames)} surnames extracted")
-    
+            logger.warning(f"  [Validation] Source has 'et al' but only {len(surnames)} surnames extracted — rejecting")
+            return False
+
     return True
 
 
@@ -1394,6 +1402,10 @@ expand the author list using the database authors to properly format it accordin
 the target style's rules (e.g. up to 20 authors for APA). Otherwise, prioritise keeping
 the specific authors provided in the input string and use the database authors only to
 correct minor spelling mistakes.
+CRITICAL INITIALS RULE: NEVER use the database to expand or change author initials that
+are clearly stated in the source. If the source says "Maron M", keep it as "Maron M" —
+do NOT replace "M" with a full first name or a different initial from the database.
+Database author expansion is ONLY permitted when the source uses "et al." or "and others".
 CRITICAL TITLE RULE: DO NOT overwrite the article/chapter/book title from the input
 with the database title unless the input title is completely absent.
 {json.dumps(cr_item, indent=2)}
@@ -1961,7 +1973,9 @@ def convert_reference(
                 title=meta.get("bib_title"),
                 authors=surnames,
                 year=meta.get("bib_year"),
-                journal=meta.get("bib_journal")
+                journal=meta.get("bib_journal"),
+                volume=meta.get("bib_volume"),
+                fpage=meta.get("bib_fpage")
             )
             if pubmed_result:
                 doi = pubmed_result.get("doi")

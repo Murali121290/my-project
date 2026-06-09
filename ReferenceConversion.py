@@ -1973,9 +1973,8 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
                 if initials_str:
                     segs.append((" ", None))
                     segs.append((initials_str, "bib_fname"))
-        # Only append et al. if we have more than 6 authors
-        # The has_etal flag from source doesn't matter if database enrichment gave us <=6 authors
-        if n_auth > 6:
+        # Append et al. if source had it (has_etal) or if DB gave us more than 6 real authors
+        if has_etal or n_auth > 6:
             segs.append((", ", None))
             segs.append(("et al.", "bib_etal"))
     if segs:
@@ -2141,7 +2140,6 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         return segs
 
     elif ref_type == "website":
-        title    = meta.get("bib_title") or ""
         year     = meta.get("bib_year") or ""
         accessed = meta.get("bib_accessed") or ""
         url      = meta.get("bib_url") or ""
@@ -2150,10 +2148,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         author_org = ""
         if n_auth == 1 and not (fnames[0] if fnames else ""):
             author_org = surnames[0] if surnames else ""
-        if title:
-            clean_title = _ama_title(title)
-            segs.append((clean_title, "bib_title"))
-            segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
+        # Title already written by the shared title block above — do not repeat it
         if site and not _is_url(site) and site.strip().rstrip(".") != author_org.strip().rstrip("."):
             segs.append((site, "bib_journal"))
             segs.append((". ", None))
@@ -2169,16 +2164,12 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((url, "bib_url"))
 
     elif ref_type == "ereference":
-        title    = meta.get("bib_title") or ""
         book     = meta.get("bib_book") or meta.get("bib_journal") or ""
         pub      = _strip_publisher_suffixes(meta.get("bib_publisher") or meta.get("bib_institution") or "")
         year     = meta.get("bib_year") or ""
         accessed = meta.get("bib_accessed") or ""
         url      = meta.get("bib_url") or ""
-        if title:
-            clean_title = _ama_title(title)
-            segs.append((clean_title, "bib_title"))
-            segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
+        # Title already written by the shared title block above — do not repeat it
         segs.append(("In: ", None))
         if ed_surnames:
             for i, es in enumerate(ed_surnames):
@@ -2862,23 +2853,76 @@ def process_conversion(
                     or ('crossref' in source_db.lower() and temp_cr.get('type', '').lower() in ('journal-article', 'journal'))
                     or ('crossref' in source_db.lower() and not temp_cr.get('type') and temp_cr.get('container-title'))
                 )
-                # Detect source ref type from first-pass Gemini result so we can
-                # reject a journal-article DB hit for a report/book reference.
                 first_pass_type = (result.get("metadata", {}).get("bib_reftype") or "unknown").lower()
                 source_is_journal = first_pass_type in ("journal", "unknown")
-                if is_journal and not source_is_journal:
+
+                # Reject DB matches that are errata, corrections, letters, or correspondence —
+                # their authors and metadata differ from the original article.
+                db_doi = (temp_cr.get('DOI') or temp_cr.get('doi') or '').lower()
+                db_type = (temp_cr.get('type') or '').lower()
+                _secondary_kw = re.compile(
+                    r'erratum|correction|corrigendum|retract|comment|reply|response|letter', re.I
+                )
+                # CrossRef types that indicate secondary/derivative records
+                _secondary_types = {'letter', 'editorial', 'erratum', 'correction',
+                                    'retraction', 'comment', 'reply'}
+                db_title_str = ''
+                raw_title_field = temp_cr.get('title') or temp_cr.get('article-title') or ''
+                if isinstance(raw_title_field, list):
+                    db_title_str = ' '.join(raw_title_field)
+                elif isinstance(raw_title_field, str):
+                    db_title_str = raw_title_field
+                # Also catch publisher-specific correspondence DOI patterns (e.g. NEJM "nejmc")
+                _corr_doi_pattern = re.compile(r'10\.\d{4}/[a-z]+c\d{7}', re.I)
+                if (
+                    _secondary_kw.search(db_doi)
+                    or db_type in _secondary_types
+                    or _corr_doi_pattern.match(db_doi)
+                    or (_secondary_kw.search(db_title_str) and not _secondary_kw.search(raw_text))
+                ):
                     logger.info(
-                        f"  [{count}] [DB Enrich] Rejected — DB is journal article but "
-                        f"reference is '{first_pass_type}'. Skipping to avoid author contamination."
+                        f"  [{count}] [DB Enrich] Rejected — DB match is a secondary record "
+                        f"(type='{db_type}', DOI: {db_doi[:60] or 'n/a'}). Skipping to avoid contamination."
                     )
-                elif is_journal and score >= 0.65:
-                    cr_item = temp_cr
-                    logger.info(f"  [{count}] [DB Enrich] Journal via {source_db} (Score: {score:.2f})")
-                elif score >= 0.75:
-                    cr_item = temp_cr
-                    logger.info(f"  [{count}] [DB Enrich] General via {source_db} (Score: {score:.2f})")
-                else:
-                    logger.info(f"  [{count}] [DB Enrich] Ignored {source_db} (Score: {score:.2f}) — below threshold")
+                    temp_cr = None
+
+                # First-author surname cross-check: if the source explicitly states
+                # the first author and the DB match has a completely different first
+                # author, the match is for a different article — reject it.
+                if temp_cr:
+                    # Strip leading reference number (e.g. "2." "[2]" "(2)") before matching
+                    _raw_stripped = re.sub(r'^\s*[\[\(]?\d+[\]\).]?\s*', '', raw_text.strip())
+                    src_first = re.match(r'([A-Za-zÀ-ÖØ-öø-ÿ\'-]+)', _raw_stripped)
+                    src_surname = src_first.group(1).lower() if src_first else ''
+                    db_authors = temp_cr.get('author') or []
+                    if db_authors and src_surname and len(src_surname) > 2:
+                        db_first_surname = ''
+                        if isinstance(db_authors[0], dict):
+                            db_first_surname = (db_authors[0].get('family') or '').lower()
+                        elif isinstance(db_authors[0], str):
+                            db_first_surname = db_authors[0].split('|')[0].strip().lower()
+                        if db_first_surname and db_first_surname[:4] != src_surname[:4]:
+                            logger.info(
+                                f"  [{count}] [DB Enrich] Rejected — first author mismatch: "
+                                f"source='{src_surname}' vs DB='{db_first_surname}'. "
+                                f"DB match is for a different article."
+                            )
+                            temp_cr = None
+
+                if temp_cr:
+                    if is_journal and not source_is_journal:
+                        logger.info(
+                            f"  [{count}] [DB Enrich] Rejected — DB is journal article but "
+                            f"reference is '{first_pass_type}'. Skipping to avoid author contamination."
+                        )
+                    elif is_journal and score >= 0.99:
+                        cr_item = temp_cr
+                        logger.info(f"  [{count}] [DB Enrich] Journal via {source_db} (Score: {score:.2f})")
+                    elif score >= 0.80:
+                        cr_item = temp_cr
+                        logger.info(f"  [{count}] [DB Enrich] General via {source_db} (Score: {score:.2f})")
+                    else:
+                        logger.info(f"  [{count}] [DB Enrich] Ignored {source_db} (Score: {score:.2f}) — below threshold")
         except Exception as e:
             logger.warning(f"  [{count}] DB enrichment lookup failed: {e}")
 
@@ -2899,6 +2943,19 @@ def process_conversion(
                     future.result()
                 except Exception as e:
                     logger.error(f"Error in parallel conversion task: {e}")
+
+        # Retry any tasks where Gemini returned None (transient API failure)
+        failed_tasks = [t for t in tasks if not t.get('result') and not t.get('skip')]
+        if failed_tasks:
+            logger.info(f"Retrying {len(failed_tasks)} failed reference(s) sequentially after delay...")
+            import time
+            time.sleep(10)
+            for t in failed_tasks:
+                logger.info(f"  Retry [{t['count']}]: {t['raw_text'][:80]}...")
+                try:
+                    process_task(t)
+                except Exception as e:
+                    logger.error(f"  Retry failed for [{t['count']}]: {e}")
 
     for task in sorted(tasks, key=lambda x: x['doc_index']):
         count           = task['count']

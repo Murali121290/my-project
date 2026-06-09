@@ -1,0 +1,19 @@
+Reference Conversion Log
+Input:         test_flaherty.docx
+Source Style:  Auto
+Target Style:  AMA
+Model:         gemini-2.5-flash
+============================================================
+
+[1]
+  TYPE:    journal
+  FROM:    [AMA] 2.	 Flaherty KR, Wells AU, Cottin V, et al. Nintedanib in Progressive Fibrosing Interstitial Lung Diseases. N Engl J Med. 2019;381(18):1718-1727.
+  TO:      [AMA] Flaherty KR, Wells AU, Cottin V, et al. Nintedanib in progressive fibrosing interstitial lung diseases. N Engl J Med. 2019;381(18):1718-1727.
+
+
+============================================================
+SUMMARY
+  Total references found:  1
+  Successfully converted:  1
+  Errors:                  0
+  Skipped (same style):    0

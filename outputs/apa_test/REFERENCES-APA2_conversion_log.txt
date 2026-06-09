@@ -1,0 +1,338 @@
+Reference Conversion Log
+Input:         REFERENCES-APA2.docx
+Source Style:  APA
+Target Style:  APA
+Model:         gemini-2.5-flash
+============================================================
+
+[1]
+  TYPE:    unknown
+  FROM:    [APA] Accardo, P. J., & Whitman, B. Y. (1990). Children of mentally retarded parents. American journal of diseases of children, 144(1), 69. https://doi.org/10.1001/archpedi.1990.02150250079036
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[2]
+  TYPE:    unknown
+  FROM:    [APA] AIdred, R. W. (2013). Broadening the boundaries of agency: Cognitive disability, agency, and autonomy (Master’s thesis, University of Calgary). University of Calgary. https://doi.org/10.11575/PRISM/25174
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[3]
+  TYPE:    unknown
+  FROM:    [APA] American Association on Intellectual and Developmental Disabilities. (2017). Associated risk factors for depression and anxiety in adults with intellectual and developmental disabilities: Five‑year follow‑up. AAIDD.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[4]
+  TYPE:    unknown
+  FROM:    [APA] Anderson, S., & Bigby, C. (2017). Self‐advocacy as a means to positive identities for people with intellectual disability: ‘We just help them, be them really.’ Journal of Applied Research in Intellectual Disabilities, 30(1), 109–120. https://doi.org/10.1111/jar.12223
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[5]
+  TYPE:    unknown
+  FROM:    [APA] Bendixen, R., Benevides, T., Ideishi, R., Smythe, R., Taylor, J., Umeda, C.,  & Jirikowic, T. (2022). Community conversations: stakeholder-identified research priorities to foster community participation for individuals with intellectual and developmental disability. Frontiers in Rehabilitation Sciences, 3. https://doi.org/10.3389/fresc.2022.873415
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[6]
+  TYPE:    unknown
+  FROM:    [APA] Bogart, K. R., & Dunn, D. S. (2019). Ableism special issue introduction. Journal of Social Issues, 75(3), 650–664. https://doi.org/10.1111/josi.12354
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[7]
+  TYPE:    unknown
+  FROM:    [APA] Carlson, L. (2010). Who's the expert? Rethinking authority in the face of intellectual disability. Journal of Intellectual Disability Research, 54, 58-65.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[8]
+  TYPE:    unknown
+  FROM:    [APA] Coordown. (2025). Where the decisions are made [Video]. YouTube. https://www.youtube.com/watch?v=pIvHHvQLwsY
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[9]
+  TYPE:    unknown
+  FROM:    [APA] CoorDown. (2024). Assume That I Can [Video]. YouTube. https://www.youtube.com/watch?v=KW_F7xG5J5c
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[10]
+  TYPE:    unknown
+  FROM:    [APA] CoorDown. (2022). Just the two of us [Video]. YouTube. https://www.youtube.com/watch?v=Y7K1acFhTg4
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[11]
+  TYPE:    unknown
+  FROM:    [APA] Dagnan, D., Taylor, L., & Burke, C. (2023). Adapting cognitive behavior therapy for people with intellectual disabilities: An overview for therapist working in mainstream or specialist service. The Cognitive Behaviour Therapist, 6(3), 1-12. Doi: 10.1017/S1754470X220000587
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[12]
+  TYPE:    unknown
+  FROM:    [APA] Dell’Armo, K., & Tassé, M.J. (2024). Diagnostic overshadowing of psychological disorders in people with intellectual disability: A systematic review: AJMR. American Journal on Intellectual and Developmental Disabilities, 129(2), 116-134. doi:https://doi.org/10.1352/1944-7558-129.2.116
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[13]
+  TYPE:    unknown
+  FROM:    [APA] Doody, O., Lyons, R., & Ryan, R. (2019). The experiences of adults with intellectual disability in the involvement of nursing care planning in health services. British Journal of Learning Disabilities, 47(4), 233-240. https://doi.org/10.1111/bld.12281
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[14]
+  TYPE:    unknown
+  FROM:    [APA] Duff, C. T. and Bedi, R. P. (2010). Counsellor behaviours that predict therapeutic alliance: from the client's perspective. Counselling Psychology Quarterly, 23(1), 91-110. https://doi.org/10.1080/09515071003688165
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[15]
+  TYPE:    unknown
+  FROM:    [APA] Dunn, D. S., & Burcaw, S. (2013). Disability identity: Exploring narrative accounts of disability. Rehabilitation Psychology, 58(2), 148–157. https://doi.org/10.1037/a0031691
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[16]
+  TYPE:    unknown
+  FROM:    [APA] Forber-Pratt, A. J., & Zape, M. P. (2017). Disability identity development model: Voices from the ADA-generation. Disability and Health Journal, 10(2), 350–355. https://doi.org/10.1016/J.DHJO.2016.12.013
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[17]
+  TYPE:    unknown
+  FROM:    [APA] Flückiger, C., Re, A. C. D., Wampold, B. E., & Horvath, A. O. (2018). The alliance in adult psychotherapy: a meta-analytic synthesis. Psychotherapy, 55(4), 316-340. https://doi.org/10.1037/pst0000172
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[18]
+  TYPE:    unknown
+  FROM:    [APA] Friedman, C. (2019). The relationship between disability prejudice and institutionalization of people with intellectual and developmental disabilities. Intellectual and Developmental Disabilities, 57(4), 263–273. https://doi.org/10.1352/1934-9556-57.4.263
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[19]
+  TYPE:    unknown
+  FROM:    [APA] Friedman, C. (2023). Ableism, racism, and the quality of life of Black, Indigenous, people of colour with intellectual and developmental disabilities. Journal of Applied Research in Intellectual Disabilities, 36(3), 604–614. https://doi.org/10.1111/jar.13084
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[20]
+  TYPE:    unknown
+  FROM:    [APA] Friedman, C. (2024). Ableism and modern disability attitudes. The Palgrave Encyclopedia of Disability, 1-14. https://doi.org/10.1007/978-3-031-40858-8_29-1
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[21]
+  TYPE:    unknown
+  FROM:    [APA] Fynn, G., Porter, M., Borchard, T., Kazzi, C., Shong, Q., & Campbell, L. (2023). The effectiveness of cognitive behavioural therapy for individuals with an intellectual disability and anxiety: A systematic review. Journal of Intellectual Disability Research, 67(9), 816–841. 10.1111/ijr.13046
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[22]
+  TYPE:    unknown
+  FROM:    [APA] Goodley, D. (2001). 'Learning difficulties', the social model of disability and impairment: challenging epistemologies. Disability & Society, 16(2), 207-231.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[23]
+  TYPE:    unknown
+  FROM:    [APA] Hayman Jr, R. L. (1989). Presumptions of justice: Law, politics, and the mentally retarded parent. Harv. L. Rev., 103, 1201.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[24]
+  TYPE:    unknown
+  FROM:    [APA] Hermans H, Evenhuis, HM (2012). Life events and their associations with depression and anxiety in older people with intellectual disabilities: results of the HA-ID study. J Affect Disord. 38(1-2):79-85. doi: 10.1016/j.jad.2011.12.025.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[25]
+  TYPE:    unknown
+  FROM:    [APA] Hollins, S. & Allen, E. (2020). Depression in people with intellectual disabilities. https://www.intellectualdisability.info/mental-health/articles/depression-in-people-with-intellectual-disabilities
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[26]
+  TYPE:    unknown
+  FROM:    [APA] Hronis, A., Roberts, R., Roberts, L. et al. Cognitive Behavioural Therapy for children and adolescents with intellectual disability and anxiety: a therapist manual. Discov Psychol 2, 24 (2022). https://doi.org/10.1007/s44202-021-00017-z
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[27]
+  TYPE:    unknown
+  FROM:    [APA] Hsieh, K., Scott, H.M., & Murhty, S. (2021). Associated risk factors for depression and anxiety in adults
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[28]
+  TYPE:    unknown
+  FROM:    [APA] with intellectual and developmental disabilities: Five-year follow up. American Journal of Intellectual and Developmental Disabilities, 125(1), 49-63. 10.1352/1944-7558-125.1.49
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[29]
+  TYPE:    unknown
+  FROM:    [APA] Iacono, T., Bigby, C., Unsworth, C., Douglas, J., & Fitzpatrick, P. (2014). A systematic review of hospital experiences of people with intellectual disability. BMC Health Services Research, 14(1). https://doi.org/10.1186/s12913-014-0505-5
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[30]
+  TYPE:    unknown
+  FROM:    [APA] Inclusion Europe. (n.d.). About us. https://www.inclusion-europe.eu/about-us/
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[31]
+  TYPE:    unknown
+  FROM:    [APA] Jojo, N., Nattala, P., Seshadri, S., Krishnakumar, P., & Thomas, S. (2023). Knowledge of sexual abuse and resistance ability among children with intellectual disability. Child Abuse and Neglect, 136(2023). Doi: 10.1016/j.chiabu2022.105985
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[32]
+  TYPE:    unknown
+  FROM:    [APA] Jones, R. (2013). Therapeutic relationships with individuals with learning disabilities: a qualitative study of the counselling psychologists' experience. British Journal of Learning Disabilities, 42(3), 193-203. https://doi.org/10.1111/bld.12028
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[33]
+  TYPE:    unknown
+  FROM:    [APA] Jiang, C., Vitiello, C., Axt, J. R., Campbell, J. T., & Ratliff, K. A. (2021). An examination of ingroup preferences among people with multiple socially stigmatized identities. Self and Identity, 20(4), 569–586. https://doi.org/ 10.1080/15298868.2019.1657937
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[34]
+  TYPE:    unknown
+  FROM:    [APA] Kafer, A. (2013). Feminist, Queer, Crip. Indiana University Press.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[35]
+  TYPE:    unknown
+  FROM:    [APA] Martin, J. (1984). The cognitive mediational paradigm for research on counseling. Journal of Counseling Psychology, 31(4), 558-571. https://doi.org/10.1037/0022-0167.31.4.558
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[36]
+  TYPE:    unknown
+  FROM:    [APA] Matrone, K. F. and Leahy, M. J. (2005). The relationship between vocational rehabilitation client outcomes and rehabilitation counselor multicultural counseling competencies. Rehabilitation Counseling Bulletin, 48(4), 233-244. https://doi.org/10.1177/00343552050480040401
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[37]
+  TYPE:    unknown
+  FROM:    [APA] McCausland, D., Murphy, E., McCarron, M., & McCallion, P. (2022). The potential for person-centred planning to support the community participation of adults with an intellectual disability. Journal of intellectual disabilities : JOID, 26(3), 603–623. https://doi.org/10.1177/17446295211022125
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[38]
+  TYPE:    unknown
+  FROM:    [APA] Mencap. (2024). Who we are. https://www.mencap.org.uk/about-us/who-we-are
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[39]
+  TYPE:    unknown
+  FROM:    [APA] Murugami, M. W. (2009). Disability and Identity. Disability Studies Quarterly, 29(4). https://doi.org/10.18061/dsq.v29i4.979
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[40]
+  TYPE:    unknown
+  FROM:    [APA] Lewis, T. A., “Working Definition of Ableism - January 2022 Update,” Talila A. Lewis (blog), January 1, 2022, https://www.talilalewis.com/blog/working-definition-of-ableism-january-2022-update
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[41]
+  TYPE:    unknown
+  FROM:    [APA] Pelleboer-Gunnink, H. A., Weeghel, J. v., & Embregts, P. (2019). Public stigmatisation of people with intellectual disabilities: a mixed-method population survey into stereotypes and their relationship with familiarity and discrimination. Disability and Rehabilitation, 43(4), 489-497. https://doi.org/10.1080/09638288.2019.1630678
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[42]
+  TYPE:    unknown
+  FROM:    [APA] Proctor, S. N. (2011) Implicit Bias, Attributions, and Emotions in Decisions about Parents with Intellectual Disabilities by Child Protection Workers’, ProQuest Information & Learning. The Pennsylvania State University.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[43]
+  TYPE:    unknown
+  FROM:    [APA] Rabiee, P., & Glendinning, C. (2010). Choice: What, when and why? Exploring the importance of choice
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[44]
+  TYPE:    unknown
+  FROM:    [APA] to disabled people. Disability & Society, 25(7), 827–839. https://doi.org/10.1080/09687599.2010.520896
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[45]
+  TYPE:    unknown
+  FROM:    [APA] Roberts, L., & Kwan, S. (2018). Putting the C in CBT: Cognitive challenging with adults with mild to moderate intellectual disabilites and anxiety disorders. Clinical Psychology and Psychotherapy, 25, 662-671.
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[46]
+  TYPE:    unknown
+  FROM:    [APA] Robinson, S., Carnemolla, P., Lay, K., & Kelly, J. (2022). Involving people with intellectual disability in setting priorities for building community inclusion at a local government level. British Journal of Learning Disabilities, 50(3), 364-375. https://doi.org/10.1111/bld.12469
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[47]
+  TYPE:    unknown
+  FROM:    [APA] Saia, T. (n.d.). The shift to identity-first language. Antiableist Teaching. https://www.antiableistteaching.com/modules/theshifttoidentity-firstlanguage
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[48]
+  TYPE:    unknown
+  FROM:    [APA] Schalk, S. (2022). Black Disability Politics. Duke University Press. https://doi.org/10.2307/j.ctv2vr9d7z.7
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[49]
+  TYPE:    unknown
+  FROM:    [APA] Schena, D., Rosales, R., & Rowe, E. (2022). Teaching self-advocacy skills:  A review and call for research. Journal of Behavioral Education, 32(4), 641–689. https://doi.org/10.1007/s10864-022-09472-7
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[50]
+  TYPE:    unknown
+  FROM:    [APA] Sm.ith, C, & Jirikowic, T. (2022). Depression treatment options for individuals with developmental disabilities. The Journal for Nurse Practitioners, 18(11), 1161–1165. https://doi.org/10.1016/j.nurpra.2022.08.014
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[51]
+  TYPE:    unknown
+  FROM:    [APA] Smith, M., Papadakis, M., & Munnik, E. (2022). Diversity training for health professionals: preparedness to competently address intellectual disability in the western cape province, South Africa. Journal of Intellectual Disabilities, 27(1), 24-39. https://doi.org/10.1177/17446295211050468
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[52]
+  TYPE:    unknown
+  FROM:    [APA] Wampold, B. and Flückiger, C. (2023). The alliance in mental health care: conceptualization, evidence and clinical applications. World Psychiatry, 22(1), 25-41. https://doi.org/10.1002/wps.21035
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[53]
+  TYPE:    unknown
+  FROM:    [APA] Wong, B. (2021, September 16). It’s perfectly OK to call a disabled person “disabled,” and here’s why. HuffPost. https://www.huffpost.com/entry/what-to-call-disabled-person_l_5d02c521e4b0304a120c7549
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+[54]
+  TYPE:    unknown
+  FROM:    [APA] Zhu, P., Luke, M. M., Wang, Q., & Liu, Y. (2024). Relational processes of cultural humility in counseling: A structural equation modeling study. Journal of Counseling &amp; Development, 103(1), 71–85. https://doi.org/10.1002/jcad.12539
+  TO:      [APA] [FAILED]
+  ERROR:   No DB match and Gemini call skipped/failed
+
+
+============================================================
+SUMMARY
+  Total references found:  54
+  Successfully converted:  0
+  Errors:                  54
+  Skipped (same style):    0
