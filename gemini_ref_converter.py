@@ -326,6 +326,28 @@ def _lookup_doi_from_crossref(
         return None
 
 
+def _lookup_by_doi_direct(doi: str) -> Optional[Dict]:
+    """Fetch full Crossref item directly by DOI — more reliable than title-based search."""
+    if not doi:
+        return None
+    try:
+        doi_clean = re.sub(r'^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)', '', doi, flags=re.IGNORECASE).strip()
+        if not doi_clean:
+            return None
+        headers = {"User-Agent": "PPH-ReferenceConverter/1.0"}
+        response = requests.get(
+            f"https://api.crossref.org/works/{doi_clean}",
+            headers=headers,
+            timeout=8
+        )
+        if response.status_code == 200:
+            item = response.json().get("message", {})
+            return item if item else None
+    except Exception as e:
+        logger.debug(f"  [DOI Direct Lookup] Failed for '{doi}': {e}")
+    return None
+
+
 def _validate_metadata_not_fabricated(metadata: Dict, raw_text: str) -> bool:
     """
     Validate that extracted metadata wasn't fabricated by the model.
@@ -358,10 +380,19 @@ def _validate_metadata_not_fabricated(metadata: Dict, raw_text: str) -> bool:
     # Check 4: If source has multiple authors (et al.), metadata should reflect it
     if " et al" in raw_text.lower() or "et al." in raw_text.lower():
         surnames = [s.strip() for s in (surname or "").split("|") if s.strip()]
-        # Should have at least 2 authors before et al (fewer indicates extraction failure)
-        if len(surnames) < 2:
-            logger.warning(f"  [Validation] Source has 'et al' but only {len(surnames)} surnames extracted — rejecting")
+        # Require at least 1 named author before et al (single author + et al is valid AMA)
+        if len(surnames) < 1:
+            logger.warning(f"  [Validation] Source has 'et al' but no surnames extracted — rejecting")
             return False
+        # Normalise trailing "et al" entry to always have a period
+        if re.match(r'^et\.?\s*al\.?$', surnames[-1], re.IGNORECASE) and not surnames[-1].endswith('.'):
+            surname_list = (surname or "").split("|")
+            # Replace the last entry with the normalised form
+            for i in range(len(surname_list) - 1, -1, -1):
+                if re.match(r'^et\.?\s*al\.?$', surname_list[i].strip(), re.IGNORECASE):
+                    surname_list[i] = "et al."
+                    break
+            metadata["bib_surname"] = "|".join(surname_list)
 
     return True
 
@@ -1873,45 +1904,60 @@ def convert_reference(
     early_enriched_authors = None
     if not cr_item:  # Only do early lookup if no cr_item already provided
         try:
-            early_metadata = _extract_metadata_from_raw_text(raw_text)
-            if early_metadata.get("title") and early_metadata.get("year"):
-                logger.info(f"  [Early DOI Lookup] Extracted metadata from raw text")
+            # Step 1: If source text contains a DOI, use direct Crossref lookup first
+            _doi_src_re = re.compile(r'\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', re.IGNORECASE)
+            _src_doi_m = _doi_src_re.search(raw_text)
+            source_doi = _src_doi_m.group(0).rstrip('.') if _src_doi_m else None
 
-                # Try PubMed first
-                logger.info(f"  [Early DOI Lookup] Trying PubMed...")
-                pubmed_result = _lookup_doi_from_pubmed(
-                    title=early_metadata.get("title"),
-                    authors=early_metadata.get("authors"),
-                    year=early_metadata.get("year"),
-                    journal=early_metadata.get("journal")
-                )
-                if pubmed_result:
-                    doi = pubmed_result.get("doi")
-                    early_enriched_authors = pubmed_result.get("authors")
-                    logger.info(f"  [Early DOI Lookup] Found {len(early_enriched_authors) if early_enriched_authors else 0} authors via PubMed")
+            if source_doi:
+                logger.info(f"  [Early DOI Lookup] Source DOI '{source_doi}' — trying direct Crossref lookup")
+                direct_item = _lookup_by_doi_direct(source_doi)
+                if direct_item:
+                    direct_item["_source"] = "direct_doi_lookup"
+                    cr_item = direct_item
+                    logger.info(f"  [Early DOI Lookup] Direct DOI lookup succeeded — skipping title-based search")
 
-                # If PubMed failed, try CrossRef
-                if not early_enriched_authors:
-                    logger.info(f"  [Early DOI Lookup] Trying CrossRef...")
-                    crossref_result = _lookup_doi_from_crossref(
+            # Step 2: If no source DOI or direct lookup failed, fall back to title-based search
+            if not cr_item:
+                early_metadata = _extract_metadata_from_raw_text(raw_text)
+                if early_metadata.get("title") and early_metadata.get("year"):
+                    logger.info(f"  [Early DOI Lookup] Extracted metadata from raw text")
+
+                    # Try PubMed first
+                    logger.info(f"  [Early DOI Lookup] Trying PubMed...")
+                    pubmed_result = _lookup_doi_from_pubmed(
                         title=early_metadata.get("title"),
                         authors=early_metadata.get("authors"),
                         year=early_metadata.get("year"),
                         journal=early_metadata.get("journal")
                     )
-                    if crossref_result:
-                        doi = crossref_result.get("doi")
-                        early_enriched_authors = crossref_result.get("authors")
-                        logger.info(f"  [Early DOI Lookup] Found {len(early_enriched_authors) if early_enriched_authors else 0} authors via CrossRef")
+                    if pubmed_result:
+                        doi = pubmed_result.get("doi")
+                        early_enriched_authors = pubmed_result.get("authors")
+                        logger.info(f"  [Early DOI Lookup] Found {len(early_enriched_authors) if early_enriched_authors else 0} authors via PubMed")
 
-                # If we found enriched authors, pass them to Gemini
-                if early_enriched_authors and not cr_item:
-                    cr_item = {
-                        "author": early_enriched_authors,
-                        "DOI": doi if doi else None,
-                        "_source": "early_doi_lookup"
-                    }
-                    logger.info(f"  [Early DOI Lookup] Passing enriched authors to Gemini prompt")
+                    # If PubMed failed, try CrossRef
+                    if not early_enriched_authors:
+                        logger.info(f"  [Early DOI Lookup] Trying CrossRef...")
+                        crossref_result = _lookup_doi_from_crossref(
+                            title=early_metadata.get("title"),
+                            authors=early_metadata.get("authors"),
+                            year=early_metadata.get("year"),
+                            journal=early_metadata.get("journal")
+                        )
+                        if crossref_result:
+                            doi = crossref_result.get("doi")
+                            early_enriched_authors = crossref_result.get("authors")
+                            logger.info(f"  [Early DOI Lookup] Found {len(early_enriched_authors) if early_enriched_authors else 0} authors via CrossRef")
+
+                    # If we found enriched authors, pass them to Gemini
+                    if early_enriched_authors and not cr_item:
+                        cr_item = {
+                            "author": early_enriched_authors,
+                            "DOI": doi if doi else None,
+                            "_source": "early_doi_lookup"
+                        }
+                        logger.info(f"  [Early DOI Lookup] Passing enriched authors to Gemini prompt")
         except Exception as e:
             logger.debug(f"  [Early DOI Lookup] Exception (non-blocking): {e}")
             # If early lookup fails, continue without enrichment - Gemini will process normally
@@ -2002,7 +2048,7 @@ def convert_reference(
                 if ref_type == "journal":
                     if "doi:" not in parsed["formatted_output"].lower() and "https://doi.org" not in parsed["formatted_output"]:
                         # Append DOI to end before any period
-                        fmt_out = parsed["formatted_output"].rstrip(". ")
+                        fmt_out = parsed["formatted_output"].rstrip()
                         if fmt_out.endswith("."):
                             fmt_out = fmt_out[:-1]
                         # Use correct DOI format based on target style

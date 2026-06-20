@@ -553,16 +553,14 @@ def _to_sentence_case(text: str) -> str:
 
 
 def _to_ama_sentence_case(text: str) -> str:
-    """AMA titles keep sentence case but capitalize the first word after a colon."""
+    """AMA sentence case: only first word capitalised; word after colon stays lowercase."""
     text = _to_sentence_case(text)
     if not text:
         return text
     _load_proper_noun_dict()
-
-    def _ama_colon_cap(match):
-        return match.group(1) + match.group(2) + match.group(3).upper()
-
-    text = re.sub(r'(:)(\s+)([a-z])', _ama_colon_cap, text)
+    # Undo colon-capitalisation that _to_sentence_case applied — AMA keeps lowercase after colon
+    text = re.sub(r'(:)(\s+)([A-Z])', lambda m: m.group(1) + m.group(2) + m.group(3).lower(), text)
+    # Restore proper nouns that may have been lowercased by the step above
     if _PROPER_NOUN_RE and _PROPER_NOUN_CANONICAL:
         def _restore_case(match):
             return _PROPER_NOUN_CANONICAL.get(match.group(0).lower(), match.group(0))
@@ -787,9 +785,9 @@ def format_apa_from_metadata_old(meta: Dict) -> str:
         authors.append(f"{surname}, {initials_fmt}".strip(", "))
     if authors:
         if len(authors) > 20:
-            author_str = ", ".join(authors[:19]) + ", ... " + authors[-1]
+            author_str = ", ".join(authors[:19]) + ", … " + authors[-1]
         elif has_etal:
-            author_str = ", ".join(authors) + ", ..."
+            author_str = ", ".join(authors) + ", et al."
         elif len(authors) > 1:
             author_str = ", ".join(authors[:-1]) + ", & " + authors[-1]
         else:
@@ -1848,7 +1846,7 @@ def _validate_converted_reference(
         if ref_type in ("website", "ereference") and url and url not in final_text:
             _add_finding(findings, "apa_url_missing", "URL missing from APA reference", "warning", True)
     elif target_style == "AMA":
-        if ref_type == "journal" and not re.search(r'\d{4}(?:;[A-Za-z]{3}(?: \d{1,2})?)?;', final_text):
+        if ref_type == "journal" and not re.search(r'\d{4}(?:;[A-Z][a-z]{2}(?: \d{1,2})?)?;', final_text):
             _add_finding(findings, "ama_year_volume", "year;volume format incorrect", "warning", True)
         if doi and f"doi:{doi}".lower() not in final_text.lower():
             _add_finding(findings, "ama_doi_format", "AMA DOI should use doi: form", "warning", True)
@@ -2101,10 +2099,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         conf     = meta.get("bib_conference") or ""
         confloc  = meta.get("bib_conflocation") or ""
         confdate = meta.get("bib_confdate") or meta.get("bib_year") or ""
-        if title := meta.get("bib_title") or "":
-            clean_title = _ama_title(title)
-            segs.append((clean_title, "bib_confpaper"))
-            segs.append((" " if re.search(r'[?!]$', clean_title) else ". ", None))
+        # Title already written by the shared title block above — do not repeat it
         segs.append(("Paper presented at: ", None))
         if conf:
             segs.append((conf, "bib_conference"))
@@ -2133,7 +2128,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         if url:
             segs.append((" ", None))
             segs.append((url, "bib_url"))
-        doi = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
+        doi = re.sub(r'^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)', '', (meta.get("bib_doi") or "").strip(), flags=re.IGNORECASE).strip()
         if doi:
             segs.append((" doi:", "bib_doi"))
             segs.append((doi, "bib_doi"))
@@ -2206,7 +2201,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
         year     = meta.get("bib_year") or ""
         url      = meta.get("bib_url") or ""
         accessed = meta.get("bib_accessed") or ""
-        doi      = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
+        doi      = re.sub(r'^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)', '', (meta.get("bib_doi") or "").strip(), flags=re.IGNORECASE).strip()
         if inst:
             segs.append((inst, "bib_institution"))
             segs.append(("; ", None))
@@ -2227,7 +2222,7 @@ def build_segments_ama(meta: Dict, gemini_text: str = "") -> List[Tuple[str, Opt
             segs.append((url, "bib_url"))
         return segs
 
-    doi = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
+    doi = re.sub(r'^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)', '', (meta.get("bib_doi") or "").strip(), flags=re.IGNORECASE).strip()
     if doi and ref_type not in ("website", "ereference", "thesis"):
         segs.append((" doi:", "bib_doi"))
         segs.append((doi, "bib_doi"))
@@ -2423,7 +2418,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "", italic_words: frozense
         if url:
             segs.append((" ", None))
             segs.append((url, "bib_url"))
-        doi = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
+        doi = re.sub(r'^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)', '', (meta.get("bib_doi") or "").strip(), flags=re.IGNORECASE).strip()
         if doi:
             segs.append((" https://doi.org/", "bib_doi"))
             segs.append((doi, "bib_doi"))
@@ -2624,7 +2619,7 @@ def build_segments_apa(meta: Dict, gemini_text: str = "", italic_words: frozense
             segs.append((inst, "bib_institution"))
             segs.append((".", None))
 
-    doi = (meta.get("bib_doi") or "").strip().lstrip("doi:").lstrip()
+    doi = re.sub(r'^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)', '', (meta.get("bib_doi") or "").strip(), flags=re.IGNORECASE).strip()
     url = meta.get("bib_url") or ""
     if doi and ref_type not in ("book", "edited_book"):
         segs.append((" https://doi.org/", "bib_doi"))
@@ -3080,14 +3075,26 @@ def process_conversion(
                 full = (cr_it.get("container-title") or [""])[0].strip()
                 if full:
                     metadata["bib_journal"] = full
+            elif is_journal and resolved_target == "AMA":
+                # AMA: always prefer abbreviated name from DB lookup
+                abbr = (cr_it.get("short-container-title") or [""])[0].strip().rstrip(".")
+                full = (cr_it.get("container-title") or [""])[0].strip()
+                if abbr:
+                    metadata["bib_journal"] = abbr
+                elif full:
+                    # No short form from DB — try local abbreviation lookup
+                    try:
+                        from ReferencesStructing import abbreviate_journal_name_basic
+                        _loc_abbr = abbreviate_journal_name_basic(full)
+                        if _loc_abbr and _loc_abbr not in ("No journal available",) and _loc_abbr != full:
+                            metadata["bib_journal"] = _loc_abbr.rstrip(".")
+                        else:
+                            metadata["bib_journal"] = full
+                    except ImportError:
+                        metadata["bib_journal"] = full
             elif not metadata.get("bib_journal"):
-                if resolved_target == "AMA":
-                    abbr = (cr_it.get("short-container-title") or [""])[0].strip()
-                    full = (cr_it.get("container-title") or [""])[0].strip()
-                    metadata["bib_journal"] = abbr or full
-                else:
-                    full = (cr_it.get("container-title") or [""])[0].strip()
-                    metadata["bib_journal"] = full
+                full = (cr_it.get("container-title") or [""])[0].strip()
+                metadata["bib_journal"] = full
 
         # ── HYBRID JOURNAL EXPANSION FALLBACK (when DB lookup failed) ────────
         # For journals without DB match (cr_it is None), try hybrid expansion:
@@ -3102,7 +3109,16 @@ def process_conversion(
             is_single_word_caps = word_count == 1 and current_journal.isupper() and len(current_journal) <= 4
             # Marked as abbreviated if: has dots (likely abbreviation) or is a short all-caps acronym
             is_abbreviated = has_dots or is_single_word_caps
-            if is_abbreviated:
+            if resolved_target == "AMA" and not is_abbreviated:
+                try:
+                    from ReferencesStructing import abbreviate_journal_name_basic
+                    abbreviated = abbreviate_journal_name_basic(current_journal)
+                    if abbreviated and abbreviated not in ("No journal available",) and abbreviated != current_journal:
+                        metadata["bib_journal"] = abbreviated
+                        logger.info(f"  [{count}] [Journal Abbrev] '{current_journal}' -> '{abbreviated}'")
+                except ImportError:
+                    pass
+            elif is_abbreviated:
                 expanded = _expand_journal_hybrid(current_journal)
                 if expanded and expanded != current_journal:
                     metadata["bib_journal"] = expanded
@@ -3218,6 +3234,17 @@ def process_conversion(
                 final_text = _fix_ama_author_format(final_text)
                 # Truncate to first 3 + et al. if 7+ authors
                 final_text = _truncate_ama_authors(final_text)
+                # Extract abbreviated journal name from Gemini's formatted output and
+                # update metadata["bib_journal"] so build_segments_ama() uses the
+                # abbreviated form (Gemini metadata JSON always stores the full name).
+                if is_journal:
+                    _ama_jre = re.compile(r'\.\s+([A-Z][^.\n]+?)\.\s+\d{4}[;:\s]')
+                    _jm = _ama_jre.search(final_text)
+                    if _jm:
+                        _ej = _jm.group(1).strip()
+                        if _ej and len(_ej) > 1:
+                            metadata["bib_journal"] = _ej
+                            logger.info(f"  [{count}] [Journal Gemini Abbrev] '{pre_merge_journal}' → '{_ej}'")
             elif resolved_target == "APA":
                 # Truncate to first 19 + ... + last if 21+ authors
                 final_text = _truncate_apa_authors(final_text)
