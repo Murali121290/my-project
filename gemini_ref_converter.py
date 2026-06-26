@@ -32,6 +32,28 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 # ---------------------------------------------------------------------------
+# SSL configuration
+# ---------------------------------------------------------------------------
+def _ssl_verify():
+    """Return requests-compatible verify value from env config.
+
+    Set DISABLE_SSL_VERIFY=1 to skip certificate verification (e.g. corporate
+    proxy with self-signed cert).  Set REQUESTS_CA_BUNDLE or SSL_CERT_FILE to
+    the path of a custom CA bundle for proper verification.
+    """
+    if os.environ.get('DISABLE_SSL_VERIFY', '').lower() in ('1', 'true', 'yes'):
+        return False
+    return os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('SSL_CERT_FILE') or True
+
+# Patch the default SSL context so that the google-genai SDK (which uses httpx
+# internally and has no public verify= parameter) also honours DISABLE_SSL_VERIFY.
+if os.environ.get('DISABLE_SSL_VERIFY', '').lower() in ('1', 'true', 'yes'):
+    import ssl as _ssl_mod
+    import urllib3 as _urllib3
+    _ssl_mod._create_default_https_context = _ssl_mod._create_unverified_context
+    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_MODEL = os.environ.get("REFERENCE_CONVERTER_GEMINI_MODEL", "gemini-2.5-flash")
@@ -150,7 +172,8 @@ def _lookup_doi_from_pubmed(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
             params=search_params,
             headers=headers,
-            timeout=5
+            timeout=5,
+            verify=_ssl_verify(),
         )
 
         if search_response.status_code != 200:
@@ -171,7 +194,8 @@ def _lookup_doi_from_pubmed(
             "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
             params={"db": "pubmed", "id": pmid, "retmode": "json"},
             headers=headers,
-            timeout=5
+            timeout=5,
+            verify=_ssl_verify(),
         )
 
         if fetch_response.status_code != 200:
@@ -263,7 +287,8 @@ def _lookup_doi_from_crossref(
             "https://api.crossref.org/works",
             params=params,
             headers=headers,
-            timeout=5
+            timeout=5,
+            verify=_ssl_verify(),
         )
 
         if response.status_code != 200:
@@ -338,7 +363,8 @@ def _lookup_by_doi_direct(doi: str) -> Optional[Dict]:
         response = requests.get(
             f"https://api.crossref.org/works/{doi_clean}",
             headers=headers,
-            timeout=8
+            timeout=8,
+            verify=_ssl_verify(),
         )
         if response.status_code == 200:
             item = response.json().get("message", {})

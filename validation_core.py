@@ -1515,11 +1515,17 @@ def sort_citation_block(para, block_raw: str, highlight) -> tuple:
 
     result = safe_splice(para, span_start, span_end, new_block, highlight, CITE_STYLE)
     if result is not None:
-        sid = getattr(para.part.document.styles.get(CITE_STYLE), 'style_id', CITE_STYLE)
+        try:
+            sid = para.part.document.styles[CITE_STYLE].style_id
+        except KeyError:
+            sid = CITE_STYLE
         _tc_rpr_change(result, new_highlight=highlight, new_style_id=sid)
         return True, False
 
-    sid = getattr(para.part.document.styles.get(CITE_STYLE), 'style_id', CITE_STYLE)
+    try:
+        sid = para.part.document.styles[CITE_STYLE].style_id
+    except KeyError:
+        sid = CITE_STYLE
     apply_highlight_by_span(para, span_start, span_end, highlight, sid)
     return True, False
 

@@ -1,6 +1,13 @@
 import re
+import os
 import requests
 import logging
+
+
+def _ssl_verify():
+    if os.environ.get('DISABLE_SSL_VERIFY', '').lower() in ('1', 'true', 'yes'):
+        return False
+    return os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('SSL_CERT_FILE') or True
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +32,7 @@ def validate_urls_in_text(text: str) -> list[dict]:
 
         try:
             # Use HEAD request to minimize bandwidth
-            response = requests.head(url, timeout=5, allow_redirects=True)
+            response = requests.head(url, timeout=5, allow_redirects=True, verify=_ssl_verify())
             status_code = response.status_code
 
             if 200 <= status_code < 400:

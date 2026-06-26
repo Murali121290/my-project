@@ -126,6 +126,17 @@ if not logger.handlers:
 # -------------------------
 # HTTP session with retries
 # -------------------------
+def _ssl_verify():
+    """Return requests-compatible verify value from env config.
+
+    Set DISABLE_SSL_VERIFY=1 to skip certificate verification (e.g. corporate
+    proxy with self-signed cert).  Set REQUESTS_CA_BUNDLE or SSL_CERT_FILE to
+    the path of a custom CA bundle for proper verification.
+    """
+    if os.environ.get('DISABLE_SSL_VERIFY', '').lower() in ('1', 'true', 'yes'):
+        return False
+    return os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('SSL_CERT_FILE') or True
+
 def get_requests_session() -> requests.Session:
     session = requests.Session()
     retries = Retry(total=5, backoff_factor=1.0,
@@ -135,6 +146,7 @@ def get_requests_session() -> requests.Session:
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     session.headers.update({'User-Agent': 'refboth/1.0 (+https://example.org)'})
+    session.verify = _ssl_verify()
     return session
 
 SESSION = get_requests_session()
