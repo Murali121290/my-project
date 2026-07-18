@@ -187,6 +187,58 @@ def get_stats() -> dict:
         return {}
 
 
+def get_monthly_stats(months: int = 12) -> dict:
+    """Return cost/usage aggregated by calendar month (YYYY-MM), most recent first."""
+    try:
+        ensure_table()
+        with _conn() as c:
+            rows = c.execute(
+                """
+                SELECT substr(ts, 1, 7) AS ym,
+                       feature,
+                       SUM(input_tokens),
+                       SUM(output_tokens),
+                       SUM(cost_usd),
+                       COUNT(*),
+                       SUM(reference_count)
+                FROM gemini_api_usage
+                GROUP BY ym, feature
+                ORDER BY ym DESC
+                """
+            ).fetchall()
+
+        by_month: dict = {}
+        for ym, feat, inp, out, cost, calls, refs in rows:
+            m = by_month.setdefault(ym, {
+                "month": ym,
+                "total_cost": 0.0,
+                "total_calls": 0,
+                "total_tokens": 0,
+                "features": {},
+            })
+            inp = inp or 0
+            out = out or 0
+            cost = cost or 0.0
+            calls = calls or 0
+            refs = refs or 0
+            m["total_cost"] += cost
+            m["total_calls"] += calls
+            m["total_tokens"] += inp + out
+            m["features"][feat] = {
+                "input_tokens": inp,
+                "output_tokens": out,
+                "cost_usd": cost,
+                "calls": calls,
+                "references": refs,
+            }
+
+        ordered = sorted(by_month.values(), key=lambda m: m["month"], reverse=True)
+        return {"months": ordered[:months]}
+    except Exception as exc:
+        logger.warning("gemini_cost_tracker.get_monthly_stats failed: %s", exc)
+        return {"months": []}
+
+
 def get_recent_usage(limit: int = 20) -> list:
     """Return the most recent API call rows for the history table."""
     try:

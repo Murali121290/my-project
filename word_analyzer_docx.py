@@ -1375,7 +1375,12 @@ def extract_with_docx(doc_path: str, doc: Optional[Any] = None):
             if r.style.font.superscript:
                 return True
             sname = (r.style.name or "").lower()
-            if "superscript" in sname or "footnote reference" in sname or "endnote reference" in sname or "citation" in sname:
+            if "superscript" in sname or "footnote reference" in sname or "endnote reference" in sname:
+                return True
+            # "citation" alone flags numbered reference-superscript styles, but
+            # FigureCitation/TableCitation (applied by docx_pipeline step8) mark
+            # genuine in-text Figure/Table references and must be kept.
+            if "citation" in sname and "figure" not in sname and "table" not in sname:
                 return True
         return False
 
