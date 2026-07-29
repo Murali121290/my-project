@@ -7,6 +7,8 @@ services:
     restart: always
     ports:
       - "9001:9001"
+    environment:
+      - AGENT_SECRET=3c9d7a26f8a8461fbc10d98436fa6c9a
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/docker/volumes:/var/lib/docker/volumes
