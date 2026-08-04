@@ -15,7 +15,7 @@ my $InputINI=$ARGV[1];
 my $ExePath=abs_path($0);
 my ($ExeName, $ExeDir, $ExeSuffix) = fileparse($ExePath, "\.(pl|exe)");
 
-opendir(DIR,$InPath) or die("Unable to open html folder $InPath: $!");
+opendir(DIR,$InPath) or Win32::MsgBox("Unable to open html folder $InPath",0,"S4C");
 my @htmlfiles=grep{/\.(x?html?)$/i} readdir(DIR); closedir DIR;
 # @htmlfiles = sort (@htmlfiles);
 @htmlfiles = sort {$a <=> $b} @htmlfiles;
@@ -30,7 +30,7 @@ if (-d "$InPath/img")
 	
 #--- Content File ---#
 
-	opendir(DIR,$InPath) or die("Unable to open html folder $InPath: $!");
+	opendir(DIR,$InPath) or Win32::MsgBox("Unable to open html folder $InPath",0,"S4C");
 	my @TOCfiles=grep{/(\_|\b)(toc|contents?)\.(x?html?)$/i} readdir(DIR); closedir DIR;
 	@TOCfiles = sort (@TOCfiles);
 
@@ -100,19 +100,19 @@ if (-d "$InPath/img")
 		$EpubFolder="$InPath/OUTPUT";
 	}
 	
-	my $META_INF="$EpubFolder/META-INF";
-	my $OEBPS="$EpubFolder/OEBPS";
+	my $META_INF="$EpubFolder\\META-INF";
+	my $OEBPS="$EpubFolder\\OEBPS";
 	
-	my $HtmlPath="$OEBPS/html";
-	my $CSSPath="$OEBPS/css";
-	my $IMGPath="$OEBPS/img";
+	my $HtmlPath="$OEBPS\\html";
+	my $CSSPath="$OEBPS\\css";
+	my $IMGPath="$OEBPS\\img";
 	
 	foreach ("$EpubFolder", "$META_INF", "$OEBPS", "$HtmlPath", "$CSSPath", "$IMGPath")
 	{
 		mkdir("$_");
 	}
 	#-- version 3.0
-	my $NAVPath="$OEBPS/nav";
+	my $NAVPath="$OEBPS\\nav";
 	if ($Version eq '3.0')
 	{
 		mkdir("$NAVPath");
@@ -154,12 +154,12 @@ if (-d "$InPath/img")
 			$coverimagepath=$ComboCoverInput;
 			if (!-f "$coverimagepath")
 			{
-				die "Please enter absolute cover image path\n";
+				die Win32::MsgBox("Please enter absolute cover image path\n",0,"S4C");
 				exit;
 			}
 			if ($coverimagepath!~m#(?:\.jpg|\.jpeg)$#is)
 			{
-				die "Please enter correct image name\n";
+				die Win32::MsgBox("Please enter correct image name\n",0,"S4C");
 				exit;
 			}
 	}
@@ -451,7 +451,7 @@ print "\n\tNAV creation\n";
 	{
 			print "\n\tEpub 3.0\n";
 			
-			opendir(DIR,$HtmlPath) or die("Unable to open html folder $HtmlPath: $!");
+			opendir(DIR,$HtmlPath) or Win32::MsgBox("Unable to open html folder $HtmlPath",0,"S4C");
 			my @newhtmlfiles=grep{/\.(html)$/i} readdir(DIR); closedir DIR;
 			
 			my @RenamedFile;
@@ -532,7 +532,7 @@ print "\n\tNAV creation\n";
 		unlink("$Source_Dir/mimetype");
 		$zip->addTree($Source_Dir,'');
 		unless ( $zip->writeToFileNamed("${Dest_Epub}") == AZ_OK ) {
-			   die "Error writing zip file";
+			   die Win32::MsgBox("",0,"S4C");
 		}
 
 		open (OUT, ">$Source_Dir/mimetype");
@@ -543,7 +543,7 @@ print "\n\tNAV creation\n";
 sub ReadFile
 {
 	my ($infile, $type)=@_;
-	open (IN,"<$infile") or die("Unable to open $type file $infile: $!");
+	open (IN,"<$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
 	undef $/; my $cont=<IN>;
 	close IN;
 	return $cont;
@@ -551,9 +551,10 @@ sub ReadFile
 sub ReadFileDec
 {
 	my ($infile, $type)=@_;
-	open (IN,'<:utf8', "$infile") or die("Unable to open $type file $infile: $!");
+	open (IN,'<:utf8', "$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
 	undef $/; my $cont=<IN>;
 	close IN;
+	$cont=~s#([^\x00-\x7F])#"\&\#".ord($1)."\;"#gesi;		#-- Char to Decimal
 	return $cont;
 }
 sub WriteFile
@@ -561,16 +562,17 @@ sub WriteFile
 	my $outfile=shift;
 	my $cont=shift;
 	my $type=shift;
-	open (OUT,">$outfile") or die("Unable to write $type file $outfile: $!");
+	open (OUT,">$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
 	print OUT $cont;
 	close OUT;
 }
-sub WriteFile_UTF8
+sub WriteFile_DecToChar
 {
 	my $outfile=shift;
 	my $cont=shift;
 	my $type=shift;
-	open (OUT,'>:utf8', "$outfile") or die("Unable to write $type file $outfile: $!");
+	$cont=~s#\&\#(\d+);#chr($1)#gesi;
+	open (OUT,'>:utf8', "$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
 	print OUT $cont;
 	close OUT;
 }

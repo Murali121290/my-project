@@ -17,7 +17,32 @@ open(XML, $Input) || die "Can't open the $Input file $!";
 #$Tmp =~ s{(.*?)<w:body>(.*?)</w:body>(.*?)}{<converter><w:body>$2</w:body></converter>}si;
 
 	# $Tmp =~ s{<w:body>(.*?)</w:body>}{"<w:body>" . &BodyText($1) . "</w:body>"}esi;
-	
+
+        $Tmp =~ s{
+            ( <w:r[^>]*>.*?<w:fldChar[^>]*w:fldCharType="begin"[^>]*/>\s*</w:r>
+              (.*?)
+              <w:r[^>]*>.*?<w:fldChar[^>]*w:fldCharType="separate"[^>]*/>\s*</w:r>
+              (.*?)
+              <w:r[^>]*>.*?<w:fldChar[^>]*w:fldCharType="end"[^>]*/>\s*</w:r> )
+        }{
+            my ($whole, $field_block, $display_block) = ($1, $2, $3);
+
+            if ($field_block =~ /<w:instrText[^>]*>\s*HYPERLINK\s+"([^"]+)"/is) {
+                my $url = $1;
+
+                my $text = join('', $display_block =~ /<w:t[^>]*>(.*?)<\/w:t>/gs);
+                $text = $url unless length $text;
+
+                # keep the original rPr/rStyle as-is - don't rename it
+                my ($rpr) = $display_block =~ /(<w:rPr>.*?<\/w:rPr>)/s;
+                $rpr //= '<w:rPr/>';
+
+                qq{<w:r>$rpr<w:t xml:space="preserve">$text</w:t></w:r>};
+            } else {
+                $whole;   # not a HYPERLINK field - leave untouched
+            }
+        }gesx;
+
 	$Tmp=~s{<w:smartTag([^\>]*)\>}{}gsi;
 
 	$Tmp=~s{<\/w:smartTag([^\>]*)\>}{}gsi;
@@ -337,8 +362,6 @@ sub StyleReplace {
     }
     return $tmpRepl;
 }
-
-
 
 close(XML);
     unlink($Input);
