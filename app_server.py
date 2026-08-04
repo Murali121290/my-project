@@ -675,6 +675,30 @@ def bias_scan():
     return render_template("upload_bias.html")
 
 
+def _find_perl_executable():
+    """
+    Resolve a usable perl.exe path.
+
+    subprocess.run(["perl", ...]) relies on "perl" being resolvable via the
+    launching process's PATH, which is not guaranteed for app_server.py when it
+    runs as a service/scheduled task rather than an interactive Git Bash shell.
+    Fall back to the perl bundled with Git for Windows, which is present on
+    this machine even when it isn't on the system PATH.
+    """
+    found = shutil.which("perl")
+    if found:
+        return found
+
+    for candidate in (
+        r"C:\Program Files\Git\usr\bin\perl.exe",
+        r"C:\Program Files (x86)\Git\usr\bin\perl.exe",
+    ):
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+
 def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, user_id, username):
     """
     Process Word to XML conversion job using Perl script.
@@ -719,6 +743,11 @@ def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, us
                 update_progress({"status": f"Failed: Perl script not found at {perl_script}"})
                 return
 
+            perl_exe = _find_perl_executable()
+            if not perl_exe:
+                update_progress({"status": "Failed: perl executable not found (checked PATH and Git for Windows install)"})
+                return
+
             # Update progress
             update_progress({
                 "current": 0,
@@ -733,7 +762,7 @@ def process_word_to_xml_job(job_id, temp_dir, file_paths, original_filenames, us
                 return
             try:
                 result = subprocess.run(
-                    ["perl", perl_script, temp_dir],
+                    [perl_exe, perl_script, temp_dir],
                     cwd=wordtoxml_dir,
                     capture_output=True,
                     text=True,

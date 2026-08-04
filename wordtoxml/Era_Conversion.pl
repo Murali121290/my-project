@@ -3,7 +3,6 @@ use File::Copy;
 use Cwd;
 use Cwd 'abs_path';
 use File::Basename;
-use Win32;
 use utf8;
 
 my $InFile=$ARGV[0];
@@ -306,7 +305,7 @@ my ($HtmName, $HtmDir, $FileSuffix) = fileparse($HtmFile, "\.[a-z]+");
 sub ReadFile
 {
 	my ($infile, $type)=@_;
-	open (IN,"<$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
+	open (IN,"<$infile") or die "Unable to open $type file $infile: $!";
 	undef $/; my $cont=<IN>;
 	close IN;
 	return $cont;
@@ -314,7 +313,7 @@ sub ReadFile
 sub ReadFileDec
 {
 	my ($infile, $type)=@_;
-	open (IN,'<:utf8', "$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
+	open (IN,'<:utf8', "$infile") or die "Unable to open $type file $infile: $!";
 	undef $/; my $cont=<IN>;
 	close IN;
 	$cont=~s#([^\x00-\x7F])#"\&\#".ord($1)."\;"#gesi;		#-- Char to Decimal
@@ -323,7 +322,7 @@ sub ReadFileDec
 sub ReadFileHex
 {
 	my ($infile, $type)=@_;
-	open (IN,'<:utf8', "$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
+	open (IN,'<:utf8', "$infile") or die "Unable to open $type file $infile: $!";
 	undef $/; my $cont=<IN>;
 	close IN;
 	$cont=~s#([^\x00-\x7F])#"\&\#x".sprintf("%04X",ord($1))."\;"#gesi;	#-- Char to Hexa Decimal
@@ -332,7 +331,7 @@ sub ReadFileHex
 sub DecToHex
 {
 	my ($infile, $type)=@_;
-	open (IN,"<$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
+	open (IN,"<$infile") or die "Unable to open $type file $infile: $!";
 	undef $/; my $cont=<IN>;
 	close IN;
 	$cont=~s#(\&\#(\d+);)#"\&\#x".sprintf('%04X', "$2")."\;"#gesi;
@@ -341,7 +340,7 @@ sub DecToHex
 sub HexToDec
 {
 	my ($infile, $type)=@_;
-	open (IN,"<$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
+	open (IN,"<$infile") or die "Unable to open $type file $infile: $!";
 	undef $/; my $cont=<IN>;
 	close IN;
 	$cont=~s#\&\#x(\w+);#"\&\#".hex($1)."\;"#gesi;
@@ -352,7 +351,7 @@ sub WriteFile
 	my $outfile=shift;
 	my $cont=shift;
 	my $type=shift;
-	open (OUT,">$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
+	open (OUT,">$outfile") or die "Unable to write $type file $outfile: $!";
 	print OUT $cont;
 	close OUT;
 }
@@ -362,7 +361,7 @@ sub WriteFile_DecToChar
 	my $cont=shift;
 	my $type=shift;
 	$cont=~s#\&\#(\d+);#chr($1)#gesi;
-	open (OUT,'>:utf8', "$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
+	open (OUT,'>:utf8', "$outfile") or die "Unable to write $type file $outfile: $!";
 	print OUT $cont;
 	close OUT;
 }
@@ -372,7 +371,7 @@ sub WriteFile_HexToChar
 	my $cont=shift;
 	my $type=shift;
 	$cont=~s#\&\#x(\w+);#chr(hex($1))#gesi;
-	open (OUT,'>:utf8', "$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
+	open (OUT,'>:utf8', "$outfile") or die "Unable to write $type file $outfile: $!";
 	print OUT $cont;
 	close OUT;
 }

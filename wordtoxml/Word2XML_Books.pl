@@ -22,7 +22,6 @@ use Try::Tiny;
 use utf8;
 use warnings;         # still get other warnings
 no warnings 'uninitialized';   # but silence uninitialized warnings
-use Win32;
 use XML::LibXML;
 
 my $LabelMap = {
@@ -44,6 +43,13 @@ my $CONNECT = qr/(?:\s*[\x{2013}-]\s*|\s+(?:and|through|to)\s+|,\s*(?:and\s+)?|\
 $|=1;
 my $ExePath=abs_path($0);
 $ExePath=~s#[\\\/]([^\/\\]+)$##isg;
+
+# Modern Linux distros (Ubuntu 20.04+, RHEL 8+) ship only python3, no "python" alias.
+my $PYTHON_BIN = "python3";
+for my $candidate ("python3", "python") {
+	`$candidate --version` ;
+	if ($? == 0) { $PYTHON_BIN = $candidate; last; }
+}
 
 opendir(my $dh, $ARGV[0]) or die $!;
 my @docx = grep { /\.docx$/i && -f "$ARGV[0]/$_" } readdir($dh);
@@ -74,15 +80,13 @@ foreach my $file (@docx)
 
 		my $File_Path=dirname(abs_path($0));
 
-                system('python', "$File_Path/process_comments.py", '-i', $Doc_File, '-o', $commentdocx);
-                
-		$File_Path=~s#\/#\\#gsi;
+                system($PYTHON_BIN, "$File_Path/process_comments.py", '-i', $Doc_File, '-o', $commentdocx);
 
-		my $Final_File="$docPath\\html\\$FileName.xml";
-		my $Final_ClassFile="$docPath\\html\\$FileName" . "_class.xml";
-		my $Comments="$docPath\\html\\Comments.html";
-		my $Footnotes="$docPath\\html\\$FileName\_Footnotes.html";
-		mkdir ("$docPath\\html") if (!-d "$docPath\\html");
+		my $Final_File="$docPath/html/$FileName.xml";
+		my $Final_ClassFile="$docPath/html/$FileName" . "_class.xml";
+		my $Comments="$docPath/html/Comments.html";
+		my $Footnotes="$docPath/html/$FileName\_Footnotes.html";
+		mkdir ("$docPath/html") if (!-d "$docPath/html");
 
 		print "Converting to XML $FileName...\n";
 #========================== Read ZIP File ==========================#
@@ -113,14 +117,14 @@ foreach my $file (@docx)
 					#					$XMLCont =~ s#<w:fldChar w:fldCharType="begin"/>((?:(?!w:fldCharType="begin"|w:fldCharType="end").)*)<w:fldChar w:fldCharType="end"/>##isg;
 					#					&WriteFile("$XML_File", "$XMLCont", "HTML");
 
-					#					system("perl \"$File_Path\\Era_WmlCleanup.pl\" \"$XML_File\" \"$Doc_File\"");
-					system("perl \"$File_Path\\Era_WmlCleanup.pl\" \"$XML_File\" \"$commentdocx\"");
-					system("java -jar \"$File_Path\\saxon.jar\" \"$XML_File\" \"$File_Path\\Era_Word2XML.xsl\" > \"$Post_XML\"");
-					system("\"$File_Path\\UTF8.exe\" \"$Post_XML\"");
-					# system("$File_Path\\List.exe \"$Post_XML\" \"$Post_XML\"");
+					#					system("perl \"$File_Path/Era_WmlCleanup.pl\" \"$XML_File\" \"$Doc_File\"");
+					system("perl \"$File_Path/Era_WmlCleanup.pl\" \"$XML_File\" \"$commentdocx\"");
+					system("java -jar \"$File_Path/saxon.jar\" \"$XML_File\" \"$File_Path/Era_Word2XML.xsl\" > \"$Post_XML\"");
+					system($PYTHON_BIN, "$File_Path/utf8_converter.py", $Post_XML);
+					# system("$File_Path/List.exe \"$Post_XML\" \"$Post_XML\"");
 					#					print "\n$Post_XML => $Final_File\n";
-					#					system("perl \"$File_Path\\Era_Conversion.pl\" \"$Post_XML\" \"$Final_File\" \"$Client_Name\"");
-					system("perl \"$File_Path\\Era_Conversion.pl\" \"$Post_XML\" \"$Final_File\" \"$Client_Name\"");
+					#					system("perl \"$File_Path/Era_Conversion.pl\" \"$Post_XML\" \"$Final_File\" \"$Client_Name\"");
+					system("perl \"$File_Path/Era_Conversion.pl\" \"$Post_XML\" \"$Final_File\" \"$Client_Name\"");
 				unlink("$Post_XML");
 				}
 			}
@@ -173,7 +177,7 @@ foreach my $file (@docx)
 			{
 					$member->extractToFileNamed("$docPath/$extractName");
 					my $XML_File="$docPath/$extractName";
-					my $Cust_XML="$docPath\\Custom1.xml";
+					my $Cust_XML="$docPath/Custom1.xml";
 
 					my ($Editor);
 					my $Tmp=&ReadFile("$Final_File", "HTML");
@@ -204,8 +208,8 @@ foreach my $file (@docx)
 					unlink("$Cust_XML");
 			}
 		}
-		copy("$File_Path\\epub.css", "$docPath\\html\\epub.css");
-		rename("$docPath\\$FileName.zip",$commentdocx);
+		copy("$File_Path/epub.css", "$docPath/html/epub.css");
+		rename("$docPath/$FileName.zip",$commentdocx);
 		unlink("$docPath/document.xml");
 		unlink("$docPath/footnotes.xml");
 		unlink("$docPath/$FileName\_Footnotes.html");
@@ -726,7 +730,7 @@ sub DTDvalidate
 sub ReadFile
 {
 	my ($infile, $type)=@_;
-	open (IN,"<$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
+	open (IN,"<$infile") or die "Unable to open $type file $infile: $!";
 	undef $/; my $cont=<IN>;
 	close IN;
 	return $cont;
@@ -736,7 +740,7 @@ sub WriteFile
 	my $outfile=shift;
 	my $cont=shift;
 	my $type=shift;
-	open (OUT,">$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
+	open (OUT,">$outfile") or die "Unable to write $type file $outfile: $!";
 	print OUT $cont;
 	close OUT;
 }
@@ -1232,4 +1236,3 @@ sub find_ref_id {
 #ext-link-type="doi"
 }
 
-Win32::MsgBox("Process Completed Successfully!",0,"S4C");
