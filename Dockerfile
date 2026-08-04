@@ -24,7 +24,8 @@ WORKDIR /app
 # Install Perl dependencies
 RUN cpanm --notest \
     File::HomeDir \
-    String::Substitution
+    String::Substitution \
+    List::MoreUtils
 
 # Copy requirements first for cache efficiency
 COPY requirements.txt .
