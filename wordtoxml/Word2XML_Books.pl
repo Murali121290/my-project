@@ -22,6 +22,17 @@ use Try::Tiny;
 use utf8;
 use warnings;         # still get other warnings
 no warnings 'uninitialized';   # but silence uninitialized warnings
+if ($^O eq 'MSWin32') {
+    require Win32;
+} else {
+    eval q{
+        package Win32;
+        sub MsgBox {
+            my ($msg, $val, $title) = @_;
+            print STDERR "[$title] $msg\n";
+        }
+    };
+}
 use XML::LibXML;
 
 my $LabelMap = {
@@ -44,7 +55,6 @@ $|=1;
 my $ExePath=abs_path($0);
 $ExePath=~s#[\\\/]([^\/\\]+)$##isg;
 
-# Modern Linux distros (Ubuntu 20.04+, RHEL 8+) ship only python3, no "python" alias.
 my $PYTHON_BIN = "python3";
 for my $candidate ("python3", "python") {
 	`$candidate --version` ;
@@ -65,7 +75,7 @@ foreach my $file (@docx)
 
                 my $commentdocx = $Doc_File;
                 
-                $commentdocx=~ s{\.docx}{_indd\.docx};
+                $commentdocx=~ s{\.docx}{\_comments\.docx};
 
 		my $Client_Name="Amazon";
 		
@@ -75,12 +85,14 @@ foreach my $file (@docx)
 
 		my @suffixes=(".docx",".docx");
 		my $FileName= basename($commentdocx, @suffixes);
-
+                $FileName =~ s{_comments}{};
 		my $zipname = $commentdocx;
 
 		my $File_Path=dirname(abs_path($0));
 
                 system($PYTHON_BIN, "$File_Path/process_comments.py", '-i', $Doc_File, '-o', $commentdocx);
+                
+		# $File_Path=~s#\/#\\#gsi;
 
 		my $Final_File="$docPath/html/$FileName.xml";
 		my $Final_ClassFile="$docPath/html/$FileName" . "_class.xml";
@@ -112,10 +124,6 @@ foreach my $file (@docx)
 					my $XML_File="$docPath/$extractName";
 					my $Post_XML="$docPath/html/$FileName.posthtml";
 					$Post_XML =~s/\.xml$/\.postxml/i;
-					#					my $XMLCont=&ReadFile("$XML_File", "HTML");
-					#					$XMLCont =~ s#<w:r ((?:(?!0Hidden|<w:r |<\/w:r>).)*)<w:rStyle w:val="0Hidden"\/>((?:(?!0Hidden|<w:r |<\/w:r>).)*)<\/w:r>##isg;
-					#					$XMLCont =~ s#<w:fldChar w:fldCharType="begin"/>((?:(?!w:fldCharType="begin"|w:fldCharType="end").)*)<w:fldChar w:fldCharType="end"/>##isg;
-					#					&WriteFile("$XML_File", "$XMLCont", "HTML");
 
 					#					system("perl \"$File_Path/Era_WmlCleanup.pl\" \"$XML_File\" \"$Doc_File\"");
 					system("perl \"$File_Path/Era_WmlCleanup.pl\" \"$XML_File\" \"$commentdocx\"");
@@ -177,7 +185,7 @@ foreach my $file (@docx)
 			{
 					$member->extractToFileNamed("$docPath/$extractName");
 					my $XML_File="$docPath/$extractName";
-					my $Cust_XML="$docPath/Custom1.xml";
+					my $Cust_XML="$docPath\\Custom1.xml";
 
 					my ($Editor);
 					my $Tmp=&ReadFile("$Final_File", "HTML");
@@ -203,13 +211,14 @@ foreach my $file (@docx)
 					$Tmp=~ s#\&lt;SH([0-9]*)\&gt;##ig;
 					$Tmp=~ s#\&lt;H([0-9]*)\&gt;##ig;
 					&WriteFile("$Final_File", "$Tmp", "HTML");
-					#&WriteFile("$Final_ClassFile", "$Tmp", "HTML");
+                                        #&WriteFile("$Final_ClassFile", "$Tmp", "HTML");
 					unlink("$XML_File");
 					unlink("$Cust_XML");
 			}
 		}
 		copy("$File_Path/epub.css", "$docPath/html/epub.css");
 		rename("$docPath/$FileName.zip",$commentdocx);
+		rename($commentdocx, $Doc_File);
 		unlink("$docPath/document.xml");
 		unlink("$docPath/footnotes.xml");
 		unlink("$docPath/$FileName\_Footnotes.html");
@@ -259,10 +268,10 @@ BKMETA
 		$Tmp=~s#(<\/?comment(?: [^<>]*)?>|<CommentReference[0-9]+\/>)##isg;
 		$Tmp=~s# class="Box-01-BulletList1# class="BulletList1#igs;
 		$Tmp=~s# class="Box-01-BulletList2# class="BulletList1#igs;
-		$Tmp=~s# class="BulletList1last"># class="BulletList1">#igs;
+		$Tmp=~s# class="FE-01-BulletList1# class="BulletList1#igs;
 		$Tmp=~s# class="Box-01-NumberList1# class="NumberList1#igs;
 		$Tmp=~s# class="FE-01-NumberList1# class="NumberList1#igs;
-		$Tmp=~s# class="FE-01-BulletList1# class="BulletList1#igs;
+		$Tmp=~s# class="Box-01-UL-FL1# class="UnNumberList1#igs;
 		$Tmp=~s#<p><Hyperlink/></p>##igs;
 		$Tmp=~s#<a href="http://;">;</a>#;#igs;
                 $Tmp=~s{<a (.*)">((?:(?!<\/a>).)*?)<\/a>}{
@@ -359,29 +368,31 @@ BKMETA
 		}
 
                 #--------------- Learning Objectives block ---------------#
-                #--------------- Learning Objectives block ---------------#
-                $Tmp=~s{<p class=\"LearningObjHeading\">((?:(?!<\/p>).)*?)<\/p>\s*(?:<p class=\"LearningObj-Para-FL\">((?:(?!<\/p>).)*?)<\/p>\s*)?((?:<p class=\"LearningObj-NumberList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&LearningObjectives($1,$2,$3,$num)}gesi;
-                $Tmp=~s{<p class=\"LearningObjHeading\">((?:(?!<\/p>).)*?)<\/p>\s*(?:<p class=\"LearningObj-Para-FL\">((?:(?!<\/p>).)*?)<\/p>\s*)?((?:<p class=\"LearningObj-BulletList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&LearningObjectives($1,$2,$3,$num)}gesi;
+                $Tmp=~s{<p class=\"LearnObjHeading\">((?:(?!<\/p>).)*?)<\/p>\s*(?:<p class=\"LearnObj-Para-FL\">((?:(?!<\/p>).)*?)<\/p>\s*)?((?:<p class=\"LearnObj-NumberList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&LearnObjectives($1,$2,$3,$num)}gesi;
+                $Tmp=~s{<p class=\"LearnObjHeading\">((?:(?!<\/p>).)*?)<\/p>\s*(?:<p class=\"LearnObj-Para-FL\">((?:(?!<\/p>).)*?)<\/p>\s*)?((?:<p class=\"LearnObj-BulletList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&LearnObjectives($1,$2,$3,$num)}gesi;
+                $Tmp=~s{<p class=\"LearnObjHeading\">((?:(?!<\/p>).)*?)<\/p>\s*(?:<p class=\"LearnObj-Para-FL\">((?:(?!<\/p>).)*?)<\/p>\s*)?((?:<p class=\"LearnObj-UL-FL1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&LearnObjectives($1,$2,$3,$num)}gesi;
                 
 		#casestudy
 		$Tmp=~s#<casestudy>((?:(?!<\/casestudy>|<casestudy>).)*?)<\/casestudy>#caseStudy($&)#isge;
-                $Tmp=~s{((?:<p class=\"CaseStudyBulletList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyBulletList($1,$num)}gesi;
-                $Tmp=~s{((?:<p class=\"CaseStudyNumberList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyBulletList($1,$num)}gesi;
+                $Tmp=~s{((?:<p class=\"CaseStudy-BulletList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyBulletList($1,$num)}gesi;
+                $Tmp=~s{((?:<p class=\"CaseStudy-NumberList1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyBulletList($1,$num)}gesi;
+                $Tmp=~s{((?:<p class=\"CaseStudy-UL-FL1(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyUnNumberList($1,$num)}gesi;
                 $Tmp=~s{((?:<p class=\"BulletList1[_]?(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyBulletList($1,$num)}gesi;
                 $Tmp=~s{((?:<p class=\"NumberList1[_]?(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyNumberList($1,$num)}gesi;
+                $Tmp=~s{((?:<p class=\"UL-FL1[_]?(?:first|last)?0?\">(?:(?!<\/p>).)*?<\/p>\s*)+)}{&CaseStudyNumberList($1,$num)}gesi;
                 
 		$Tmp=~s#<p class="(Para-FL|Key-Para-FL|ParaFirstLine-Ind)">#<p>#isg;
 		$Tmp=~s#<p class="EOC-#<p class="#isg;
 		
 		#List Opener
 		$Tmp=~s#<p class="BulletList([1-9])first0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<BL$1><p>$2</p><\/BL$1>#isg;
-		$Tmp=~s#<p class="LearningObj-BulletList([1-9])-first0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<BL$1><p>$2</p><\/BL$1>#isg;
+		$Tmp=~s#<p class="LearnObj-BulletList([1-9])-first0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<BL$1><p>$2</p><\/BL$1>#isg;
 		#unList Opener
 		$Tmp=~s#<p class="UnNumberList([1-9])first0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<UL$1><p>$2</p><\/UL$1>#isg;
 		$Tmp=~s#<p class="UnNumberList([1-9])0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<UL$1><p>$2</p><\/UL$1>#isg;
 		#BL List body
 		$Tmp=~s#<p class="BulletList([1-9])0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<BL$1><p>$2</p><\/BL$1>#isg;
-		$Tmp=~s#<p class="LearningObj-BulletList([1-9])0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<BL$1><p>$2</p><\/BL$1>#isg;
+		$Tmp=~s#<p class="LearnObj-BulletList([1-9])0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<BL$1><p>$2</p><\/BL$1>#isg;
 		#OL List body
 		$Tmp=~s#<p class="NumberList([1-9])first0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<OL$1><p>$2</p><\/OL$1>#isg;
 		$Tmp=~s#<p class="NumberList([1-9])0?">((?:(?!<\/p>|<p ).)*?)<\/p>#<OL$1><p>$2</p><\/OL$1>#isg;
@@ -398,7 +409,7 @@ BKMETA
                 ## Disp-quote
 		$Tmp=~s#<p class="eXtractTxt">((?:(?!<\/p>|<p ).)*?)<\/p>#<disp-quote><p>$1</p><\/disp-quote>#isg;
 
-		#		$Tmp=~s#<p class="(BulletList1first0|LearningObj-BulletList1-first)">((?:(?!<\/p>|<p ).)*?)<\/p>#listHead($&,$1)#isge;
+		#		$Tmp=~s#<p class="(BulletList1first0|LearnObj-BulletList1-first)">((?:(?!<\/p>|<p ).)*?)<\/p>#listHead($&,$1)#isge;
 		$Tmp=~s#<p class="(KeyTerm)">((?:(?!<\/p>|<p ).)*?)<\/p>#listHead($&,$1)#isge;
 	
 		#Keyterms
@@ -488,7 +499,6 @@ BKMETA
 		#table
 		$Tmp=~s#<table(?: [^<>]*)\/>#<table frame="box" rules="all" border="0" cellpadding="1" cellspacing="1">#gsi;
 		$Tmp=~s#<table\/>#<\/table>#gsi;
-                print $Tmp . "\n";
 		$Tmp=~s#<p class="TableCaption">\s*(<strong>)?(Table)(\s*)([0-9]+)([\.\-0-9]*)\s*(<\/strong>)?((?:(?!<p |<\/p>).)*?)(<\/strong>)?</p>#<table-wrap id="tab${num}_&seq3;" position="float" orientation="portrait" content-type="table">\n<label>$2$3$4$5</label>\n<caption>\n<title>$7</title>\n</caption></table-wrap>#isg;
 		$Tmp=~s#<p class="TableCaption">\s*<TableNumber>(?:<strong>)?(Table)(\s*)([0-9]+)([\.\-0-9]*)(?:<\/strong>)?<\/TableNumber>\s*<strong>((?:(?!<p |<\/p>).)*?)<\/strong>\s*</p>#<table-wrap id="tab${num}_&seq3;" position="float" orientation="portrait" content-type="table">\n<label>$1$2$3$4</label>\n<caption>\n<title>$5</title>\n</caption></table-wrap>#isg;
 		$Tmp=~s#<p class="TableSource">((?:(?!<p |<\/p>).)*?)</p>#<table-wrap><table-wrap-foot>\n<attrib>$1</attrib>\n</table-wrap-foot></table-wrap>#isg;
@@ -624,10 +634,14 @@ LOOP:
 		$finalCont=~s#<p>\&lt;metadata\&gt;</p>##isg;
                 $finalCont=~s#<strong>#<bold>#isg;
                 $finalCont=~s#</strong>#</bold>#isg;
-		$finalCont=~s#<p([^>]*)>(<bold>)?\&lt;online only\&gt;(<\/bold>)?</p>##isg;
 		$finalCont=~s#<p>\&lt;\/metadata\&gt;</p>##isg;
+		$finalCont=~s#<p([^>]*)>(<bold>)?\&lt;online only\&gt;(<\/bold>)?</p>##isg;
 		$finalCont=~s#<p([^>]*)>(<bold>)?\&lt;\/online only\&gt;(<\/bold>)?</p>##isg;
-		$finalCont=~s# class="Reference-Alphabetical">#<p class="ReferenceAlphabetical">#isg;
+		$finalCont=~s#<p([^>]*)>(<bold>)?\&lt;e-only\&gt;(<\/bold>)?</p>##isg;
+		$finalCont=~s#<p([^>]*)>(<bold>)?\&lt;\/e-only\&gt;(<\/bold>)?</p>##isg;
+		#$finalCont=~s#<p([^>]*)>(<bold>)?\&lt;online only\&gt;(<\/bold>)?</p>#<p>&lt;onlineonly&gt;</p>#isg;
+		#$finalCont=~s#<p([^>]*)>(<bold>)?\&lt;\/online only\&gt;(<\/bold>)?</p>#<p>&lt;/onlineonly&gt;</p>#isg;
+		#$finalCont=~s# class="Reference-Alphabetical">#<p class="ReferenceAlphabetical">#isg;
 		#$finalCont=~s#<p class="([^"]+)">#<p><\!-- $1 -->#isg;
 		$finalCont=~s#\n\s*\n#\n#isg;
 
@@ -684,8 +698,11 @@ LOOP:
                 $finalCont=~ s{\@\/hi\@}{<!--<\/highlight>-->}g;
                 $finalCont=~ s{<query([0-9]+)>}{<!--<query>-->}g;
                 $finalCont=~ s{</query([0-9]+)>}{<!--</query>-->}g;
-		$finalCont=~s#(\n+)#\n#isg;
-                $finalCont=~s{(<apple-converted-space>|</apple-converted-space>)}{}g;
+		$finalCont=~ s#(\n+)#\n#isg;
+                $finalCont=~ s{(<apple-converted-space>|</apple-converted-space>)}{}g;
+                $finalCont=~ s{<p>\&lt;onlineonly\&gt;</p>(\s*)</([^>]*)>}{</$2>$1<p>\&lt;onlineonly\&gt;</p>}gs;
+                $finalCont=~ s{<p>\&lt;\/onlineonly\&gt;</p>(\s*)</([^>]*)>}{</$2>$1<p>\&lt;\/onlineonly\&gt;</p>}gs;
+                $finalCont=~ s{(<nocitebib>|</nocitebib>)}{}g;
 		&WriteFile("$Final_File", "$finalCont", "HTML");
 
 		&DTDvalidate("$Final_File");
@@ -730,7 +747,7 @@ sub DTDvalidate
 sub ReadFile
 {
 	my ($infile, $type)=@_;
-	open (IN,"<$infile") or die "Unable to open $type file $infile: $!";
+	open (IN,"<$infile") or Win32::MsgBox("Unable to open $type file $infile",0,"S4C");
 	undef $/; my $cont=<IN>;
 	close IN;
 	return $cont;
@@ -740,17 +757,17 @@ sub WriteFile
 	my $outfile=shift;
 	my $cont=shift;
 	my $type=shift;
-	open (OUT,">$outfile") or die "Unable to write $type file $outfile: $!";
+	open (OUT,">$outfile") or Win32::MsgBox("Unable to write $type file $outfile",0,"S4C");
 	print OUT $cont;
 	close OUT;
 }
 sub listHead{
 	my $tmp = shift;
 	my $type = shift;
-	if($type=~m#(BulletList1first|LearningObj-BulletList1-first)#is){
-	#		$tmp=~s#<p class="(BulletList1first[0-9]+|LearningObj-BulletList1-first)">((?:(?!<\/p>|<p ).)*?)<\/p>#<list list-type="bullet">\n<list-item>\n<p>$2</p>\n</list-item><\/bl1>#isg;
+	if($type=~m#(BulletList1first|LearnObj-BulletList1-first)#is){
+	#		$tmp=~s#<p class="(BulletList1first[0-9]+|LearnObj-BulletList1-first)">((?:(?!<\/p>|<p ).)*?)<\/p>#<list list-type="bullet">\n<list-item>\n<p>$2</p>\n</list-item><\/bl1>#isg;
 	}else{
-	#		$tmp=~s#<p class="(BulletList1|LearningObj-BulletList1)">((?:(?!<\/p>|<p ).)*?)<\/p>#<bl1>\n<list-item>\n<p>$2</p>\n</list-item><\/bl1>#isg;
+	#		$tmp=~s#<p class="(BulletList1|LearnObj-BulletList1)">((?:(?!<\/p>|<p ).)*?)<\/p>#<bl1>\n<list-item>\n<p>$2</p>\n</list-item><\/bl1>#isg;
 		$tmp=~s#<p class="(KeyTerm)">((?:(?!<\/p>|<p ).)*?)<\/p>#<kt1>\n<list-item>\n<p id="term&seq;">$2</p>\n</list-item><\/kt1>#isg;
 	}
 	return $tmp;
@@ -931,31 +948,40 @@ sub yearFix{
     return $text;
 }
 
-sub LearningObjectives
+sub LearnObjectives
 {
 	my ($Title,$Intro,$Items,$ChNum)=@_;
 
 	$Title=~s{<[^>]+>}{}gsi;      # <title> already implies bold - strip inline tags e.g. <strong>
 
 	my @List;
-	while($Items=~m{<p class=\"LearningObj-NumberList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
+	while($Items=~m{<p class=\"LearnObj-NumberList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
 	{
 		push(@List,"<list-item><p>$1</p></list-item>");
 	}
-	while($Items=~m{<p class=\"LearningObj-BulletList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
+	while($Items=~m{<p class=\"LearnObj-BulletList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
+	{
+		push(@List,"<list-item><p>$1</p></list-item>");
+	}
+	while($Items=~m{<p class=\"LearnObj-UL-FL1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
 	{
 		push(@List,"<list-item><p>$1</p></list-item>");
 	}
 	my $ListItems=join("\n",@List);
 
 	my $IntroPara = (defined $Intro && $Intro ne "") ? "<p>$Intro</p>\n" : "";
-        if ($Items=~m{<p class=\"LearningObj-Bullet})
+        
+        if ($Items=~m{<p class=\"LearnObj-Bullet})
         {
-                return "<sec disp-level=\"LearningObject\" id=\"ch${ChNum}lev1sec&seq1;\"><title>$Title</title>\n${IntroPara}\n<list list-type=\"bullet\">\n$ListItems\n</list>\n</sec>";
+                return "<sec disp-level=\"LearnObject\" id=\"ch${ChNum}lev1sec&seq1;\"><title>$Title</title>\n${IntroPara}\n<list list-type=\"bullet\">\n$ListItems\n</list>\n</sec>";
+        }
+        elsif ($Items=~m{<p class=\"LearnObj-Number})
+        {
+                return "<sec disp-level=\"LearnObject\" id=\"ch${ChNum}lev1sec&seq1;\"><title>$Title</title>\n${IntroPara}\n<list list-type=\"order\">\n$ListItems\n</list>\n</sec>";
         }
         else
         {
-                return "<sec disp-level=\"LearningObject\" id=\"ch${ChNum}lev1sec&seq1;\"><title>$Title</title>\n${IntroPara}\n<list list-type=\"order\">\n$ListItems\n</list>\n</sec>";
+                return "<sec disp-level=\"LearnObject\" id=\"ch${ChNum}lev1sec&seq1;\"><title>$Title</title>\n${IntroPara}\n<list list-type=\"none\">\n$ListItems\n</list>\n</sec>";
         }
 }
 
@@ -964,7 +990,7 @@ sub CaseStudyBulletList
 	my ($Items,$ChNum)=@_;
 
 	my @List;
-	while($Items=~m{<p class=\"CaseStudyBulletList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
+	while($Items=~m{<p class=\"CaseStudy-BulletList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
 	{
 		push(@List,"<list-item><p>$1</p></list-item>");
 	}
@@ -982,7 +1008,7 @@ sub CaseStudyNumberList
 	my ($Items,$ChNum)=@_;
 
 	my @List;
-	while($Items=~m{<p class=\"CaseStudyNumberList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
+	while($Items=~m{<p class=\"CaseStudy-NumberList1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
 	{
 		push(@List,"<list-item><p>$1</p></list-item>");
 	}
@@ -995,11 +1021,29 @@ sub CaseStudyNumberList
 	return "\n<list list-type=\"order\">\n$ListItems\n</list>\n";
 }
 
+sub CaseStudyUnNumberList
+{
+	my ($Items,$ChNum)=@_;
+
+	my @List;
+	while($Items=~m{<p class=\"CaseStudy-UL-FL1(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
+	{
+		push(@List,"<list-item><p>$1</p></list-item>");
+	}
+	while($Items=~m{<p class=\"UL-FL1[_]?(?:first|last)?0?\">((?:(?!<\/p>).)*?)<\/p>}gsi)
+	{
+		push(@List,"<list-item><p>$1</p></list-item>");
+	}
+	my $ListItems=join("\n",@List);
+        
+	return "\n<list list-type=\"none\">\n$ListItems\n</list>\n";
+}
+
 sub caseStudy{
     my $text = shift;
     $text=~s# class="FE-# class="#isg;
     #$text=~s# class="CaseStudy-# class="CaseStudy#isg;
-    $text=~s# class="CaseStudyHead# class="Head#isg;
+    $text=~s# class="CaseStudyHeading# class="Head#isg;
     $text=~s#<p class="(CaseStudyTitle)">#<p class="Head0">#isg;
     $text=~s#<p class="CaseStudy-#<p class="#isg;
     $text=~s#<p class="H(?:ead)?(2|3|4|5|6)">((?:(?!<p |<\/p>).)*?)<\/p>#"<sec$1 disp-level=\"level".($1-1)."\" id=\"ch${num}lev$1sec&seq1;\">\n<title>$2<\/title>\n<\/sec$1>"#gsie;
@@ -1236,3 +1280,4 @@ sub find_ref_id {
 #ext-link-type="doi"
 }
 
+Win32::MsgBox("Process Completed Successfully!",0,"S4C");

@@ -57,7 +57,7 @@ if os.environ.get('DISABLE_SSL_VERIFY', '').lower() in ('1', 'true', 'yes'):
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_MODEL = os.environ.get("REFERENCE_CONVERTER_GEMINI_MODEL", "gemini-2.5-flash")
-_MAX_RETRIES = int(os.environ.get("REFERENCE_CONVERTER_MAX_RETRIES", "5"))
+_MAX_RETRIES = int(os.environ.get("REFERENCE_CONVERTER_MAX_RETRIES", "2"))
 _RETRY_BASE_DELAY = float(os.environ.get("REFERENCE_CONVERTER_RETRY_BASE_DELAY", "5.0"))
 
 # Global sliding-window rate limiter — shared across all worker threads.
@@ -66,6 +66,15 @@ _rl_lock = threading.Lock()
 _rl_timestamps: collections.deque = collections.deque()
 _RL_MAX_CALLS = int(os.environ.get("REFERENCE_CONVERTER_RPM", "12"))
 _RL_WINDOW = 60.0
+
+# Per-thread record of the most recent conversion failure reason, so callers
+# running convert_reference() inside a ThreadPoolExecutor can surface *why*
+# a reference failed instead of just seeing a falsy result.
+_thread_local = threading.local()
+
+
+def get_last_conversion_error() -> Optional[str]:
+    return getattr(_thread_local, "last_error", None)
 
 
 def _acquire_api_slot() -> None:
@@ -1692,6 +1701,23 @@ def _clean_formatted_output(text: str, smart_quotes: bool = False) -> str:
     return text.strip()
 
 
+# XML 1.0 forbids most C0 control characters and lone surrogates; Gemini's
+# JSON output can carry these via \u00XX escapes, and writing them into a
+# .docx run later raises "All strings must be XML compatible" from lxml.
+_INVALID_XML_CHARS_RE = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff]')
+
+
+def _strip_invalid_xml_chars(value):
+    """Recursively strip XML-incompatible control characters from str values."""
+    if isinstance(value, str):
+        return _INVALID_XML_CHARS_RE.sub('', value)
+    if isinstance(value, dict):
+        return {k: _strip_invalid_xml_chars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_strip_invalid_xml_chars(v) for v in value]
+    return value
+
+
 # ─────────────────────────────────────────────
 # INTERNAL API CALL HELPER  (with retry)
 # ─────────────────────────────────────────────
@@ -1705,6 +1731,8 @@ def _call_gemini(
 ) -> Optional[str]:
     from google import genai
     from google.genai import types
+
+    _thread_local.last_error = None
 
     client = genai.Client(api_key=api_key)
     config = types.GenerateContentConfig(
@@ -1802,6 +1830,7 @@ def _call_gemini(
         else:
             error_type = f"Error: {str(last_exc)[:100]}"
     logger.error(f"All {max_retries} Gemini attempts failed. Type: {error_type} | Details: {last_exc}")
+    _thread_local.last_error = f"{error_type}: {last_exc}" if last_exc else error_type
     return None
 
 
@@ -1906,13 +1935,17 @@ def convert_reference(
     cr_item: Optional[Dict[str, Any]] = None,
     validate: bool = False,
 ) -> Optional[Dict[str, Any]]:
+    _thread_local.last_error = None
+
     if not raw_text or not raw_text.strip():
         logger.error("raw_text is empty.")
+        _thread_local.last_error = "Invalid Input: raw_text is empty"
         return None
 
     key = (source_style, target_style)
     if key not in CONVERSION_MAP:
         logger.error(f"Unsupported conversion: {source_style} → {target_style}")
+        _thread_local.last_error = f"Unsupported Conversion: {source_style} → {target_style}"
         return None
 
     api_key = _resolve_api_key()
@@ -1921,6 +1954,7 @@ def convert_reference(
             "API key not found (checked REFERENCE_CONVERTER_GEMINI_API_KEY, "
             "GEMINI_API_KEY, and GOOGLE_API_KEY)."
         )
+        _thread_local.last_error = "API Key / Authentication Error: no API key configured"
         return None
 
     # ─────────────────────────────────────────────
@@ -1999,14 +2033,19 @@ def convert_reference(
         parsed: Dict[str, Any] = json.loads(raw_json)
     except json.JSONDecodeError as exc:
         logger.error(f"JSON decode error: {exc}")
+        _thread_local.last_error = f"Gemini Response Error: JSON decode error: {exc}"
         return None
+
+    parsed = _strip_invalid_xml_chars(parsed)
 
     if "formatted_output" not in parsed or "metadata" not in parsed:
         logger.error(f"Missing top-level keys in response: {list(parsed.keys())}")
+        _thread_local.last_error = f"Gemini Response Error: missing top-level keys ({list(parsed.keys())})"
         return None
 
     if not isinstance(parsed["formatted_output"], str) or not parsed["formatted_output"].strip():
         logger.error("formatted_output is empty or not a string.")
+        _thread_local.last_error = "Gemini Response Error: formatted_output is empty or not a string"
         return None
 
     # smart_quotes=False: Word manages its own smart quotes; pre-curling causes

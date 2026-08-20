@@ -33,7 +33,7 @@ def _get_spacy_nlp():
         logger.debug(f"spaCy NER unavailable ({e}); using dictionary-only approach.")
     return _spacy_nlp
 
-from gemini_ref_converter import convert_reference, CitationStyle, BIB_FIELDS, CONVERSION_MAP, DEFAULT_MODEL
+from gemini_ref_converter import convert_reference, CitationStyle, BIB_FIELDS, CONVERSION_MAP, DEFAULT_MODEL, get_last_conversion_error
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -1146,8 +1146,18 @@ _ITALIC_STYLES = {
     "bib_inline_italic",  # for within-title italic spans (e.g., *in vitro*)
 }
 
+# XML 1.0 forbids most C0 control characters and lone surrogates. DB-enriched
+# metadata (CrossRef/PubMed titles, journal names) can carry these; writing
+# them into a <w:t> run raises "All strings must be XML compatible" from lxml.
+_INVALID_XML_CHARS_RE = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff]')
+
+
+def _strip_invalid_xml_chars(text):
+    return _INVALID_XML_CHARS_RE.sub('', text) if text else text
+
 
 def _append_hyperlink(para, text: str, url: str, doc=None, style_name: Optional[str] = None, italic: bool = False):
+    text = _strip_invalid_xml_chars(text)
     part = para.part
     r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
     hyperlink = OxmlElement("w:hyperlink")
@@ -1178,6 +1188,7 @@ def _append_hyperlink(para, text: str, url: str, doc=None, style_name: Optional[
 def _append_segment(para, text: str, style_name: Optional[str], doc=None, styles=None, allow_hyperlink: bool = True):
     if not text:
         return
+    text = _strip_invalid_xml_chars(text)
     italic = style_name in _ITALIC_STYLES
     target = _style_link_target(style_name, text) if allow_hyperlink else ""
     if target:
@@ -1302,6 +1313,7 @@ def _write_styled_runs(para, segments: List[Tuple[str, Optional[str]]], doc=None
 
 
 def _write_cgrn_runs(para, text: str, doc=None, original_text: str = None) -> None:
+    text = _strip_invalid_xml_chars(text)
     if original_text is None:
         original_text = para.text
     _clear_paragraph_text(para)
@@ -2834,9 +2846,10 @@ def process_conversion(
             cr_item=None,
         )
         if not result:
+            task['error_detail'] = get_last_conversion_error() or "Unknown error"
             logger.error(
                 f"  [{count}] Gemini conversion failed for: {raw_text[:100]}... "
-                f"(Check logs above for Gemini error details — rate limit, timeout, API key, or service issue)"
+                f"({task['error_detail']})"
             )
 
         cr_item = None
@@ -2968,7 +2981,8 @@ def process_conversion(
             entry = ConversionLogEntry(
                 original=raw_text, converted="[FAILED]",
                 ref_type="unknown", source_style=detected_source.value,
-                target_style=target_style, error="No DB match and Gemini call skipped/failed",
+                target_style=target_style,
+                error=task.get('error_detail') or "No DB match and Gemini call skipped/failed",
             )
             log_entries.append(entry)
             logger.warning(f"  No usable conversion result for reference {count}")

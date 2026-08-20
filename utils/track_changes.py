@@ -3,8 +3,19 @@ from docx.oxml.shared import OxmlElement, qn
 from docx.oxml import parse_xml
 import difflib
 import logging
+import re
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler()) # Ensure it doesn't print if not configured.
+
+# XML 1.0 forbids most C0 control characters and lone surrogates. Text can pick
+# these up from upstream sources (e.g. LLM output decoded from \u00XX JSON
+# escapes); writing them into a <w:t>/<w:delText> element raises
+# "All strings must be XML compatible" from lxml when the document is saved.
+_INVALID_XML_CHARS_RE = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff]')
+
+
+def _strip_invalid_xml_chars(text):
+    return _INVALID_XML_CHARS_RE.sub('', text) if text else text
 
 from docx import Document # Add this import
 from docx.text.paragraph import Paragraph # Add this import
@@ -44,6 +55,7 @@ def add_tracked_text(paragraph, text, style=None, author="S4c", date=None, color
     """
     if not text:
         return None
+    text = _strip_invalid_xml_chars(text)
 
     if date is None:
         date = get_current_iso_time()
@@ -205,7 +217,8 @@ def add_tracked_deletion(paragraph, text, author="RefBot", date=None, doc=None):
     """
     if not text:
         return None
-        
+    text = _strip_invalid_xml_chars(text)
+
     if date is None:
         date = get_current_iso_time()
     
