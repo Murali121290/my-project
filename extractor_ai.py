@@ -27,7 +27,8 @@ def extract_from_file_ai(file_path, api_key=None):
     except ImportError:
         raise RuntimeError("google-genai library not installed. Please install it using: pip install google-genai>=0.3.0")
 
-    client = genai.Client(api_key=final_api_key)
+    from gemini_ref_converter import _genai_http_options
+    client = genai.Client(api_key=final_api_key, http_options=_genai_http_options())
 
     # Extract text content
     if file_path.lower().endswith('.pdf'):

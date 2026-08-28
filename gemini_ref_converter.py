@@ -45,13 +45,22 @@ def _ssl_verify():
         return False
     return os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('SSL_CERT_FILE') or True
 
-# Patch the default SSL context so that the google-genai SDK (which uses httpx
-# internally and has no public verify= parameter) also honours DISABLE_SSL_VERIFY.
 if os.environ.get('DISABLE_SSL_VERIFY', '').lower() in ('1', 'true', 'yes'):
-    import ssl as _ssl_mod
     import urllib3 as _urllib3
-    _ssl_mod._create_default_https_context = _ssl_mod._create_unverified_context
     _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+
+
+def _genai_http_options():
+    """HttpOptions for genai.Client that honour the same SSL config as requests.
+
+    The google-genai SDK talks to Gemini over its own httpx client, which
+    ignores ssl._create_default_https_context and builds its own SSL context
+    (respecting SSL_CERT_FILE only). client_args/async_client_args['verify']
+    is the only way to make it honour DISABLE_SSL_VERIFY / REQUESTS_CA_BUNDLE.
+    """
+    from google.genai import types  # deferred import
+    verify = _ssl_verify()
+    return types.HttpOptions(client_args={'verify': verify}, async_client_args={'verify': verify})
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1734,7 +1743,7 @@ def _call_gemini(
 
     _thread_local.last_error = None
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options=_genai_http_options())
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=schema,

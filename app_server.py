@@ -3214,6 +3214,7 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
         from docx.shared import Inches
         from google import genai
         from google.genai import types
+        from gemini_ref_converter import _genai_http_options
         import book_indexer_core
         import zipfile
         
@@ -3259,7 +3260,7 @@ def process_book_indexer_job(job_id, temp_dir, saved_paths, api_key, model_name,
             for i in range(0, len(pages_text), CHUNK_SIZE):
                 chunks.append("\n\n".join(pages_text[i:i + CHUNK_SIZE]))
 
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=api_key, http_options=_genai_http_options())
             merged_index = {}
             api_warnings = []
             
