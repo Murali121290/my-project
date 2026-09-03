@@ -251,6 +251,7 @@ BKMETA
 		
 		my $Tmp=&ReadFile("$Final_File", "HTML");
 		$Tmp=~s#(\&\#(\d+);)#"\&\#x".sprintf('%04X', "$2")."\;"#gesi;
+		$Tmp=~s{([^\x00-\x7F])}{sprintf('&#x%04X;', ord($1))}ge;
 		#-- cleanup
 		#		print "\n$Final_File";
 		$Tmp=~s#^.*?<body>##isg;
@@ -569,16 +570,17 @@ BKMETA
 		$i = 1;
 		$Tmp=~s#&seq3;#$i++#isge;
 
-                # Convert unlinked URLs into <ext-link> tags while excluding trailing punctuation
+                # Convert unlinked URLs into <ext-link> tags while excluding trailing quotes/punctuation
                 $Tmp =~ s{
-                    \b(https?://[^\s<>"{}|\\^`]+[^\s<>"{}|\\^`.,;:!])([\.,;:!]?)(?=\s|<|$)
+                    \b(https?://[^\s<>"{}|\\^`]+)(?=\s|<|$)
                 }{
-                    my $url   = $1;
-                    my $punct = $2;
-
-                    # Determine link type (doi vs standard uri)
+                    my $raw = $1;
+                    my $url = $raw;
+                    my $punct = "";
+                    while ($url =~ s{([.,;:!?"'\)\x{5D}\x{7D}\x{201D}\x{201C}\x{2019}\x{2018}]|\&\#x[0-9a-fA-F]+;)$}{}) {
+                        $punct = $1 . $punct;
+                    }
                     my $type = ($url =~ m{doi\.org/}) ? "doi" : "uri";
-
                     "<ext-link ext-link-type=\"$type\" xlink:href=\"$url\">$url</ext-link>$punct";
                 }gexi;
 
@@ -831,6 +833,7 @@ LOOP:
                 $finalCont =~ s{&(?:num|ChLabel|ChTitle|contrib|abstract|kwd|KeyTermsHeading);}{}g;
                 $finalCont =~ s{(<nocitebib>|</nocitebib>)}{}g;
 		$finalCont =~ s{&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)}{&#x0026;}isg;
+		$finalCont =~ s{([^\x00-\x7F])}{sprintf('&#x%04X;', ord($1))}ge;
 		&WriteFile("$Final_File", "$finalCont", "HTML");
 		system($PYTHON_BIN, "$File_Path/utf8_converter.py", "$Final_File");
 
