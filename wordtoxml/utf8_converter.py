@@ -1,6 +1,7 @@
 import sys
 import chardet
 import os
+import re
 
 def convert_to_utf8(file_path):
     if not os.path.exists(file_path):
@@ -22,7 +23,11 @@ def convert_to_utf8(file_path):
 
     try:
         # Decode the content
-        content = raw_data.decode(encoding)
+        content = raw_data.decode(encoding, errors='replace')
+        
+        # If XML/HTML file, ensure unescaped ampersands are converted to XML entity &#x0026;
+        if file_path.lower().endswith(('.xml', '.postxml', '.posthtml', '.html')):
+            content = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)', '&#x0026;', content)
         
         # Write back as UTF-8 (without BOM)
         with open(file_path, 'w', encoding='utf-8') as f:
@@ -36,3 +41,4 @@ if __name__ == "__main__":
         print("Usage: python utf8_converter.py <file_path>")
     else:
         convert_to_utf8(sys.argv[1])
+
