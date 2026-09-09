@@ -1160,6 +1160,15 @@ def _next_rev_id() -> int:
     return _tc_rev_id
 
 
+_bookmark_id_counter = 0
+
+
+def _next_bookmark_id() -> int:
+    global _bookmark_id_counter
+    _bookmark_id_counter += 1
+    return _bookmark_id_counter
+
+
 def _tc_ins(text: str, base_rPr=None) -> "OxmlElement":
     import copy
     ins = OxmlElement('w:ins')
@@ -1407,6 +1416,36 @@ def isolate_target_run(p, txt):
         return safe_splice(p, pos, pos + len(txt),
                            runs_text[pos:pos + len(txt)], None, None)
     return None
+
+
+def wrap_paragraph_in_bookmark(para, name: str) -> None:
+    """Bookmark an entire paragraph (used for bibliography entries)."""
+    bid = str(_next_bookmark_id())
+    bs = OxmlElement('w:bookmarkStart')
+    bs.set(qn('w:id'), bid)
+    bs.set(qn('w:name'), name)
+    be = OxmlElement('w:bookmarkEnd')
+    be.set(qn('w:id'), bid)
+
+    p_el = para._p
+    insert_idx = 1 if p_el.find(qn('w:pPr')) is not None else 0
+    p_el.insert(insert_idx, bs)
+    p_el.append(be)
+
+
+def wrap_run_in_bookmark(run_el, name: str) -> None:
+    """Bookmark a single isolated run (used for citation occurrences)."""
+    bid = str(_next_bookmark_id())
+    bs = OxmlElement('w:bookmarkStart')
+    bs.set(qn('w:id'), bid)
+    bs.set(qn('w:name'), name)
+    be = OxmlElement('w:bookmarkEnd')
+    be.set(qn('w:id'), bid)
+
+    parent = run_el.getparent()
+    idx = list(parent).index(run_el)
+    parent.insert(idx, bs)
+    parent.insert(idx + 2, be)
 
 def apply_style_to_text(p, txt, hl, style_id=None):
     if style_id is None:
@@ -1737,6 +1776,7 @@ class CitationProcessor:
         job_id: str = "default",
         include_contexts: Optional[Set[str]] = None,
         grobid: Optional["GrobidClient"] = None,
+        enable_bookmarks: bool = True,
     ):
         self.doc_path         = doc_path
         self.doc              = Document(doc_path)
@@ -1759,6 +1799,10 @@ class CitationProcessor:
         self.enable_track_changes                = TRACK_CHANGES_AVAILABLE
         self._para_offset: int = 0
         self._pending_blocks: Dict[str, dict] = {}
+        self.enable_bookmarks         = enable_bookmarks
+        self._ref_bookmark_counter    = 0
+        self._ref_bookmark_usage: Dict[int, int]  = {}
+        self._citation_bookmark_queue: List[Dict] = []
 
     # ── Internal helpers ──────────────────────────────────────────────────────
     def _apply_tracked_fix(self, para, original, fixed, fix_type):
@@ -1810,6 +1854,10 @@ class CitationProcessor:
             if not e:
                 continue
             e["para_idx"] = idx
+            if self.enable_bookmarks:
+                self._ref_bookmark_counter += 1
+                e["ref_index"]    = self._ref_bookmark_counter
+                e["ref_bookmark"] = f"ref_{self._ref_bookmark_counter}"
             self._bib_ordered.append(e)
             if e.get("abbrev"):
                 self._org_tracker.record(e["abbrev"], e["full_author"], idx)
@@ -2074,6 +2122,24 @@ class CitationProcessor:
             ref = self.bibliography[rk]
             ref["cited"] = True
             self._cited_keys.add(rk)
+            if self.enable_bookmarks:
+                ref_idx = ref.get("ref_index")
+                if ref_idx is not None:
+                    n = self._ref_bookmark_usage.get(ref_idx, 0) + 1
+                    self._ref_bookmark_usage[ref_idx] = n
+                    bm_name = f"bib_{ref_idx}" if n == 1 else f"bib_{ref_idx}_{n}"
+                    # For multi-citation blocks (blk_sz > 1), `raw` is a synthetic
+                    # "(seg)" string that never appears literally in the paragraph
+                    # (the real text is the combined "(seg1; seg2)" block) — strip
+                    # the synthetic parens so the search text is the literal
+                    # substring, same reasoning as the `if blk_sz == 1` guard below.
+                    bm_text = (raw[1:-1] if blk_sz > 1 and raw.startswith("(")
+                               and raw.endswith(")") else raw)
+                    self._citation_bookmark_queue.append({
+                        "para": para,
+                        "text": bm_text,
+                        "name": bm_name,
+                    })
             ew = check_etal_enforcement(auth, ref)
             if ew:
                 _mark_block_yellow()
@@ -2303,6 +2369,31 @@ class CitationProcessor:
                 else:
                     insert_comment(self.doc, p, iss["message"], target_text=search_src)
 
+    # ── Bookmark insertion (must run last — after all text edits/highlights) ──
+    def _insert_ref_bookmarks(self):
+        if not self.enable_bookmarks:
+            return
+        for e in self._bib_ordered:
+            pidx = e.get("para_idx")
+            bm   = e.get("ref_bookmark")
+            if pidx is None or pidx < 0 or not bm:
+                continue
+            try:
+                wrap_paragraph_in_bookmark(self.doc.paragraphs[pidx], bm)
+            except Exception as exc:
+                self.log.warning("Could not bookmark reference '%s': %s", bm, exc)
+
+    def _insert_citation_bookmarks(self):
+        if not self.enable_bookmarks:
+            return
+        for item in self._citation_bookmark_queue:
+            try:
+                run_el = isolate_target_run(item["para"], item["text"])
+                if run_el is not None:
+                    wrap_run_in_bookmark(run_el, item["name"])
+            except Exception as exc:
+                self.log.warning("Could not bookmark citation '%s': %s", item["name"], exc)
+
     # ── Issue tracker ─────────────────────────────────────────────────────────
     def _add_issue(self, itype, para_idx, para, raw, message, target_text=None):
         if target_text is None:
@@ -2322,6 +2413,8 @@ class CitationProcessor:
         self._process_body()
         self._flag_unused()
         self._insert_comments()
+        self._insert_ref_bookmarks()
+        self._insert_citation_bookmarks()
 
         grobid_count = sum(
             1 for e in self._bib_ordered
