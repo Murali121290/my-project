@@ -1974,7 +1974,7 @@ def convert_reference(
     if not cr_item:  # Only do early lookup if no cr_item already provided
         try:
             # Step 1: If source text contains a DOI, use direct Crossref lookup first
-            _doi_src_re = re.compile(r'\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', re.IGNORECASE)
+            _doi_src_re = re.compile(r'\b10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+', re.IGNORECASE)
             _src_doi_m = _doi_src_re.search(raw_text)
             source_doi = _src_doi_m.group(0).rstrip('.') if _src_doi_m else None
 

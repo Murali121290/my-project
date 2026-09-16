@@ -154,8 +154,8 @@ SESSION = get_requests_session()
 # -------------------------
 # Utility helpers
 # -------------------------
-doi_regex = re.compile(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", re.IGNORECASE)
-doi_full_regex = re.compile(r"^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$", re.IGNORECASE)
+doi_regex = re.compile(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+", re.IGNORECASE)
+doi_full_regex = re.compile(r"^10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+$", re.IGNORECASE)
 
 def normalize_whitespace(s: Optional[str]) -> str:
     if not s:

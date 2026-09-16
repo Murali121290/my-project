@@ -1418,7 +1418,7 @@ def _set_paragraph_text(para, text: str, doc=None, original_text: str = None, is
                 add_tracked_text(para, text[j1:j2], author="S4C Reference Converter", doc=doc)
     except ImportError:
         last = 0
-        pattern = re.compile(r'(https?://\S+|doi:\s*10\.\d{4,9}/[-._;()/:A-Za-z0-9]+|https://doi\.org/10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)', re.IGNORECASE)
+        pattern = re.compile(r'(https?://\S+|doi:\s*10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+|https://doi\.org/10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+)', re.IGNORECASE)
         for m in pattern.finditer(text):
             if m.start() > last:
                 _append_segment(para, text[last:m.start()], None, doc=doc, styles=styles, allow_hyperlink=False)
@@ -1771,7 +1771,7 @@ class ValidationFinding:
     fixable: bool = False
 
 
-_DOI_CORE_RE = re.compile(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', re.IGNORECASE)
+_DOI_CORE_RE = re.compile(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+', re.IGNORECASE)
 _URL_RE = re.compile(r'^https?://\S+$', re.IGNORECASE)
 
 
@@ -1831,6 +1831,21 @@ def _validate_converted_reference(
     for field in _REQUIRED_FIELDS_BY_TYPE.get(ref_type, []):
         if not metadata.get(field):
             _add_finding(findings, f"missing_{field}", f"{field} missing", "warning")
+    if ref_type == "journal":
+        if not metadata.get("bib_volume"):
+            _add_finding(findings, "volume_missing", "volume missing", "warning")
+        if not metadata.get("bib_issue"):
+            _add_finding(
+                findings, "issue_missing",
+                "issue number missing (may not apply if the journal uses continuous pagination)",
+                "warning",
+            )
+        if not metadata.get("bib_fpage"):
+            _add_finding(findings, "pages_missing", "page numbers missing", "warning")
+        if not metadata.get("bib_doi"):
+            year_match = re.search(r'(\d{4})', metadata.get("bib_year") or "")
+            if year_match and int(year_match.group(1)) >= 2000:
+                _add_finding(findings, "doi_missing", "DOI missing", "warning")
     has_author = bool(
         metadata.get("bib_surname") or
         metadata.get("bib_organization") or
@@ -3025,6 +3040,16 @@ def process_conversion(
         is_journal = metadata.get("bib_reftype", "").lower() == "journal"
         pre_merge_journal = metadata.get("bib_journal", "")
         if cr_it:
+            logger.debug(
+                f"  [{count}] [DB Merge] is_journal={is_journal} "
+                f"bib_reftype='{metadata.get('bib_reftype')}' "
+                f"pre_volume='{metadata.get('bib_volume')}' pre_issue='{metadata.get('bib_issue')}' "
+                f"cr_volume='{cr_it.get('volume')}' cr_issue='{cr_it.get('issue')}' "
+                f"raw='{raw_text[:80]}'"
+            )
+        else:
+            logger.debug(f"  [{count}] [DB Merge] no cr_item — raw='{raw_text[:80]}'")
+        if cr_it:
             if cr_it.get("DOI") and (is_journal or not metadata.get("bib_doi")):
                 db_doi = str(cr_it["DOI"]).replace("https://doi.org/","").replace("doi:","").strip()
                 if db_doi:
@@ -3077,7 +3102,7 @@ def process_conversion(
 
             # Only apply DOI guard when DB lookup didn't provide a DOI
             if not cr_it.get("DOI"):
-                _src_doi_m = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', raw_text, re.IGNORECASE)
+                _src_doi_m = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+', raw_text, re.IGNORECASE)
                 if _src_doi_m:
                     _src_doi = _src_doi_m.group(0).rstrip('.')
                     if _src_doi and _src_doi != metadata.get("bib_doi", ""):
@@ -3292,7 +3317,7 @@ def process_conversion(
                     metadata["bib_url"] not in final_text):
                 final_text = final_text.rstrip(". ").rstrip(".") + " " + metadata["bib_url"]
             # Audit: warn if source DOI/URL is absent from final output
-            _audit_doi_m = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', raw_text, re.IGNORECASE)
+            _audit_doi_m = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9<>,]+', raw_text, re.IGNORECASE)
             if _audit_doi_m and _audit_doi_m.group(0).rstrip('.') not in final_text:
                 logger.warning(
                     f"  [{count}] [DOI Audit] Source DOI '{_audit_doi_m.group(0).rstrip('.')}' "
