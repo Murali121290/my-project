@@ -2351,7 +2351,10 @@ class CitationProcessor:
     # ── Comment insertion ─────────────────────────────────────────────────────
     def _insert_comments(self):
         _yr_re = re.compile(_YEAR_ANY, re.IGNORECASE)
+        _COMMENT_TYPES = {"missing", "unused"}
         for iss in self._issues:
+            if iss.get("type") not in _COMMENT_TYPES:
+                continue
             p = iss.get("para")
             if p is None:
                 continue
