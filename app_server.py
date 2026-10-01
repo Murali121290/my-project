@@ -4754,7 +4754,7 @@ def validate_file():
 
                         for para in doc.paragraphs:
                             sname = (para.style.name or '') if para.style else ''
-                            if sname.upper() in ['REF-N', 'REF-U']:
+                            if sname.upper() in ['REF-N', 'REF-U'] or sname in ['Reference-Numbered', 'Reference-Alphabetical']:
                                 has_ref_style = True
                             if sname == '* ReferencesText':
                                 has_cgrn_style = True
@@ -4773,7 +4773,7 @@ def validate_file():
                         else:
                             missing = []
                             if not has_ref_style:
-                                missing.append("style 'REF-N', 'REF-U', or '* ReferencesText'")
+                                missing.append("style 'REF-N'/'Reference-Numbered', 'REF-U'/'Reference-Alphabetical', or '* ReferencesText'")
                             if not has_ref_open:
                                 missing.append("'<ref-open>' tag")
                             if not has_ref_close:

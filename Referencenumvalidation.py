@@ -29,6 +29,13 @@ PAREN_CITATION_PATTERN = re.compile(rf'\(\d+(?:[,\s{DASH_CLASS}]*\d+)*\)')
 BIB_PREFIX_PATTERN = re.compile(r'^\s*(?:\[\d+\]\.?\s*|\(\d+\)\.?\s*|\d+\.?\s*)')
 BIB_NUMBER_TRAILING_TEXT = ".\t"
 
+# A document's numbered/alphabetical bibliography paragraph style may be
+# named either the short code or the descriptive name, depending on the
+# template it was created from.
+REF_NUMBERED_STYLES = ("REF-N", "Reference-Numbered")
+REF_ALPHABETICAL_STYLES = ("REF-U", "Reference-Alphabetical")
+REF_BIBLIOGRAPHY_STYLES = REF_NUMBERED_STYLES + REF_ALPHABETICAL_STYLES
+
 # =====================================================
 # Helpers & Core Logic
 # =====================================================
@@ -590,7 +597,7 @@ def detect_and_tag_unstyled_citations(doc, citation_format):
         return {'tagged': 0, 'format_used': 'styled'}
 
     for para in iter_document_paragraphs(doc):
-        if para.style and para.style.name in ['REF-N', 'REF-U']:
+        if para.style and para.style.name in REF_BIBLIOGRAPHY_STYLES:
             continue
 
         if citation_format == 'paren':
@@ -648,14 +655,15 @@ class ReferenceProcessor:
         
     def get_references_in_bibliography(self):
         """
-        Returns a Set of IDs found in the bibliography sections (REF-N style).
-        Also returns a list of objects for reordering later.
+        Returns a Set of IDs found in the bibliography sections (REF-N /
+        Reference-Numbered style). Also returns a list of objects for
+        reordering later.
         """
         refs_found = set()
         ref_objects = []
 
         for para in self.doc.paragraphs:
-            if para.style and para.style.name == "REF-N":
+            if para.style and para.style.name in REF_NUMBERED_STYLES:
                 found_id = None
                 bib_run = None
 
@@ -907,7 +915,7 @@ class ReferenceProcessor:
             styles.add_style('bib_number', WD_STYLE_TYPE.CHARACTER)
 
         for para in self.doc.paragraphs:
-            if para.style and para.style.name == 'REF-N':
+            if para.style and para.style.name in REF_NUMBERED_STYLES:
                 bib_num, _ = extract_bib_number(para.text)
                 if bib_num is None:
                     continue
@@ -928,7 +936,7 @@ class ReferenceProcessor:
             styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
 
         for para in iter_document_paragraphs(self.doc):
-            if para.style and para.style.name == 'REF-N':
+            if para.style and para.style.name in REF_BIBLIOGRAPHY_STYLES:
                 continue
             for run in para.runs:
                 if (run.font.superscript and
@@ -1084,7 +1092,7 @@ def process_document(file, citation_format='styled'):
     auto_converted = 0
     normalized_references = 0
     for para in doc.paragraphs:
-        if para.style and para.style.name == 'REF-N':
+        if para.style and para.style.name in REF_NUMBERED_STYLES:
             manual_num, _ = extract_bib_number(para.text)
             numId, ilvl = get_numPr(para)
             if numId:
@@ -1103,7 +1111,7 @@ def process_document(file, citation_format='styled'):
         has_styled = any(
             run.style and run.style.name == 'cite_bib'
             for para in iter_document_paragraphs(doc)
-            if not (para.style and para.style.name in ['REF-N', 'REF-U'])
+            if not (para.style and para.style.name in REF_BIBLIOGRAPHY_STYLES)
             for run in para.runs
         )
         if has_styled:
@@ -1116,7 +1124,7 @@ def process_document(file, citation_format='styled'):
             ]:
                 found = False
                 for para in iter_document_paragraphs(doc):
-                    if para.style and para.style.name in ['REF-N', 'REF-U']:
+                    if para.style and para.style.name in REF_BIBLIOGRAPHY_STYLES:
                         continue
                     visible_runs = get_visible_runs(para)
                     if fmt == 'superscript':

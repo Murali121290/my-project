@@ -2830,9 +2830,9 @@ def process_conversion(
 
         if source_style.upper() == "AUTO":
             para_style = task.get('para_style', '')
-            if para_style == 'REF-N':
+            if para_style in ('REF-N', 'Reference-Numbered'):
                 detected_source = CitationStyle.AMA
-            elif para_style in ('REF-U', 'REF'):
+            elif para_style in ('REF-U', 'REF', 'Reference-Alphabetical'):
                 detected_source = CitationStyle.APA
             elif para_style == '* ReferencesText':
                 detected_source = CitationStyle.CGRN
