@@ -73,6 +73,57 @@ def get_visible_runs(para):
     return runs
 
 
+def _build_merged_text(runs):
+    """
+    Merge the text of a list of Run objects, skipping empty ones.
+    Returns (merged_text, cum_lengths, used_runs): used_runs is the subset of
+    `runs` with non-empty text (in original order), and cum_lengths[i] is the
+    merged-text start offset of used_runs[i] (cum_lengths has
+    len(used_runs) + 1 entries; the last entry is len(merged_text)). This lets
+    a regex match found in merged_text be mapped back to the specific run(s)
+    it spans, even when a citation like "[16-19]" is split across runs.
+    """
+    used_runs = []
+    cum_lengths = [0]
+    parts = []
+    total = 0
+    for run in runs:
+        text = run.text or ""
+        if not text:
+            continue
+        used_runs.append(run)
+        parts.append(text)
+        total += len(text)
+        cum_lengths.append(total)
+    return "".join(parts), cum_lengths, used_runs
+
+
+def _consecutive_run_chunks(runs, require_superscript=False):
+    """
+    Yield lists of consecutive non-empty runs, breaking at any run already
+    styled 'cite_bib' (already tagged, never re-matched) and, when
+    require_superscript is True, at any non-superscript run.
+    """
+    chunk = []
+    for run in runs:
+        text = run.text or ""
+        if not text:
+            continue
+        if run.style and run.style.name == 'cite_bib':
+            if chunk:
+                yield chunk
+            chunk = []
+            continue
+        if require_superscript and not run.font.superscript:
+            if chunk:
+                yield chunk
+            chunk = []
+            continue
+        chunk.append(run)
+    if chunk:
+        yield chunk
+
+
 def get_numbers(text):
     """
     Extract numbers from text like '1', '2-5', '1, 3, 5'.
@@ -135,6 +186,20 @@ def format_numbers(nums):
     return ", ".join(parts)
 
 
+def _wrap_like_original(original_text, formatted):
+    """
+    If `original_text` was bracket- or paren-delimited (e.g. "[16-19]" or
+    "(16-19)"), wrap `formatted` with the same delimiters so renumbering
+    doesn't strip them. Otherwise return `formatted` unchanged.
+    """
+    stripped = (original_text or "").strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        return f"[{formatted}]"
+    if stripped.startswith("(") and stripped.endswith(")"):
+        return f"({formatted})"
+    return formatted
+
+
 def _ensure_styles(doc):
     """Create cite_bib and bib_number character styles if they don't exist."""
     from docx.enum.style import WD_STYLE_TYPE
@@ -142,8 +207,7 @@ def _ensure_styles(doc):
     try:
         doc.styles['cite_bib']
     except KeyError:
-        style = doc.styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
-        style.font.superscript = True
+        doc.styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
     try:
         doc.styles['bib_number']
     except KeyError:
@@ -402,93 +466,113 @@ def convert_autonumber_to_manual(para, number, doc):
 
 def _split_and_tag_runs(para, pattern, doc, strip_delimiters=False, year_guard=False):
     """
-    Find citations embedded in runs via finditer, split runs at citation
-    boundaries, and apply cite_bib style to citation segments.
-    Returns count of citations tagged.
+    Find citations in a paragraph via finditer on the MERGED text of its
+    runs (a citation like "[16-19]" is often split across several runs by
+    Word), split the affected run(s) at citation boundaries, and apply
+    cite_bib style to the citation segments. Returns count of citations
+    tagged.
     """
     from copy import deepcopy
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
+    from docx.text.run import Run
 
     tagged = 0
-    runs_snapshot = list(para.runs)
 
-    for run in runs_snapshot:
+    # Chunks are consecutive non-cite_bib runs; an already-tagged run is a
+    # hard separator and is never re-matched.
+    chunks = []
+    current = []
+    for run in get_visible_runs(para):
         if run.style and run.style.name == 'cite_bib':
+            if current:
+                chunks.append(current)
+                current = []
             continue
-        text = run.text or ""
-        if not text:
+        current.append(run)
+    if current:
+        chunks.append(current)
+
+    for chunk_runs in chunks:
+        merged_text, cum_lengths, used_runs = _build_merged_text(chunk_runs)
+        if not merged_text:
             continue
 
         matches = [
-            m for m in pattern.finditer(text)
+            m for m in pattern.finditer(merged_text)
             if not (year_guard and re.search(r'\d{4}', m.group()))
         ]
         if not matches:
             continue
 
+        # Ordered, non-overlapping (start, end, is_cite) segments covering
+        # the whole merged_text, in merged-text coordinates.
         segments = []
         pos = 0
         for m in matches:
             if m.start() > pos:
-                segments.append((text[pos:m.start()], False))
-            cite_text = m.group()
-            if strip_delimiters:
-                cite_text = cite_text[1:-1]
-            segments.append((cite_text, True))
+                segments.append((pos, m.start(), False))
+            segments.append((m.start(), m.end(), True))
             pos = m.end()
-        if pos < len(text):
-            segments.append((text[pos:], False))
+        if pos < len(merged_text):
+            segments.append((pos, len(merged_text), False))
 
-        if len(segments) == 1 and segments[0][1]:
-            if strip_delimiters:
-                run.text = segments[0][0]
-            run.style = doc.styles['cite_bib']
-            tagged += 1
-            continue
+        for i, run in enumerate(used_runs):
+            run_start, run_end = cum_lengths[i], cum_lengths[i + 1]
+            overlapping = []
+            for seg_start, seg_end, is_cite in segments:
+                if seg_end <= run_start or seg_start >= run_end:
+                    continue
+                piece_start = max(run_start, seg_start)
+                piece_end = min(run_end, seg_end)
+                overlapping.append((piece_start, piece_end, is_cite, seg_start, seg_end))
 
-        run_elem = run._element
-        parent = run_elem.getparent()
-        idx = list(parent).index(run_elem)
-        orig_rPr = run_elem.find(qn('w:rPr'))
+            if (len(overlapping) == 1
+                    and overlapping[0][0] == run_start
+                    and overlapping[0][1] == run_end
+                    and not overlapping[0][2]):
+                continue  # whole run, no citation here — leave untouched
 
-        new_elems = []
-        for seg_text, is_cite in segments:
-            if not seg_text:
-                continue
-            new_r = OxmlElement('w:r')
-            if orig_rPr is not None:
-                new_r.append(deepcopy(orig_rPr))
-            t = OxmlElement('w:t')
-            if seg_text != seg_text.strip():
-                t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
-            t.text = seg_text
-            new_r.append(t)
+            run_elem = run._element
+            parent = run_elem.getparent()
+            idx = list(parent).index(run_elem)
+            orig_rPr = run_elem.find(qn('w:rPr'))
 
-            if is_cite:
-                rPr_elem = new_r.find(qn('w:rPr'))
-                if rPr_elem is None:
-                    rPr_elem = OxmlElement('w:rPr')
-                    new_r.insert(0, rPr_elem)
-                rStyle = OxmlElement('w:rStyle')
-                rStyle.set(qn('w:val'), 'cite_bib')
-                rPr_elem.insert(0, rStyle)
-                tagged += 1
+            new_elems = []
+            cite_flags = []
+            for piece_start, piece_end, is_cite, seg_start, seg_end in overlapping:
+                seg_text = run.text[piece_start - run_start: piece_end - run_start]
+                if is_cite and strip_delimiters:
+                    if piece_start == seg_start:
+                        seg_text = seg_text[1:]
+                    if piece_end == seg_end and seg_text:
+                        seg_text = seg_text[:-1]
+                if not seg_text:
+                    continue
 
-            new_elems.append(new_r)
+                new_r = OxmlElement('w:r')
+                if orig_rPr is not None:
+                    new_r.append(deepcopy(orig_rPr))
+                t = OxmlElement('w:t')
+                if seg_text != seg_text.strip():
+                    t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+                t.text = seg_text
+                new_r.append(t)
 
-        parent.remove(run_elem)
-        for i, elem in enumerate(new_elems):
-            parent.insert(idx + i, elem)
+                new_elems.append(new_r)
+                cite_flags.append(is_cite)
 
-        # Re-apply cite_bib style using python-docx API so it's recognized by is_citation_run()
-        para._element.getparent()  # Ensure parent is accessible
-        for run in para.runs[idx:idx+len(new_elems)]:
-            rPr = run._element.find(qn('w:rPr'))
-            if rPr is not None:
-                rStyle = rPr.find(qn('w:rStyle'))
-                if rStyle is not None and rStyle.get(qn('w:val')) == 'cite_bib':
-                    run.style = doc.styles['cite_bib']
+            parent.remove(run_elem)
+            for j, elem in enumerate(new_elems):
+                parent.insert(idx + j, elem)
+
+            # Re-apply cite_bib style via the python-docx API (not index-based
+            # lookup) so it's recognized by is_citation_run() and works
+            # whether the run's parent is <w:p> or a track-changes <w:ins>.
+            for elem, is_cite in zip(new_elems, cite_flags):
+                if is_cite:
+                    Run(elem, para).style = doc.styles['cite_bib']
+                    tagged += 1
 
     return tagged
 
@@ -512,32 +596,34 @@ def detect_and_tag_unstyled_citations(doc, citation_format):
         if citation_format == 'paren':
             tagged_count += _split_and_tag_runs(
                 para, PAREN_CITATION_PATTERN, doc,
-                strip_delimiters=True, year_guard=False
+                strip_delimiters=False, year_guard=False
             )
 
         elif citation_format == 'bracket':
             tagged_count += _split_and_tag_runs(
                 para, BRACKET_CITATION_PATTERN, doc,
-                strip_delimiters=True
+                strip_delimiters=False
             )
 
         elif citation_format == 'superscript':
-            for run in para.runs:
-                if run.style and run.style.name == 'cite_bib':
-                    continue
-                text = (run.text or "").strip()
-                if run.font.superscript and NUMBER_ONLY_PATTERN.match(text):
-                    run.style = doc.styles['cite_bib']
-                    tagged_count += 1
+            for chunk in _consecutive_run_chunks(get_visible_runs(para), require_superscript=True):
+                text = "".join(r.text for r in chunk).strip()
+                if NUMBER_ONLY_PATTERN.match(text):
+                    for run in chunk:
+                        run.style = doc.styles['cite_bib']
+                        tagged_count += 1
 
         elif citation_format == 'plain':
-            for index, run in enumerate(para.runs):
-                if run.style and run.style.name == 'cite_bib':
+            visible_runs = get_visible_runs(para)
+            first_nonempty = next((r for r in visible_runs if (r.text or "")), None)
+            for chunk in _consecutive_run_chunks(visible_runs, require_superscript=False):
+                if first_nonempty is not None and chunk[0] is first_nonempty:
                     continue
-                text = (run.text or "").strip()
-                if index > 0 and NUMBER_ONLY_PATTERN.match(text):
-                    run.style = doc.styles['cite_bib']
-                    tagged_count += 1
+                text = "".join(r.text for r in chunk).strip()
+                if NUMBER_ONLY_PATTERN.match(text):
+                    for run in chunk:
+                        run.style = doc.styles['cite_bib']
+                        tagged_count += 1
 
     return {'tagged': tagged_count, 'format_used': citation_format}
 
@@ -724,7 +810,7 @@ class ReferenceProcessor:
                             if n in mapping and mapping[n] != n:
                                 citations_updated_count[n] += 1
 
-                        new_text = format_numbers(new_nums)
+                        new_text = _wrap_like_original(text, format_numbers(new_nums))
                         if TRACK_CHANGES_ENABLED:
                             anchor = group[-1]._element.getparent() if group[-1]._element.getparent().tag == track_changes.qn('w:del') else group[-1]._element
                             for r in group:
@@ -839,8 +925,7 @@ class ReferenceProcessor:
         try:
             styles['cite_bib']
         except KeyError:
-            s = styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
-            s.font.superscript = True
+            styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
 
         for para in iter_document_paragraphs(self.doc):
             if para.style and para.style.name == 'REF-N':
@@ -864,8 +949,7 @@ class ReferenceProcessor:
         try:
             styles['cite_bib']
         except KeyError:
-            s = styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
-            s.font.superscript = True
+            styles.add_style('cite_bib', WD_STYLE_TYPE.CHARACTER)
 
         try:
             styles['bib_number']
@@ -894,8 +978,8 @@ class ReferenceProcessor:
                     nums = get_numbers(txt)
                     if nums:
                          new_nums = [mapping.get(n, n) for n in nums]
-                         new_text = format_numbers(new_nums)
-                         
+                         new_text = _wrap_like_original(txt, format_numbers(new_nums))
+
                          is_renumbered = (nums != new_nums)
                          highlight_color = "008000" if is_renumbered else None
                          
@@ -1030,20 +1114,28 @@ def process_document(file, citation_format='styled'):
                 ('bracket', BRACKET_CITATION_PATTERN, {}),
                 ('paren', PAREN_CITATION_PATTERN, {'year_guard': True}),
             ]:
-                if fmt == 'superscript':
-                    found = any(
-                        run.font.superscript and NUMBER_ONLY_PATTERN.match((run.text or '').strip())
-                        for para in iter_document_paragraphs(doc)
-                        if not (para.style and para.style.name in ['REF-N', 'REF-U'])
-                        for run in para.runs
-                    )
-                else:
-                    found = any(
-                        pat.search(run.text or '') and not (kw.get('year_guard') and re.search(r'\d{4}', run.text or ''))
-                        for para in iter_document_paragraphs(doc)
-                        if not (para.style and para.style.name in ['REF-N', 'REF-U'])
-                        for run in para.runs
-                    )
+                found = False
+                for para in iter_document_paragraphs(doc):
+                    if para.style and para.style.name in ['REF-N', 'REF-U']:
+                        continue
+                    visible_runs = get_visible_runs(para)
+                    if fmt == 'superscript':
+                        for chunk in _consecutive_run_chunks(visible_runs, require_superscript=True):
+                            text = "".join(r.text for r in chunk).strip()
+                            if NUMBER_ONLY_PATTERN.match(text):
+                                found = True
+                                break
+                    else:
+                        # Match against merged text so a citation split across
+                        # runs (e.g. "[16-" + "19]") is still found.
+                        merged_text, _, _ = _build_merged_text(visible_runs)
+                        for m in pat.finditer(merged_text):
+                            if kw.get('year_guard') and re.search(r'\d{4}', m.group()):
+                                continue
+                            found = True
+                            break
+                    if found:
+                        break
                 if found:
                     citation_format = fmt
                     break
